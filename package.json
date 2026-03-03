@@ -1,0 +1,35 @@
+{
+  "name": "com.monado.display3d",
+  "displayName": "Monado 3D Display",
+  "version": "0.1.0",
+  "unity": "2022.3",
+  "description": "Unity plugin for Monado OpenXR runtime enabling stereo rendering on 3D light field displays. Provides display-centric and camera-centric stereo rig authoring, Kooima asymmetric frustum projection, 2D UI overlay support, and in-editor preview.",
+  "keywords": [
+    "xr",
+    "openxr",
+    "3d-display",
+    "stereo",
+    "monado",
+    "light-field"
+  ],
+  "author": {
+    "name": "Leia Inc.",
+    "url": "https://www.leiainc.com"
+  },
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dfattal/unity-3d-display.git"
+  },
+  "dependencies": {
+    "com.unity.xr.openxr": "1.9.1",
+    "com.unity.xr.management": "4.4.0"
+  },
+  "samples": [
+    {
+      "displayName": "Basic Scene",
+      "description": "Minimal camera-centric stereo setup with a few objects for testing.",
+      "path": "Samples~/BasicScene"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "name": "com.monado.display3d.editor",
+  "rootNamespace": "Monado.Display3D.Editor",
+  "references": [
+    "com.monado.display3d",
+    "Unity.XR.OpenXR",
+    "Unity.XR.Management",
+    "Unity.XR.Management.Editor"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
