@@ -61,11 +61,27 @@ The plugin works by hooking `xrLocateViews` before Unity sees the results, repla
 
 ## Installing the Plugin
 
-### Option A: From Git URL (Recommended)
+### Option A: From Local Folder (Development)
+
+Clone and build the native plugin, then add the package from disk:
+
+```bash
+git clone https://github.com/dfattal/unity-3d-display.git
+cd unity-3d-display/native~
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release    # on Windows, add: -A x64
+cmake --build . --config Release
+```
+
+In Unity: **Window > Package Manager > + > Add package from disk...** → select `unity-3d-display/package.json`.
+
+### Option B: From Git URL (after a release)
+
+> **Note:** The `upm` branch is created by CI when a `v*` tag is pushed. If no release has been published yet, use Option A.
 
 1. In Unity: **Window > Package Manager**
 2. Click **+** > **Add package from git URL...**
-3. Enter one of:
+3. Enter:
    ```
    https://github.com/dfattal/unity-3d-display.git#upm
    ```
@@ -74,23 +90,12 @@ The plugin works by hooking `xrLocateViews` before Unity sees the results, repla
    https://github.com/dfattal/unity-3d-display.git#upm/v0.1.0
    ```
 
-### Option B: From Release Tarball
+### Option C: From Release Tarball
 
 1. Download the `.tgz` file from the [latest release](https://github.com/dfattal/unity-3d-display/releases)
 2. In Unity: **Window > Package Manager**
 3. Click **+** > **Add package from tarball...**
 4. Select the downloaded `.tgz` file
-
-### Option C: From Local Folder (Development)
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/dfattal/unity-3d-display.git
-   ```
-2. Build the native plugin (`cd native~ && mkdir build && cd build && cmake .. && cmake --build . --config Release`)
-3. In Unity: **Window > Package Manager**
-4. Click **+** (top-left) > **Add package from disk...**
-5. Navigate to `unity-3d-display/package.json` and select it
 
 After installation, the package appears as **Monado 3D Display** in the Package Manager.
 
