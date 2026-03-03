@@ -14,7 +14,7 @@ namespace Monado.Display3D.Samples
         void Start()
         {
             // Only create objects if the scene is empty (no cubes present)
-            if (FindObjectOfType<MeshRenderer>() != null)
+            if (FindAnyObjectByType<MeshRenderer>() != null)
                 return;
 
             // Near cube (red) — pops out of screen
