@@ -48,7 +48,12 @@ set(HEADERS
 )
 
 # --- Build shared library ---
-add_library(monado3d_unity SHARED ${SOURCES} ${HEADERS})
+# Use MODULE on macOS so BUNDLE property works (creates .bundle directory)
+if(APPLE)
+    add_library(monado3d_unity MODULE ${SOURCES} ${HEADERS})
+else()
+    add_library(monado3d_unity SHARED ${SOURCES} ${HEADERS})
+endif()
 
 target_include_directories(monado3d_unity PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -65,9 +70,14 @@ endif()
 # --- Install to Unity plugin directories ---
 if(WIN32)
     set(PLUGIN_OUTPUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Runtime/Plugins/Windows/x64")
+    # Set per-config output dirs to prevent MSVC multi-config subdirectories
     set_target_properties(monado3d_unity PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${PLUGIN_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE "${PLUGIN_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG "${PLUGIN_OUTPUT_DIR}"
         LIBRARY_OUTPUT_DIRECTORY "${PLUGIN_OUTPUT_DIR}"
+        LIBRARY_OUTPUT_DIRECTORY_RELEASE "${PLUGIN_OUTPUT_DIR}"
+        LIBRARY_OUTPUT_DIRECTORY_DEBUG "${PLUGIN_OUTPUT_DIR}"
     )
 elseif(APPLE)
     set(PLUGIN_OUTPUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Runtime/Plugins/macOS")
