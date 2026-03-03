@@ -23,7 +23,11 @@ if(NOT OpenXR_FOUND)
         GIT_TAG release-1.0.34
         GIT_SHALLOW TRUE
     )
-    FetchContent_MakeAvailable(openxr_sdk)
+    # Only fetch headers — don't build the full SDK (avoids jsoncpp/loader deps)
+    FetchContent_GetProperties(openxr_sdk)
+    if(NOT openxr_sdk_POPULATED)
+        FetchContent_Populate(openxr_sdk)
+    endif()
     set(OPENXR_INCLUDE_DIR "${openxr_sdk_SOURCE_DIR}/include")
 else()
     get_target_property(OPENXR_INCLUDE_DIR OpenXR::Headers INTERFACE_INCLUDE_DIRECTORIES)
