@@ -1,4 +1,4 @@
-// Copyright 2024-2026, Leia Inc.
+// Copyright 2024-2026, Monado 3D Display contributors
 // SPDX-License-Identifier: BSL-1.0
 
 #include "monado3d_shared_state.h"

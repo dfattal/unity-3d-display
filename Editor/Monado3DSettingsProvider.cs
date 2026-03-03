@@ -1,4 +1,4 @@
-// Copyright 2024-2026, Leia Inc.
+// Copyright 2024-2026, Monado 3D Display contributors
 // SPDX-License-Identifier: BSL-1.0
 
 using System;
@@ -82,7 +82,7 @@ namespace Monado.Display3D.Editor
         private void DrawEnvironmentInfo()
         {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            EditorGUILayout.LabelField("Display Driver", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Testing", EditorStyles.boldLabel);
 
             string simDisplay = Environment.GetEnvironmentVariable("SIM_DISPLAY_ENABLE");
             if (simDisplay == "1")
@@ -90,24 +90,15 @@ namespace Monado.Display3D.Editor
                 string output = Environment.GetEnvironmentVariable("SIM_DISPLAY_OUTPUT") ?? "sbs";
                 EditorGUILayout.LabelField("Simulation Display", $"Enabled (output: {output})");
                 EditorGUILayout.HelpBox(
-                    "Using simulation display driver. No physical 3D display hardware required.",
+                    "Using simulation display. No physical 3D display hardware required.",
                     MessageType.Info);
             }
             else
             {
-                string srSdk = Environment.GetEnvironmentVariable("LEIASR_SDKROOT");
-                if (!string.IsNullOrEmpty(srSdk))
-                {
-                    EditorGUILayout.LabelField("LeiaSR SDK", srSdk);
-                }
-                else
-                {
-                    EditorGUILayout.LabelField("Display Driver", "Not detected");
-                    EditorGUILayout.HelpBox(
-                        "No display driver detected. Set SIM_DISPLAY_ENABLE=1 for testing " +
-                        "or install the display vendor's SR SDK.",
-                        MessageType.Info);
-                }
+                EditorGUILayout.HelpBox(
+                    "For testing without hardware, set SIM_DISPLAY_ENABLE=1 and " +
+                    "SIM_DISPLAY_OUTPUT=sbs (or anaglyph, blend).",
+                    MessageType.Info);
             }
 
             EditorGUILayout.EndVertical();
