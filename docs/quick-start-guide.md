@@ -45,38 +45,57 @@ You do **not** need a 3D display to complete this guide — the sim_display driv
 
 1. Open (or create) a Unity project — any render pipeline (Built-in, URP, HDRP) works.
 
-2. Open **Window > Package Manager**.
-
-3. Click the **+** button (top-left) and choose **Add package from git URL...**
-
-4. Enter:
+2. Clone the repository (if you haven't already):
+   ```bash
+   git clone https://github.com/dfattal/unity-3d-display.git
    ```
-   https://github.com/dfattal/unity-3d-display.git#upm
+
+3. Build the native plugin:
+   ```bash
+   cd unity-3d-display/native~
+   mkdir build && cd build
+   cmake .. -DCMAKE_BUILD_TYPE=Release
+   cmake --build . --config Release
    ```
-   This pulls the `upm` branch which includes pre-built macOS and Windows native binaries.
+   This produces `Runtime/Plugins/macOS/monado3d_unity.bundle`.
 
-   > **Pinned version:** For reproducible builds, use `https://github.com/dfattal/unity-3d-display.git#upm/v0.1.0`
+4. In Unity: **Window > Package Manager**.
 
-5. Wait for import to complete. The package appears as **Monado 3D Display** in the Package Manager list.
+5. Click the **+** button (top-left) and choose **Add package from disk...**
 
-> **Local development alternative:** If you cloned the repo and built the native plugin yourself (`cd native~ && mkdir build && cd build && cmake .. && cmake --build . --config Release`), use **Add package from disk...** and select the repo's `package.json`.
+6. Navigate to the cloned `unity-3d-display/package.json` and select it.
+
+7. The package appears as **Monado 3D Display** in the Package Manager list.
+
+> **After a release is published:** Once a `v*` tag has been pushed (creating the `upm` branch with pre-built binaries), you can skip the clone/build steps and install directly via git URL: **Add package from git URL...** → `https://github.com/dfattal/unity-3d-display.git#upm`. See the [README](../README.md#installing-the-plugin) for all install methods.
 
 ### Windows Install
 
-The steps are identical to macOS — Unity's Package Manager works the same on both platforms:
-
 1. Open (or create) a Unity project.
 
-2. **Window > Package Manager > + > Add package from git URL...**
-
-3. Enter:
-   ```
-   https://github.com/dfattal/unity-3d-display.git#upm
+2. Clone the repository:
+   ```cmd
+   git clone https://github.com/dfattal/unity-3d-display.git
    ```
 
-4. Wait for import. The package appears as **Monado 3D Display**.
+3. Build the native plugin (requires [CMake](https://cmake.org/download/) and Visual Studio or Build Tools):
+   ```cmd
+   cd unity-3d-display\native~
+   mkdir build && cd build
+   cmake .. -A x64 -DCMAKE_BUILD_TYPE=Release
+   cmake --build . --config Release
+   ```
+   This produces `Runtime\Plugins\Windows\x64\monado3d_unity.dll`.
 
-> **Note:** If your machine doesn't have `git` on PATH, Unity can't clone from git URLs. Install [Git for Windows](https://git-scm.com/download/win) first, or use the tarball method: download the `.tgz` from the [Releases page](https://github.com/dfattal/unity-3d-display/releases), then use **Add package from tarball...** in Package Manager.
+4. In Unity: **Window > Package Manager > + > Add package from disk...**
+
+5. Select the cloned `unity-3d-display\package.json`.
+
+6. The package appears as **Monado 3D Display**.
+
+> **Note:** If your machine doesn't have `git` on PATH, install [Git for Windows](https://git-scm.com/download/win) first.
+>
+> **After a release is published:** Use **Add package from git URL...** → `https://github.com/dfattal/unity-3d-display.git#upm` to install with pre-built binaries (no local build needed). Or download the `.tgz` from the [Releases page](https://github.com/dfattal/unity-3d-display/releases) and use **Add package from tarball...**
 
 ---
 
