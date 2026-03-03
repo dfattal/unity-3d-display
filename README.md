@@ -1,6 +1,6 @@
 # Monado 3D Display — Unity Plugin
 
-Unity plugin for rendering on eye-tracked 3D light field displays via the Monado OpenXR runtime. Works with any display that has a Monado-compatible display processor driver (Leia, sim_display, etc.).
+Unity plugin for rendering on eye-tracked 3D light field displays via the Monado OpenXR runtime. Works with any OpenXR-compatible 3D display.
 
 ## Table of Contents
 
@@ -45,8 +45,7 @@ The plugin works by hooking `xrLocateViews` before Unity sees the results, repla
 | **Unity** | 2022.3 LTS or later (including Unity 6) |
 | **OpenXR Plugin** | `com.unity.xr.openxr` 1.9.1+ (installed via Package Manager) |
 | **XR Plugin Management** | `com.unity.xr.management` 4.4.0+ (auto-installed with OpenXR) |
-| **Monado Runtime** | Pre-built from openxr-3d-display CI — see [Deploying to End Users](#deploying-to-end-users) |
-| **Display Driver** | Leia SR SDK for physical hardware, or `sim_display` for testing without a display |
+| **Monado Runtime** | Pre-built from [openxr-3d-display](https://github.com/dfattal/openxr-3d-display) CI — see [Deploying to End Users](#deploying-to-end-users) |
 
 ### Platform Support
 
@@ -90,7 +89,7 @@ After installation, the package appears as **Monado 3D Display** in the Package 
 3. Click the gear icon next to OpenXR (or expand **OpenXR > Features**)
 4. Enable **Monado 3D Display**
 
-You can verify the runtime connection under **Project Settings > XR Plug-in Management > OpenXR > Monado 3D Display** — a status panel shows whether `XR_RUNTIME_JSON` is set and the display driver is detected.
+You can verify the runtime connection under **Project Settings > XR Plug-in Management > OpenXR > Monado 3D Display** — a status panel shows whether `XR_RUNTIME_JSON` is set.
 
 ---
 
@@ -283,40 +282,23 @@ The plugin includes both platform binaries (`monado3d_unity.dll` for Windows, `l
 
 ## Deploying to End Users
 
-Your built app is a standard OpenXR application. It needs an OpenXR runtime on the target machine.
+Your built app is a standard OpenXR application. It needs an OpenXR runtime on the target machine. The plugin is hardware-agnostic — it communicates only through the OpenXR API and does not depend on any specific display vendor SDK.
 
 ### Windows Deployment
 
-The end user's machine needs:
+Install the Monado runtime via the `SRMonadoInstaller.exe` from the [openxr-3d-display](https://github.com/dfattal/openxr-3d-display) CI build artifact (registers the runtime JSON and copies DLLs system-wide).
 
-1. **Monado Runtime** — Install via the `SRMonadoInstaller.exe` from the openxr-3d-display CI build artifact (registers the runtime JSON and copies DLLs system-wide)
-
-   Or, for development/testing, set the environment variable:
-   ```cmd
-   set XR_RUNTIME_JSON=C:\path\to\openxr_monado-dev.json
-   ```
-
-2. **Display Driver** — For physical 3D displays, install the vendor's SR SDK (e.g., LeiaSR). This sets `LEIASR_SDKROOT` and provides the eye tracking + display processing pipeline.
-
-   For testing without hardware, set:
-   ```cmd
-   set SIM_DISPLAY_ENABLE=1
-   set SIM_DISPLAY_OUTPUT=sbs
-   ```
-   (Options: `sbs`, `anaglyph`, `blend`)
+Or, for development/testing, set the environment variable:
+```cmd
+set XR_RUNTIME_JSON=C:\path\to\openxr_monado-dev.json
+```
 
 ### macOS Deployment
 
-1. **Monado Runtime** — Set before launching the app:
-   ```bash
-   export XR_RUNTIME_JSON=/path/to/SRMonado-macOS/share/openxr/1/openxr_monado.json
-   ```
-
-2. **Display Driver** — Same as Windows: physical display SDK or sim_display:
-   ```bash
-   export SIM_DISPLAY_ENABLE=1
-   export SIM_DISPLAY_OUTPUT=sbs
-   ```
+Set before launching the app:
+```bash
+export XR_RUNTIME_JSON=/path/to/SRMonado-macOS/share/openxr/1/openxr_monado.json
+```
 
 ### What Happens Without the Runtime
 
@@ -358,12 +340,12 @@ This lets you develop and test the full stereo pipeline on any machine.
 |---------|-------|-----|
 | "No OpenXR runtime found" | `XR_RUNTIME_JSON` not set or points to missing file | Set the env var to the Monado runtime JSON path |
 | Black screen | Monado 3D Display feature not enabled | Check Project Settings > XR Plug-in Management > OpenXR > Features |
-| No stereo (flat image) | Eye tracking not running | Verify display driver (SR SDK) is installed, or enable sim_display |
+| No stereo (flat image) | Eye tracking not running | Verify the Monado runtime is configured with a display that supports eye tracking, or use sim_display for testing |
 | Stereo looks wrong | Tunables misconfigured | Reset to defaults (IPD=1, Parallax=1, Scale=1) |
 | `DllNotFoundException: monado3d_unity` | Native plugin not found by Unity | Ensure the plugin binaries are in `Runtime/Plugins/Windows/x64/` or `Runtime/Plugins/macOS/` |
 | HDRP stereo artifacts | Single-pass instanced issue | Verify both eye views have correct FOVs in Frame Debugger |
 | Editor preview blank | No preview component or wrong mode | Add Monado3DPreview component; use SideBySide mode without runtime |
-| `VK_ERROR_EXTENSION_NOT_PRESENT` on macOS | MoltenVK limitation | Known issue — use sim_display or physical display driver |
+| `VK_ERROR_EXTENSION_NOT_PRESENT` on macOS | MoltenVK limitation | Known issue — use sim_display for testing |
 
 ### Debug Logging
 
@@ -376,7 +358,7 @@ Enable **Log Eye Tracking** on the Monado3DCamera or Monado3DDisplay component t
 
 **Project Settings > XR Plug-in Management > OpenXR > Monado 3D Display** shows:
 - Runtime JSON path and whether the file exists
-- Display driver status (Leia SR SDK or sim_display)
+- Runtime connection status
 - Connected display properties (resolution, physical size, nominal viewer distance)
 - Eye tracking status
 

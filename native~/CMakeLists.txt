@@ -1,4 +1,4 @@
-# Copyright 2024-2026, Leia Inc.
+# Copyright 2024-2026, Monado 3D Display contributors
 # SPDX-License-Identifier: BSL-1.0
 #
 # Build the monado3d_unity native plugin for OpenXR function interception.

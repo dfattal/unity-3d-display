@@ -1,4 +1,4 @@
-// Copyright 2024-2026, Leia Inc.
+// Copyright 2024-2026, Monado 3D Display contributors
 // SPDX-License-Identifier: BSL-1.0
 
 using System;
@@ -21,11 +21,11 @@ namespace Monado.Display3D
         BuildTargetGroups = new[] {
             UnityEditor.BuildTargetGroup.Standalone
         },
-        Company = "Leia Inc.",
+        Company = "Monado 3D Display",
         Desc = "Enables stereo rendering on 3D light field displays via Monado OpenXR runtime. " +
                "Provides Kooima asymmetric frustum projection, display-centric and camera-centric " +
                "stereo rig modes, and 2D UI overlay support.",
-        DocumentationLink = "https://github.com/niceBrainChild/CNSDK-OpenXR",
+        DocumentationLink = "https://github.com/dfattal/unity-3d-display",
         OpenxrExtensionStrings = ExtensionStrings,
         Version = "0.1.0",
         FeatureId = FeatureId
