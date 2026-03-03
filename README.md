@@ -63,20 +63,32 @@ The plugin works by hooking `xrLocateViews` before Unity sees the results, repla
 
 1. In Unity: **Window > Package Manager**
 2. Click **+** > **Add package from git URL...**
-3. Enter:
+3. Enter one of:
    ```
-   https://github.com/dfattal/unity-3d-display.git
+   https://github.com/dfattal/unity-3d-display.git#upm
+   ```
+   This installs from the `upm` branch which includes pre-built native binaries. To pin a specific version:
+   ```
+   https://github.com/dfattal/unity-3d-display.git#upm/v0.1.0
    ```
 
-### Option B: From Local Folder (Development)
+### Option B: From Release Tarball
+
+1. Download the `.tgz` file from the [latest release](https://github.com/dfattal/unity-3d-display/releases)
+2. In Unity: **Window > Package Manager**
+3. Click **+** > **Add package from tarball...**
+4. Select the downloaded `.tgz` file
+
+### Option C: From Local Folder (Development)
 
 1. Clone the repository:
    ```bash
    git clone https://github.com/dfattal/unity-3d-display.git
    ```
-2. In Unity: **Window > Package Manager**
-3. Click **+** (top-left) > **Add package from disk...**
-4. Navigate to `unity-3d-display/package.json` and select it
+2. Build the native plugin (`cd native~ && mkdir build && cd build && cmake .. && cmake --build . --config Release`)
+3. In Unity: **Window > Package Manager**
+4. Click **+** (top-left) > **Add package from disk...**
+5. Navigate to `unity-3d-display/package.json` and select it
 
 After installation, the package appears as **Monado 3D Display** in the Package Manager.
 
