@@ -30,6 +30,11 @@
       "displayName": "Basic Scene",
       "description": "Minimal camera-centric stereo setup with a few objects for testing.",
       "path": "Samples~/BasicScene"
+    },
+    {
+      "displayName": "Display Scene",
+      "description": "Tabletop display-centric demo with a turntable and objects at varying depths.",
+      "path": "Samples~/DisplayScene"
     }
   ]
 }

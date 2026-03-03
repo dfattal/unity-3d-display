@@ -23,6 +23,8 @@ Unity plugin for rendering on eye-tracked 3D light field displays via the Monado
 - [Troubleshooting](#troubleshooting)
 - [Architecture](#architecture)
 
+> **New to the plugin?** Start with the [Quick Start Guide](docs/quick-start-guide.md) — a step-by-step walkthrough that covers installation, demo scenes for both stereo modes, building standalone apps, and end-to-end testing on Windows and macOS.
+
 ---
 
 ## Overview
@@ -172,6 +174,8 @@ Hierarchy:
 - Digital signage, museum exhibits, kiosks
 - The virtual display is a physical object in the scene (e.g., a TV on a wall)
 - You want the display's position and orientation to be an explicit scene element
+
+> **Try it:** Import the **Display Scene** sample from Package Manager for a ready-made tabletop turntable demo.
 
 ---
 
