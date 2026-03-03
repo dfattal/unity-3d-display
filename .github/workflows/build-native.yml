@@ -1,0 +1,103 @@
+name: Build Native Plugin
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'native~/**'
+      - '.github/workflows/build-native.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'native~/**'
+      - '.github/workflows/build-native.yml'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -S native~ -B native~/build -A x64 -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build native~/build --config Release
+
+      - name: Verify output
+        run: |
+          if (!(Test-Path "Runtime/Plugins/Windows/x64/monado3d_unity.dll")) {
+            Write-Error "DLL not found at expected path"
+            exit 1
+          }
+          Write-Host "Built successfully: Runtime/Plugins/Windows/x64/monado3d_unity.dll"
+          Get-Item "Runtime/Plugins/Windows/x64/monado3d_unity.dll" | Select-Object Name, Length
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: monado3d_unity-windows-x64
+          path: Runtime/Plugins/Windows/x64/monado3d_unity.dll
+
+  build-macos:
+    name: macOS (Universal)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -S native~ -B native~/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
+
+      - name: Build
+        run: cmake --build native~/build --config Release
+
+      - name: Verify output
+        run: |
+          BUNDLE="Runtime/Plugins/macOS/monado3d_unity.bundle"
+          if [ ! -d "$BUNDLE" ]; then
+            echo "ERROR: Bundle not found at $BUNDLE"
+            exit 1
+          fi
+          echo "Built successfully: $BUNDLE"
+          ls -la "$BUNDLE"
+          file "$BUNDLE/monado3d_unity" 2>/dev/null || file "$BUNDLE/Contents/MacOS/monado3d_unity" 2>/dev/null || echo "Binary location varies by CMake version"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: monado3d_unity-macos
+          path: Runtime/Plugins/macOS/monado3d_unity.bundle
+
+  package:
+    name: Package Plugin Binaries
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: monado3d_unity-windows-x64
+          path: Runtime/Plugins/Windows/x64/
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: monado3d_unity-macos
+          path: Runtime/Plugins/macOS/
+
+      - name: Upload combined artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: monado3d-unity-plugin
+          path: |
+            Runtime/
+            Editor/
+            package.json
+            README.md
+            CHANGELOG.md
+            LICENSE
