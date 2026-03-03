@@ -83,6 +83,51 @@ Extension struct definitions in `native~/monado3d_extensions.h` must match the r
 - C/C++ follows the Monado coding style (snake_case, C11/C++17)
 - Native code in `native~/` uses tabs for indentation
 
+## CI and Releases
+
+### Day-to-day: just push to main
+Every push to `main` that touches `native~/` triggers `build-native.yml`, which builds the DLL (Windows x64) and bundle (macOS Universal) and uploads them as CI artifacts. No tags, no releases. Artifacts are available for 90 days.
+
+C#-only changes don't trigger the workflow (path filter).
+
+### Creating a release (when ready)
+Releases are triggered **only** by manually pushing a `v*` tag:
+```bash
+# 1. Make sure main is clean and CI passes
+# 2. Bump version in package.json if needed
+# 3. Update CHANGELOG.md with release notes
+# 4. Tag and push:
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+This triggers the `release` job in CI which:
+- Builds both platform binaries
+- Creates a `.tgz` UPM tarball with binaries included
+- Pushes a `upm` branch with binaries committed (for git URL installs)
+- Creates a `upm/v0.1.0` tag for version-pinned installs
+- Publishes a GitHub Release with changelog notes and the `.tgz` attached
+
+### Fixing a bad release
+Tags are cheap and deletable:
+```bash
+git tag -d v0.1.0                     # delete local
+git push origin :refs/tags/v0.1.0     # delete remote
+# delete the GitHub Release in the web UI
+# fix the issue, then re-tag
+```
+
+### Install paths for users
+
+| Method | URL | Notes |
+|--------|-----|-------|
+| Git URL (latest release) | `...git#upm` | Tracks latest release |
+| Git URL (pinned version) | `...git#upm/v0.1.0` | For production |
+| Tarball | Download `.tgz` from Releases page | Offline installs |
+| Local dev | Clone repo + build `native~/` yourself | For contributors |
+
+The `upm` branch and release tarball only exist after the first `v*` tag is pushed.
+
 ## Claude Code Skills
 
 ### /ci-monitor - Automated Build Workflow
