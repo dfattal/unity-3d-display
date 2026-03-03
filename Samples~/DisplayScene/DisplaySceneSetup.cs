@@ -20,7 +20,7 @@ namespace Monado.Display3D.Samples
 
         void Start()
         {
-            if (FindObjectOfType<MeshRenderer>() != null)
+            if (FindAnyObjectByType<MeshRenderer>() != null)
                 return;
 
             // Turntable pivot — objects rotate around this
