@@ -83,6 +83,27 @@ Extension struct definitions in `native~/monado3d_extensions.h` must match the r
 - C/C++ follows the Monado coding style (snake_case, C11/C++17)
 - Native code in `native~/` uses tabs for indentation
 
+## Claude Code Skills
+
+### /ci-monitor - Automated Build Workflow
+Automates the complete CI workflow for native plugin builds: commit → push → monitor → auto-fix.
+
+**Usage:**
+```bash
+/ci-monitor "commit message"    # Commit with message and monitor build
+/ci-monitor                      # Auto-generate commit message from changes
+/ci-monitor --watch-only         # Just monitor current build without committing
+```
+
+**Features:**
+- Launches subagent to preserve main conversation context
+- Monitors GitHub Actions `build-native.yml` (Windows x64 + macOS Universal)
+- Auto-diagnoses common build errors (missing includes, undeclared identifiers, linker errors)
+- Attempts up to 3 automatic fixes before reporting failure
+- Detects when only C# files changed (no native build triggered)
+
+**Skill location:** `.claude/skills/ci-monitor/SKILL.md`
+
 ## Cross-Repo References
 
 - Runtime repo: [dfattal/openxr-3d-display](https://github.com/dfattal/openxr-3d-display)
