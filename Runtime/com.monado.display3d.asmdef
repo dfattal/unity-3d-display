@@ -1,0 +1,16 @@
+{
+  "name": "com.monado.display3d",
+  "rootNamespace": "Monado.Display3D",
+  "references": [
+    "Unity.XR.OpenXR"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": true,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

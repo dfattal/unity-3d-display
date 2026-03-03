@@ -1,0 +1,23 @@
+# Native build artifacts
+native~/build/
+native~/cmake-build-*/
+
+# Unity meta files for native~ (Unity ignores folders ending in ~)
+# But just in case:
+*.meta
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Built plugin binaries (committed by CI, not manually)
+# Uncomment these if you want CI to commit binaries:
+# Runtime/Plugins/Windows/x64/*.dll
+# Runtime/Plugins/macOS/*.dylib
+# Runtime/Plugins/macOS/*.bundle
