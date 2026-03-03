@@ -96,7 +96,10 @@ jobs:
           name: monado3d-unity-plugin
           path: |
             Runtime/
+            Runtime.meta
             Editor/
+            Editor.meta
+            Samples~/
             package.json
             README.md
             CHANGELOG.md

@@ -2,10 +2,6 @@
 native~/build/
 native~/cmake-build-*/
 
-# Unity meta files for native~ (Unity ignores folders ending in ~)
-# But just in case:
-*.meta
-
 # OS files
 .DS_Store
 Thumbs.db
