@@ -29,6 +29,12 @@ namespace Monado.Display3D.Editor
         {
             serializedObject.Update();
 
+            EditorGUILayout.HelpBox(
+                "Display-Centric mode anchors the display in your scene. " +
+                "Attach to a GameObject to keep it in focus automatically. " +
+                "Best for tabletop, AR-like, and object-focused setups.",
+                MessageType.Info);
+
             // Display info header
             DrawDisplayInfoBox();
 
@@ -39,10 +45,32 @@ namespace Monado.Display3D.Editor
                 new GUIContent("IPD Factor", "Scales inter-eye distance. 1.0 = natural."));
             EditorGUILayout.PropertyField(m_ParallaxFactor,
                 new GUIContent("Parallax Factor", "Scales eye X/Y offset from display center."));
+
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Display Parameters", EditorStyles.boldLabel);
+
             EditorGUILayout.PropertyField(m_PerspectiveFactor,
-                new GUIContent("Perspective Factor", "Scales eye Z (depth intensity)."));
+                new GUIContent("Depth Scale",
+                    "Scales perceived depth behind the screen. 1.0 = natural. " +
+                    "<1 compresses background depth (reduces distortion). Leave at 1.0 for undistorted rendering."));
             EditorGUILayout.PropertyField(m_ScaleFactor,
-                new GUIContent("Scale Factor", "Virtual display size relative to physical."));
+                new GUIContent("Virtual Display Scale",
+                    "Size of the virtual display relative to the physical display. " +
+                    "1.0 = matches physical display exactly."));
+
+            // Show computed absolute display size
+            {
+                var feature = Monado3DFeature.Instance;
+                if (feature != null && feature.DisplayInfo.isValid)
+                {
+                    var info = feature.DisplayInfo;
+                    float wCm = info.displayWidthMeters * m_ScaleFactor.floatValue * 100f;
+                    float hCm = info.displayHeightMeters * m_ScaleFactor.floatValue * 100f;
+                    EditorGUI.indentLevel++;
+                    EditorGUILayout.LabelField(" ", $"{wCm:F1} x {hCm:F1} cm (virtual)");
+                    EditorGUI.indentLevel--;
+                }
+            }
 
             EditorGUILayout.Space();
             EditorGUILayout.PropertyField(m_LogEyeTracking);
