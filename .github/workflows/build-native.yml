@@ -6,6 +6,8 @@ on:
     paths:
       - 'native~/**'
       - '.github/workflows/build-native.yml'
+    tags:
+      - 'v*'
   pull_request:
     branches: [main]
     paths:
@@ -70,6 +72,103 @@ jobs:
           name: monado3d_unity-macos
           path: Runtime/Plugins/macOS/monado3d_unity.bundle
 
+  # ── Release job: runs on v* tags ──────────────────────────────────────
+  release:
+    name: Create GitHub Release
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: monado3d_unity-windows-x64
+          path: Runtime/Plugins/Windows/x64/
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: monado3d_unity-macos
+          path: Runtime/Plugins/macOS/
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify package.json version matches tag
+        run: |
+          PKG_VERSION=$(jq -r .version package.json)
+          TAG_VERSION="${{ steps.version.outputs.version }}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "WARNING: package.json version ($PKG_VERSION) != tag version ($TAG_VERSION)"
+            echo "Updating package.json to match tag..."
+            jq --arg v "$TAG_VERSION" '.version = $v' package.json > package.json.tmp
+            mv package.json.tmp package.json
+          fi
+
+      - name: Create UPM tarball
+        run: |
+          # Build the package directory with binaries included
+          PKG_DIR="com.monado.display3d-${{ steps.version.outputs.version }}"
+          mkdir "$PKG_DIR"
+          # Copy package contents (everything Unity needs)
+          cp -r Runtime/ "$PKG_DIR/Runtime/"
+          cp Runtime.meta "$PKG_DIR/Runtime.meta"
+          cp -r Editor/ "$PKG_DIR/Editor/"
+          cp Editor.meta "$PKG_DIR/Editor.meta"
+          cp -r Samples~/ "$PKG_DIR/Samples~/" 2>/dev/null || true
+          cp package.json "$PKG_DIR/"
+          cp README.md "$PKG_DIR/"
+          cp CHANGELOG.md "$PKG_DIR/"
+          cp LICENSE "$PKG_DIR/"
+          # Create tarball (npm pack format that UPM understands)
+          tar czf "com.monado.display3d-${{ steps.version.outputs.version }}.tgz" "$PKG_DIR"
+          echo "Created: com.monado.display3d-${{ steps.version.outputs.version }}.tgz"
+          ls -lh *.tgz
+
+      - name: Push upm branch with binaries
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Create orphan upm branch from the tag contents + binaries
+          git checkout -B upm
+          # Force-add the binaries (normally gitignored or absent)
+          git add -f Runtime/Plugins/Windows/x64/monado3d_unity.dll
+          git add -f Runtime/Plugins/macOS/monado3d_unity.bundle
+          git commit -m "Release ${{ github.ref_name }}: add native binaries for UPM git install"
+          git push -f origin upm
+          # Also tag the upm branch for version-pinned installs
+          git tag -f "upm/${{ github.ref_name }}"
+          git push -f origin "upm/${{ github.ref_name }}"
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          # Extract the section for this version from CHANGELOG.md
+          VERSION="${{ steps.version.outputs.version }}"
+          # Get content between this version header and the next version header
+          NOTES=$(sed -n "/^## \[$VERSION\]/,/^## \[/p" CHANGELOG.md | sed '$d')
+          if [ -z "$NOTES" ]; then
+            NOTES="Release $VERSION"
+          fi
+          # Write to file for gh release
+          echo "$NOTES" > release_notes.md
+          cat release_notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "Monado 3D Display ${{ github.ref_name }}" \
+            --notes-file release_notes.md \
+            "com.monado.display3d-${{ steps.version.outputs.version }}.tgz#UPM Package (.tgz)"
+
+  # ── Package job: runs on main push (non-tag) ─────────────────────────
   package:
     name: Package Plugin Binaries
     needs: [build-windows, build-macos]
