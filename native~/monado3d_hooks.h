@@ -82,6 +82,15 @@ MONADO3D_EXPORT void monado3d_get_readback(uint8_t **pixels,
                                            uint32_t *height,
                                            int *ready);
 
+MONADO3D_EXPORT void *monado3d_create_shared_texture(uint32_t width, uint32_t height);
+
+MONADO3D_EXPORT void monado3d_destroy_shared_texture(void);
+
+MONADO3D_EXPORT void monado3d_get_shared_texture(void **native_ptr,
+                                                  uint32_t *width,
+                                                  uint32_t *height,
+                                                  int *ready);
+
 #ifdef __cplusplus
 }
 #endif

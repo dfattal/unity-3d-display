@@ -39,9 +39,12 @@ typedef enum XrDisplayModeEXT {
 
 typedef XrResult(XRAPI_PTR *PFN_xrRequestDisplayModeEXT)(XrSession session, XrDisplayModeEXT displayMode);
 
+// --- Readback callback (shared by macOS and Win32 bindings) ---
+typedef void (*PFN_xrReadbackCallback)(const uint8_t *pixels, uint32_t width, uint32_t height, void *userdata);
+
 // --- XR_EXT_win32_window_binding ---
 #define XR_EXT_WIN32_WINDOW_BINDING_EXTENSION_NAME "XR_EXT_win32_window_binding"
-#define XR_EXT_WIN32_WINDOW_BINDING_SPEC_VERSION 1
+#define XR_EXT_WIN32_WINDOW_BINDING_SPEC_VERSION 2
 
 #define XR_TYPE_WIN32_WINDOW_BINDING_CREATE_INFO_EXT ((XrStructureType)1000999001)
 #define XR_TYPE_COMPOSITION_LAYER_WINDOW_SPACE_EXT ((XrStructureType)1000999002)
@@ -50,6 +53,9 @@ typedef struct XrWin32WindowBindingCreateInfoEXT {
     XrStructureType type;
     const void *next;
     void *windowHandle; // HWND
+    PFN_xrReadbackCallback readbackCallback;
+    void *readbackUserdata;
+    void *sharedTextureHandle; // D3D11 shared HANDLE
 } XrWin32WindowBindingCreateInfoEXT;
 
 typedef struct XrCompositionLayerWindowSpaceEXT {
@@ -64,21 +70,20 @@ typedef struct XrCompositionLayerWindowSpaceEXT {
     float disparity; // Horizontal shift, fraction of window
 } XrCompositionLayerWindowSpaceEXT;
 
-// --- XR_EXT_macos_window_binding ---
-#define XR_EXT_MACOS_WINDOW_BINDING_EXTENSION_NAME "XR_EXT_macos_window_binding"
-#define XR_EXT_MACOS_WINDOW_BINDING_SPEC_VERSION 2
+// --- XR_EXT_cocoa_window_binding ---
+#define XR_EXT_COCOA_WINDOW_BINDING_EXTENSION_NAME "XR_EXT_cocoa_window_binding"
+#define XR_EXT_COCOA_WINDOW_BINDING_SPEC_VERSION 3
 
-#define XR_TYPE_MACOS_WINDOW_BINDING_CREATE_INFO_EXT ((XrStructureType)1000999005)
+#define XR_TYPE_COCOA_WINDOW_BINDING_CREATE_INFO_EXT ((XrStructureType)1000999003)
 
-typedef void (*PFN_xrReadbackCallback)(const uint8_t *pixels, uint32_t width, uint32_t height, void *userdata);
-
-typedef struct XrMacOSWindowBindingCreateInfoEXT {
+typedef struct XrCocoaWindowBindingCreateInfoEXT {
     XrStructureType type;
     const void *next;
     void *viewHandle;                    // NSView* or NULL for offscreen
     PFN_xrReadbackCallback readbackCallback;
     void *readbackUserdata;
-} XrMacOSWindowBindingCreateInfoEXT;
+    void *sharedIOSurface;               // IOSurfaceRef for zero-copy GPU sharing
+} XrCocoaWindowBindingCreateInfoEXT;
 
 #ifdef __cplusplus
 }

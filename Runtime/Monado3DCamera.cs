@@ -43,14 +43,34 @@ namespace Monado.Display3D
 
         private Monado3DFeature m_Feature;
         private bool m_InitializedConvergence;
+        private float m_CachedCameraFov;
+
+        private bool m_Disabled;
 
         void OnEnable()
         {
             m_Feature = Monado3DFeature.Instance;
+            m_Disabled = false;
+            // Cache the camera's FOV BEFORE XR overrides it. Once XR is active,
+            // Camera.fieldOfView returns the Kooima FOV we set, creating a
+            // feedback loop that collapses the FOV to zero.
+            m_CachedCameraFov = GetComponent<Camera>().fieldOfView;
+            // Guard against XR having already overridden the FOV to near-zero
+            if (m_CachedCameraFov < 1.0f)
+                m_CachedCameraFov = 60.0f;
+        }
+
+        void OnDisable()
+        {
+            Debug.Log("[Monado3D] Monado3DCamera.OnDisable");
+            m_Disabled = true;
+            m_Feature = null;
         }
 
         void LateUpdate()
         {
+            if (m_Disabled) return;
+
             if (m_Feature == null)
             {
                 m_Feature = Monado3DFeature.Instance;
@@ -68,6 +88,11 @@ namespace Monado.Display3D
                 m_InitializedConvergence = true;
             }
 
+            // When fieldOfView == 0, use the cached camera FOV from before XR
+            // took over. This keeps the Kooima virtual screen size stable and
+            // ensures convergence only moves the stereo depth plane.
+            float fov = fieldOfView > 0f ? fieldOfView : m_CachedCameraFov;
+
             // Convert camera-centric params to native tunables
             var tunables = new Monado3DTunables
             {
@@ -76,7 +101,7 @@ namespace Monado.Display3D
                 perspectiveFactor = 1.0f, // Not used in camera-centric mode
                 scaleFactor = 1.0f,       // Not used in camera-centric mode
                 convergenceDistance = convergenceDistance,
-                fovOverride = fieldOfView > 0f ? fieldOfView * Mathf.Deg2Rad : 0f,
+                fovOverride = fov * Mathf.Deg2Rad,
                 cameraCentricMode = true,
             };
 
@@ -100,20 +125,10 @@ namespace Monado.Display3D
                 ? info.displayWidthMeters / info.displayHeightMeters
                 : 16f / 9f;
 
-            float halfH;
-            if (fieldOfView > 0f)
-            {
-                halfH = convergenceDistance * Mathf.Tan(fieldOfView * 0.5f * Mathf.Deg2Rad);
-            }
-            else if (info.isValid && info.nominalViewerZ > 0.01f)
-            {
-                float ratio = convergenceDistance / info.nominalViewerZ;
-                halfH = info.displayHeightMeters * ratio * 0.5f;
-            }
-            else
-            {
-                halfH = convergenceDistance * Mathf.Tan(30f * Mathf.Deg2Rad);
-            }
+            float fovDeg = fieldOfView > 0f ? fieldOfView
+                         : m_CachedCameraFov > 0f ? m_CachedCameraFov
+                         : GetComponent<Camera>().fieldOfView;
+            float halfH = convergenceDistance * Mathf.Tan(fovDeg * 0.5f * Mathf.Deg2Rad);
 
             float w = halfH * 2f * aspect;
             float h = halfH * 2f;
