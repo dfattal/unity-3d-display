@@ -76,6 +76,7 @@ hooked_xrLocateViews(XrSession session,
 	uint8_t tracked = (viewState->viewStateFlags & XR_VIEW_STATE_POSITION_TRACKED_BIT) != 0;
 	monado3d_state_set_eye_positions(&views[0].pose.position, &views[1].pose.position, tracked);
 
+
 	// Get current tunables, scene transform, and display info
 	Monado3DTunables tunables = monado3d_state_get_tunables();
 	Monado3DSceneTransform scene_xform = monado3d_state_get_scene_transform();
@@ -105,53 +106,37 @@ hooked_xrLocateViews(XrSession session,
 	XrVector3f mod_left, mod_right;
 	monado3d_apply_tunables(&scene_left, &scene_right, &tunables, di, &mod_left, &mod_right);
 
-	// Camera-centric: override eye Z to convergence distance.
-	// The runtime's raw eye Z is the physical viewer-to-display distance,
-	// but in camera-centric mode Kooima needs eye_z == convergence so that
-	// screen_half_w / eye_z == tan(fov/2), keeping the FOV independent of
-	// the convergence slider.
-	if (tunables.camera_centric && tunables.convergence_distance > 0.0f) {
-		mod_left.z = tunables.convergence_distance;
-		mod_right.z = tunables.convergence_distance;
-	}
-
-	// Determine screen extents
+	// Determine screen extents and eye positions for Kooima
 	float screen_w, screen_h;
+	XrVector3f kooima_left, kooima_right;
+
 	if (tunables.camera_centric && tunables.convergence_distance > 0.0f) {
 		// Camera-centric: compute virtual screen extents
 		monado3d_camera_centric_extents(tunables.convergence_distance, tunables.fov_override, di, &screen_w,
 		                                &screen_h);
+
+		// Camera-centric: subtract nominal position to get eyes in camera space,
+		// then set Z = convergence (eye-to-virtual-screen distance).
+		// Raw eyes are in display space; nominal is the expected viewing position.
+		// Subtracting nominal gives the displacement from the ideal viewpoint,
+		// preserving head-tracking parallax (lean left/right/up/down).
+		kooima_left.x  = mod_left.x  - di->nominal_viewer_x;
+		kooima_left.y  = mod_left.y  - di->nominal_viewer_y;
+		kooima_left.z  = tunables.convergence_distance;
+		kooima_right.x = mod_right.x - di->nominal_viewer_x;
+		kooima_right.y = mod_right.y - di->nominal_viewer_y;
+		kooima_right.z = tunables.convergence_distance;
 	} else {
 		// Display-centric: use physical extents scaled by scale factor
 		screen_w = di->display_width_meters * tunables.scale_factor;
 		screen_h = di->display_height_meters * tunables.scale_factor;
+		kooima_left = mod_left;
+		kooima_right = mod_right;
 	}
 
 	// Compute Kooima asymmetric frustum FOVs
-	XrFovf left_fov = monado3d_compute_kooima_fov(mod_left, screen_w, screen_h);
-	XrFovf right_fov = monado3d_compute_kooima_fov(mod_right, screen_w, screen_h);
-
-	// Debug: log every 60 frames
-	static int s_frame_count = 0;
-	if (s_frame_count++ % 60 == 0) {
-		float l_hfov = (left_fov.angleRight - left_fov.angleLeft) * 57.2958f;
-		float r_hfov = (right_fov.angleRight - right_fov.angleLeft) * 57.2958f;
-		fprintf(stderr,
-		        "[Monado3D] xrLocateViews: cam_centric=%d conv=%.3f fov_or=%.1fdeg "
-		        "screen=%.4fx%.4f\n"
-		        "  L: eye=(%.4f,%.4f,%.4f) hfov=%.1f fov=(%.1f,%.1f,%.1f,%.1f)deg\n"
-		        "  R: eye=(%.4f,%.4f,%.4f) hfov=%.1f fov=(%.1f,%.1f,%.1f,%.1f)deg\n",
-		        tunables.camera_centric,
-		        tunables.convergence_distance,
-		        tunables.fov_override * 57.2958f,
-		        screen_w, screen_h,
-		        mod_left.x, mod_left.y, mod_left.z, l_hfov,
-		        left_fov.angleLeft * 57.2958f, left_fov.angleRight * 57.2958f,
-		        left_fov.angleUp * 57.2958f, left_fov.angleDown * 57.2958f,
-		        mod_right.x, mod_right.y, mod_right.z, r_hfov,
-		        right_fov.angleLeft * 57.2958f, right_fov.angleRight * 57.2958f,
-		        right_fov.angleUp * 57.2958f, right_fov.angleDown * 57.2958f);
-	}
+	XrFovf left_fov = monado3d_compute_kooima_fov(kooima_left, screen_w, screen_h);
+	XrFovf right_fov = monado3d_compute_kooima_fov(kooima_right, screen_w, screen_h);
 
 	// Write modified FOVs back — Unity will use these for projection matrices
 	views[0].fov = left_fov;
@@ -159,19 +144,37 @@ hooked_xrLocateViews(XrSession session,
 
 	// Write modified poses back
 	if (tunables.camera_centric) {
-		// Camera-centric: only pass lateral eye offsets (±IPD/2).
-		// The convergence distance is already encoded in the Kooima FOV.
-		// Passing the full Z would displace Unity's camera forward by
-		// convergence meters, shifting the viewpoint away from the scene.
-		views[0].pose.position.x = mod_left.x;
-		views[0].pose.position.y = mod_left.y;
-		views[0].pose.position.z = 0.0f;
-		views[1].pose.position.x = mod_right.x;
-		views[1].pose.position.y = mod_right.y;
-		views[1].pose.position.z = 0.0f;
+		// Camera-centric: pass camera-space X/Y + raw Z (scene position).
+		// Unity's XR applies this as camera offset from tracking origin.
+		// Z must be the raw distance so the camera is placed correctly in the scene.
+		views[0].pose.position.x = kooima_left.x;
+		views[0].pose.position.y = kooima_left.y;
+		// Keep original Z — Unity needs it for camera placement
+		views[1].pose.position.x = kooima_right.x;
+		views[1].pose.position.y = kooima_right.y;
 	} else {
 		views[0].pose.position = mod_left;
 		views[1].pose.position = mod_right;
+	}
+
+	// Debug: log every 60 frames (AFTER writeback so we see final values)
+	static int s_frame_count = 0;
+	if (s_frame_count++ % 60 == 0) {
+		float l_hfov = (views[0].fov.angleRight - views[0].fov.angleLeft) * 57.2958f;
+		float l_vfov = (views[0].fov.angleUp - views[0].fov.angleDown) * 57.2958f;
+		fprintf(stderr,
+		        "[Monado3D] FINAL: cam_centric=%d "
+		        "pos_L=(%.4f,%.4f,%.4f) pos_R=(%.4f,%.4f,%.4f) "
+		        "fov_L=(%.2f,%.2f,%.2f,%.2f)deg hfov=%.1f vfov=%.1f "
+		        "ori_L=(%.3f,%.3f,%.3f,%.3f)\n",
+		        tunables.camera_centric,
+		        views[0].pose.position.x, views[0].pose.position.y, views[0].pose.position.z,
+		        views[1].pose.position.x, views[1].pose.position.y, views[1].pose.position.z,
+		        views[0].fov.angleLeft * 57.2958f, views[0].fov.angleRight * 57.2958f,
+		        views[0].fov.angleUp * 57.2958f, views[0].fov.angleDown * 57.2958f,
+		        l_hfov, l_vfov,
+		        views[0].pose.orientation.x, views[0].pose.orientation.y,
+		        views[0].pose.orientation.z, views[0].pose.orientation.w);
 	}
 
 	return result;
