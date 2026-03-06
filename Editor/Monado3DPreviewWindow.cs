@@ -9,6 +9,7 @@ namespace Monado.Display3D.Editor
 {
     /// <summary>
     /// Editor window for stereo preview (SBS or readback mode).
+    /// Docks next to the Game view by default.
     /// </summary>
     public class Monado3DPreviewWindow : EditorWindow
     {
@@ -16,36 +17,64 @@ namespace Monado.Display3D.Editor
         {
             SideBySide,
             RuntimeReadback,
+            SharedTexture,
         }
 
         [SerializeField] private PreviewSource m_Source = PreviewSource.SideBySide;
         [SerializeField] private bool m_AutoRefresh = true;
 
         private Texture2D m_PreviewTexture;
+        private Monado3DPreview m_CachedPreview;
+        private bool m_ExitingPlayMode;
 
         [MenuItem("Window/Monado3D/Preview Window")]
         public static void ShowWindow()
         {
-            var window = GetWindow<Monado3DPreviewWindow>("Monado3D Preview");
+            // Dock next to Game view by default so it stays inside the editor layout
+            var gameViewType = typeof(UnityEditor.Editor).Assembly.GetType("UnityEditor.GameView");
+            var window = GetWindow<Monado3DPreviewWindow>("Monado3D Preview", gameViewType);
             window.minSize = new Vector2(640, 400);
         }
 
         void OnEnable()
         {
+            EditorApplication.playModeStateChanged += OnPlayModeChanged;
             EditorApplication.update += OnEditorUpdate;
         }
 
         void OnDisable()
         {
+            EditorApplication.playModeStateChanged -= OnPlayModeChanged;
             EditorApplication.update -= OnEditorUpdate;
+        }
+
+        private void OnPlayModeChanged(PlayModeStateChange state)
+        {
+            if (state == PlayModeStateChange.ExitingPlayMode)
+            {
+                m_CachedPreview = null;
+                m_ExitingPlayMode = true;
+            }
+            else if (state == PlayModeStateChange.EnteredEditMode)
+            {
+                m_ExitingPlayMode = false;
+            }
+            else if (state == PlayModeStateChange.EnteredPlayMode)
+            {
+                // Unity auto-focuses the Game tab on play. Switch back to
+                // our preview tab so the user sees the composited output.
+                EditorApplication.delayCall += () =>
+                {
+                    if (this != null)
+                        Focus();
+                };
+            }
         }
 
         private void OnEditorUpdate()
         {
-            if (m_AutoRefresh && Application.isPlaying)
-            {
+            if (m_AutoRefresh && Application.isPlaying && !m_ExitingPlayMode)
                 Repaint();
-            }
         }
 
         void OnGUI()
@@ -58,8 +87,11 @@ namespace Monado.Display3D.Editor
                 EditorStyles.toolbarButton, GUILayout.Width(100));
             GUILayout.FlexibleSpace();
 
-            // Status indicator
-            var feature = Monado3DFeature.Instance;
+            // Status indicator — guard against accessing destroyed singletons during teardown
+            Monado3DFeature feature = null;
+            try { feature = Application.isPlaying ? Monado3DFeature.Instance : null; }
+            catch (System.Exception) { /* destroyed during teardown */ }
+
             if (feature != null && feature.DisplayInfo.isValid)
             {
                 GUILayout.Label("Runtime: Connected", EditorStyles.toolbarButton);
@@ -99,7 +131,11 @@ namespace Monado.Display3D.Editor
                         previewRect.width, h);
                 }
 
-                GUI.DrawTexture(drawRect, tex, ScaleMode.ScaleToFit);
+                // IOSurface/Metal textures are Y-flipped relative to Unity's UV convention
+                if (m_Source == PreviewSource.SharedTexture)
+                    GUI.DrawTextureWithTexCoords(drawRect, tex, new Rect(0, 1, 1, -1));
+                else
+                    GUI.DrawTexture(drawRect, tex, ScaleMode.ScaleToFit);
 
                 // Label
                 var labelRect = new Rect(drawRect.x + 4, drawRect.y + 4, 200, 20);
@@ -107,11 +143,20 @@ namespace Monado.Display3D.Editor
             }
             else
             {
-                EditorGUI.LabelField(previewRect,
-                    m_Source == PreviewSource.SideBySide
-                        ? "Add a Monado3DPreview component to a camera to see SBS preview."
-                        : "Runtime readback not available. Ensure Monado is running with offscreen mode.",
-                    EditorStyles.centeredGreyMiniLabel);
+                string hint;
+                switch (m_Source)
+                {
+                    case PreviewSource.SideBySide:
+                        hint = "Add a Monado3DPreview component to a camera to see SBS preview.";
+                        break;
+                    case PreviewSource.SharedTexture:
+                        hint = "Shared texture not available. Ensure runtime supports GPU texture sharing (macOS).";
+                        break;
+                    default:
+                        hint = "Runtime readback not available. Ensure Monado is running with offscreen mode.";
+                        break;
+                }
+                EditorGUI.LabelField(previewRect, hint, EditorStyles.centeredGreyMiniLabel);
             }
 
             // Display info footer
@@ -129,27 +174,39 @@ namespace Monado.Display3D.Editor
 
         private Texture GetPreviewTexture()
         {
-            if (m_Source == PreviewSource.RuntimeReadback)
+            // Don't search for scene objects during teardown — causes recursive GUI
+            if (!Application.isPlaying)
             {
-                // Find Monado3DPreview in readback mode
-                var preview = FindFirstObjectByType<Monado3DPreview>();
-                if (preview != null && preview.mode == Monado3DPreview.PreviewMode.Readback &&
-                    preview.PreviewTexture != null && preview.ReadbackAvailable)
-                {
-                    return preview.PreviewTexture;
-                }
+                m_CachedPreview = null;
                 return null;
             }
 
-            // SBS: find Monado3DPreview in SBS mode
-            var sbsPreview = FindFirstObjectByType<Monado3DPreview>();
-            if (sbsPreview != null && sbsPreview.mode == Monado3DPreview.PreviewMode.SideBySide &&
-                sbsPreview.PreviewTexture != null)
-            {
-                return sbsPreview.PreviewTexture;
-            }
+            // Cache the preview component to avoid FindFirstObjectByType inside OnGUI
+            if (m_CachedPreview == null)
+                m_CachedPreview = FindFirstObjectByType<Monado3DPreview>();
+            if (m_CachedPreview == null)
+                return null;
 
-            return null;
+            switch (m_Source)
+            {
+                case PreviewSource.SharedTexture:
+                    if (m_CachedPreview.mode == Monado3DPreview.PreviewMode.SharedTexture &&
+                        m_CachedPreview.PreviewTexture != null && m_CachedPreview.SharedTextureAvailable)
+                        return m_CachedPreview.PreviewTexture;
+                    return null;
+
+                case PreviewSource.RuntimeReadback:
+                    if (m_CachedPreview.mode == Monado3DPreview.PreviewMode.Readback &&
+                        m_CachedPreview.PreviewTexture != null && m_CachedPreview.ReadbackAvailable)
+                        return m_CachedPreview.PreviewTexture;
+                    return null;
+
+                default: // SideBySide
+                    if (m_CachedPreview.mode == Monado3DPreview.PreviewMode.SideBySide &&
+                        m_CachedPreview.PreviewTexture != null)
+                        return m_CachedPreview.PreviewTexture;
+                    return null;
+            }
         }
     }
 }

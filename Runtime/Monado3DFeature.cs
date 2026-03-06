@@ -39,7 +39,7 @@ namespace Monado.Display3D
         private const string ExtensionStrings =
             "XR_EXT_display_info " +
             "XR_EXT_win32_window_binding " +
-            "XR_EXT_macos_window_binding";
+            "XR_EXT_cocoa_window_binding";
 
         /// <summary>Singleton instance, set during OnInstanceCreate.</summary>
         public static Monado3DFeature Instance { get; private set; }
@@ -55,6 +55,9 @@ namespace Monado.Display3D
 
         /// <summary>Raw right eye position in display space (meters).</summary>
         public Vector3 RightEyePosition { get; private set; }
+
+        /// <summary>Whether a shared GPU texture is available for zero-copy preview.</summary>
+        public bool SharedTextureAvailable { get; private set; }
 
         private bool m_HooksInstalled;
 
@@ -84,6 +87,24 @@ namespace Monado.Display3D
         protected override bool OnInstanceCreate(ulong xrInstance)
         {
             Instance = this;
+
+            // Force multi-pass rendering. Single-pass instanced is broken on
+            // macOS/Metal (confirmed Unity bug, Won't Fix) and incompatible
+            // with our per-eye asymmetric Kooima frustum projection.
+            var settings = OpenXRSettings.Instance;
+            if (settings != null && settings.renderMode != OpenXRSettings.RenderMode.MultiPass)
+            {
+                Debug.Log("[Monado3D] Forcing MultiPass render mode (required for asymmetric frustum projection)");
+                settings.renderMode = OpenXRSettings.RenderMode.MultiPass;
+
+                // Also update the serialized backing field so ApplySettings()
+                // (which runs after OnInstanceCreate) doesn't overwrite us.
+                var field = typeof(OpenXRSettings).GetField("m_renderMode",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                if (field != null)
+                    field.SetValue(settings, OpenXRSettings.RenderMode.MultiPass);
+            }
+
             Debug.Log("[Monado3D] OpenXR instance created");
             return true;
         }
@@ -94,26 +115,103 @@ namespace Monado.Display3D
             // Display info is extracted by our hooked xrGetSystemProperties.
             // Query it from the native plugin.
             RefreshDisplayInfo();
+
+            // Create shared GPU texture now — before xrCreateSession, which
+            // injects the IOSurface pointer into the window binding struct.
+            if (DisplayInfo.isValid && DisplayInfo.displayPixelWidth > 0 && DisplayInfo.displayPixelHeight > 0)
+            {
+                IntPtr ptr = Monado3DNative.monado3d_create_shared_texture(
+                    DisplayInfo.displayPixelWidth, DisplayInfo.displayPixelHeight);
+                SharedTextureAvailable = (ptr != IntPtr.Zero);
+
+                if (SharedTextureAvailable)
+                    Debug.Log($"[Monado3D] Shared texture created: {DisplayInfo.displayPixelWidth}x{DisplayInfo.displayPixelHeight}");
+                else
+                    Debug.Log("[Monado3D] Shared texture not available, using CPU readback");
+            }
         }
 
         /// <inheritdoc />
         protected override void OnSessionCreate(ulong xrSession)
         {
             Debug.Log("[Monado3D] OpenXR session created");
+
+            // Fallback: Unity's OnSystemChange is unreliable in some versions.
+            // By session creation time, xrGetSystemProperties has definitely run
+            // and our native hook has cached the display info + created the IOSurface.
+            if (!DisplayInfo.isValid)
+            {
+                Debug.Log("[Monado3D] OnSystemChange was not called — refreshing display info now");
+                RefreshDisplayInfo();
+            }
+
+            // Check if the native layer already created the shared texture
+            if (!SharedTextureAvailable && DisplayInfo.isValid)
+            {
+                Monado3DNative.monado3d_get_shared_texture(
+                    out IntPtr nativePtr, out uint w, out uint h, out int ready);
+                SharedTextureAvailable = (ready != 0 && nativePtr != IntPtr.Zero);
+
+                if (SharedTextureAvailable)
+                    Debug.Log($"[Monado3D] Shared texture available: {w}x{h}");
+                else
+                    Debug.Log("[Monado3D] Shared texture not available, using CPU readback");
+            }
         }
 
         /// <inheritdoc />
         protected override void OnSessionDestroy(ulong xrSession)
         {
-            Debug.Log("[Monado3D] OpenXR session destroyed");
+            Debug.Log("[Monado3D] OnSessionDestroy BEGIN");
+
+            if (SharedTextureAvailable)
+            {
+                Debug.Log("[Monado3D] OnSessionDestroy: destroying shared texture");
+                try { Monado3DNative.monado3d_destroy_shared_texture(); }
+                catch (System.Exception e) { Debug.LogWarning($"[Monado3D] Shared texture cleanup: {e.Message}"); }
+                SharedTextureAvailable = false;
+            }
+
+            Debug.Log("[Monado3D] OnSessionDestroy END");
         }
 
         /// <inheritdoc />
         protected override void OnInstanceDestroy(ulong xrInstance)
         {
+            Debug.Log("[Monado3D] OnInstanceDestroy BEGIN");
             Instance = null;
             m_HooksInstalled = false;
+            Debug.Log("[Monado3D] OnInstanceDestroy END");
         }
+
+        // ====================================================================
+        // Validation
+        // ====================================================================
+
+#if UNITY_EDITOR
+        /// <inheritdoc />
+        protected override void GetValidationChecks(List<ValidationRule> rules, BuildTargetGroup targetGroup)
+        {
+            rules.Add(new ValidationRule(this)
+            {
+                message = "Monado 3D Display requires Multi-Pass render mode. " +
+                          "Single-pass instanced is broken on macOS and incompatible with asymmetric frustum projection.",
+                error = true,
+                checkPredicate = () =>
+                {
+                    var settings = OpenXRSettings.GetSettingsForBuildTargetGroup(targetGroup);
+                    return settings != null && settings.renderMode == OpenXRSettings.RenderMode.MultiPass;
+                },
+                fixIt = () =>
+                {
+                    var settings = OpenXRSettings.GetSettingsForBuildTargetGroup(targetGroup);
+                    if (settings != null)
+                        settings.renderMode = OpenXRSettings.RenderMode.MultiPass;
+                },
+                fixItAutomatic = true,
+            });
+        }
+#endif
 
         // ====================================================================
         // Public API

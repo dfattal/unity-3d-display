@@ -53,7 +53,7 @@ namespace Monado.Display3D
 
         private Canvas m_Canvas;
         private Camera m_OverlayCamera;
-        private int m_LayerIndex = -1;
+
 
         void OnEnable()
         {

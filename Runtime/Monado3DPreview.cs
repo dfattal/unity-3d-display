@@ -21,11 +21,14 @@ namespace Monado.Display3D
 
             /// <summary>Readback from Monado runtime (shows actual display processing).</summary>
             Readback,
+
+            /// <summary>Zero-copy shared GPU texture from runtime (fastest, macOS only for now).</summary>
+            SharedTexture,
         }
 
         [Header("Preview Settings")]
 
-        [Tooltip("SBS: local stereo preview (no runtime). Readback: actual processed output from runtime.")]
+        [Tooltip("SBS: local stereo preview (no runtime). Readback: CPU readback from runtime. SharedTexture: zero-copy GPU preview (macOS).")]
         public PreviewMode mode = PreviewMode.SideBySide;
 
         [Tooltip("Resolution of the SBS preview texture (total width, both eyes).")]
@@ -37,6 +40,11 @@ namespace Monado.Display3D
         /// <summary>Whether readback data is available.</summary>
         public bool ReadbackAvailable { get; private set; }
 
+        /// <summary>Whether shared texture data is available.</summary>
+        public bool SharedTextureAvailable { get; private set; }
+
+        private Texture2D m_SharedTexture;
+        private IntPtr m_SharedNativePtr;
         private Camera m_LeftCam;
         private Camera m_RightCam;
         private RenderTexture m_LeftRT;
@@ -53,7 +61,10 @@ namespace Monado.Display3D
                 filterMode = FilterMode.Bilinear,
             };
 
-            if (mode == PreviewMode.SideBySide)
+            // Only create SBS child cameras when XR is NOT active.
+            // SBS mode is for offline preview; when XR is running, the child
+            // cameras (parented to the XR camera) trigger mirror blit artifacts.
+            if (mode == PreviewMode.SideBySide && !UnityEngine.XR.XRSettings.isDeviceActive)
             {
                 SetupSBSCameras(halfW, h);
             }
@@ -61,47 +72,89 @@ namespace Monado.Display3D
 
         void OnDisable()
         {
-            CleanupSBSCameras();
-
-            if (PreviewTexture != null)
+            Debug.Log("[Monado3D] Monado3DPreview.OnDisable BEGIN");
+            try
             {
-                if (Application.isPlaying)
-                    Destroy(PreviewTexture);
-                else
-                    DestroyImmediate(PreviewTexture);
-                PreviewTexture = null;
+                CleanupSBSCameras();
+                CleanupSharedTexture();
+
+                if (PreviewTexture != null)
+                {
+                    if (Application.isPlaying)
+                        Destroy(PreviewTexture);
+                    else
+                        DestroyImmediate(PreviewTexture);
+                    PreviewTexture = null;
+                }
             }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning($"[Monado3D] Preview cleanup exception: {e.Message}");
+            }
+            Debug.Log("[Monado3D] Monado3DPreview.OnDisable END");
         }
 
         void LateUpdate()
         {
-            if (mode == PreviewMode.Readback)
+            switch (mode)
             {
-                UpdateReadback();
+                case PreviewMode.Readback:
+                    UpdateReadback();
+                    break;
+                case PreviewMode.SharedTexture:
+                    UpdateSharedTexture();
+                    break;
+                case PreviewMode.SideBySide:
+                    UpdateSideBySide();
+                    break;
             }
         }
 
-        void OnRenderImage(RenderTexture src, RenderTexture dest)
+        // NOTE: Do NOT use OnRenderImage here. Having that callback on an XR-
+        // controlled camera forces Unity to insert an intermediate render target
+        // and extra blit after each eye render, causing SBS flicker artifacts
+        // on editor repaints (mouse moves, GUI events, etc.).
+
+        private void UpdateSideBySide()
         {
-            if (mode == PreviewMode.SideBySide && m_LeftRT != null && m_RightRT != null)
+            // SBS mode is for offline stereo preview without a running XR session.
+            // When XR is active, Camera.Render() on child cameras triggers mirror
+            // blit artifacts that bleed into editor window repaints.
+            if (UnityEngine.XR.XRSettings.isDeviceActive)
+                return;
+
+            if (m_LeftCam == null || m_RightCam == null ||
+                m_LeftRT == null || m_RightRT == null)
+                return;
+
+            // Copy settings from parent camera
+            var parentCam = GetComponent<Camera>();
+            if (parentCam != null)
             {
-                // Composite SBS: blit left eye to left half, right eye to right half
-                int halfW = sbsResolution.x / 2;
-                RenderTexture.active = null;
+                m_LeftCam.CopyFrom(parentCam);
+                m_LeftCam.targetTexture = m_LeftRT;
+                m_LeftCam.enabled = false;
 
-                // Read left eye
-                RenderTexture.active = m_LeftRT;
-                PreviewTexture.ReadPixels(new Rect(0, 0, halfW, sbsResolution.y), 0, 0, false);
-
-                // Read right eye
-                RenderTexture.active = m_RightRT;
-                PreviewTexture.ReadPixels(new Rect(0, 0, halfW, sbsResolution.y), halfW, 0, false);
-
-                PreviewTexture.Apply(false);
-                RenderTexture.active = null;
+                m_RightCam.CopyFrom(parentCam);
+                m_RightCam.targetTexture = m_RightRT;
+                m_RightCam.enabled = false;
             }
 
-            Graphics.Blit(src, dest);
+            // Render both eyes manually (off the XR pipeline)
+            m_LeftCam.Render();
+            m_RightCam.Render();
+
+            // Composite into SBS preview texture
+            int halfW = sbsResolution.x / 2;
+
+            RenderTexture.active = m_LeftRT;
+            PreviewTexture.ReadPixels(new Rect(0, 0, halfW, sbsResolution.y), 0, 0, false);
+
+            RenderTexture.active = m_RightRT;
+            PreviewTexture.ReadPixels(new Rect(0, 0, halfW, sbsResolution.y), halfW, 0, false);
+
+            PreviewTexture.Apply(false);
+            RenderTexture.active = null;
         }
 
         private void UpdateReadback()
@@ -125,6 +178,63 @@ namespace Monado.Display3D
                 PreviewTexture.LoadRawTextureData(pixels, (int)(w * h * 4));
                 PreviewTexture.Apply(false);
             }
+        }
+
+        private void UpdateSharedTexture()
+        {
+            var feature = Monado3DFeature.Instance;
+            if (feature == null || !feature.SharedTextureAvailable) return;
+
+            Monado3DNative.monado3d_get_shared_texture(
+                out IntPtr nativePtr, out uint w, out uint h, out int ready);
+
+            SharedTextureAvailable = ready != 0 && nativePtr != IntPtr.Zero;
+
+            if (!SharedTextureAvailable)
+            {
+                // Fall through to readback as fallback
+                UpdateReadback();
+                return;
+            }
+
+            if (m_SharedTexture == null || m_SharedNativePtr != nativePtr ||
+                m_SharedTexture.width != (int)w || m_SharedTexture.height != (int)h)
+            {
+                // First frame or size/pointer change: create external texture
+                if (m_SharedTexture != null)
+                {
+                    if (Application.isPlaying) Destroy(m_SharedTexture);
+                    else DestroyImmediate(m_SharedTexture);
+                }
+
+                m_SharedTexture = Texture2D.CreateExternalTexture(
+                    (int)w, (int)h, TextureFormat.BGRA32, false, false, nativePtr);
+                m_SharedTexture.name = "Monado3D_SharedPreview";
+                m_SharedTexture.filterMode = FilterMode.Bilinear;
+                m_SharedNativePtr = nativePtr;
+            }
+            else
+            {
+                // Subsequent frames: update to pick up new content
+                m_SharedTexture.UpdateExternalTexture(nativePtr);
+            }
+
+            PreviewTexture = m_SharedTexture;
+        }
+
+        private void CleanupSharedTexture()
+        {
+            if (m_SharedTexture != null)
+            {
+                if (Application.isPlaying) Destroy(m_SharedTexture);
+                else DestroyImmediate(m_SharedTexture);
+                m_SharedTexture = null;
+            }
+            m_SharedNativePtr = IntPtr.Zero;
+            SharedTextureAvailable = false;
+
+            // Don't call native destroy here — Monado3DFeature.OnSessionDestroy
+            // already handles it. Double-destroy would CFRelease a freed IOSurface.
         }
 
         private void SetupSBSCameras(int halfW, int h)

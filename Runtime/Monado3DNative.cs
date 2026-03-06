@@ -93,5 +93,25 @@ namespace Monado.Display3D
             out uint width,
             out uint height,
             out int ready);
+
+        /// <summary>
+        /// Create a shared GPU texture for zero-copy preview.
+        /// Returns IOSurfaceRef on macOS, HANDLE on Windows, or IntPtr.Zero if not supported.
+        /// </summary>
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern IntPtr monado3d_create_shared_texture(uint width, uint height);
+
+        /// <summary>
+        /// Destroy the shared GPU texture resources.
+        /// </summary>
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void monado3d_destroy_shared_texture();
+
+        /// <summary>
+        /// Get shared texture info (native pointer, dimensions, ready flag).
+        /// </summary>
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void monado3d_get_shared_texture(
+            out IntPtr nativePtr, out uint width, out uint height, out int ready);
     }
 }

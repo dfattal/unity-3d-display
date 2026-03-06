@@ -104,12 +104,13 @@ monado3d_camera_centric_extents(float convergence_distance,
                                 float *out_height)
 {
 	if (fov_override > 0.0f) {
-		// Compute virtual screen extents from FOV and convergence distance
-		float half_fov = fov_override * 0.5f;
-		float half_w = convergence_distance * tanf(half_fov);
+		// fov_override is VERTICAL FOV (from Unity's Camera.fieldOfView).
+		// Compute screen height from vertical FOV, then width from aspect.
+		float half_vfov = fov_override * 0.5f;
+		float half_h = convergence_distance * tanf(half_vfov);
 		float aspect = display_info->display_width_meters / display_info->display_height_meters;
-		*out_width = half_w * 2.0f;
-		*out_height = *out_width / aspect;
+		*out_height = half_h * 2.0f;
+		*out_width = *out_height * aspect;
 	} else {
 		// Scale physical display extents by convergence/nominal ratio
 		float nominal_z = display_info->nominal_viewer_z;

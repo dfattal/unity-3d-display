@@ -104,10 +104,17 @@ typedef struct Monado3DState {
     uint32_t readback_height;
     volatile int readback_ready;
 
+    // Shared texture state (zero-copy preview)
+    void *shared_iosurface;          // IOSurfaceRef (macOS) — owned by native side
+    void *shared_d3d_handle;         // HANDLE (Windows) — shared D3D11 texture
+    uint32_t shared_texture_width;
+    uint32_t shared_texture_height;
+    volatile int shared_texture_ready;
+
     // Extension support flags
     uint8_t has_display_info_ext;
     uint8_t has_win32_window_ext;
-    uint8_t has_macos_window_ext;
+    uint8_t has_cocoa_window_ext;
     uint8_t has_display_mode_ext;
 
     // Function pointers for display mode switching

@@ -7,6 +7,10 @@
 cmake_minimum_required(VERSION 3.16)
 project(monado3d_unity LANGUAGES CXX C)
 
+if(APPLE)
+    enable_language(OBJC)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 11)
@@ -51,6 +55,12 @@ set(HEADERS
     display3d_view.h
 )
 
+# Apple-only: IOSurface helper (Objective-C)
+if(APPLE)
+    list(APPEND SOURCES monado3d_metal.m)
+    list(APPEND HEADERS monado3d_metal.h)
+endif()
+
 # --- Build shared library ---
 # Use MODULE on macOS so BUNDLE property works (creates .bundle directory)
 if(APPLE)
@@ -69,6 +79,26 @@ if(MSVC)
     target_compile_definitions(monado3d_unity PRIVATE _CRT_SECURE_NO_WARNINGS)
 else()
     target_compile_options(monado3d_unity PRIVATE -fvisibility=hidden)
+endif()
+
+# --- Apple framework linking ---
+if(APPLE)
+    find_library(IOSURFACE_FRAMEWORK IOSurface REQUIRED)
+    find_library(COREFOUNDATION_FRAMEWORK CoreFoundation REQUIRED)
+    find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
+    find_library(APPKIT_FRAMEWORK AppKit REQUIRED)
+    find_library(METAL_FRAMEWORK Metal REQUIRED)
+    target_link_libraries(monado3d_unity PRIVATE
+        ${IOSURFACE_FRAMEWORK}
+        ${COREFOUNDATION_FRAMEWORK}
+        ${FOUNDATION_FRAMEWORK}
+        ${APPKIT_FRAMEWORK}
+        ${METAL_FRAMEWORK}
+    )
+    # Enable ARC for Objective-C files
+    set_source_files_properties(monado3d_metal.m PROPERTIES
+        COMPILE_FLAGS "-fobjc-arc"
+    )
 endif()
 
 # --- Install to Unity plugin directories ---
