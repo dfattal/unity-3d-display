@@ -6,9 +6,9 @@ using UnityEngine;
 namespace Monado.Display3D
 {
     /// <summary>
-    /// Camera-centric stereo rig. Attach to an existing Camera.
-    /// The camera position is the nominal viewing position; eyes move around it.
-    /// Internally converts camera-centric parameters to Kooima tunables.
+    /// Camera-centric stereo rig. Attach to a Camera whose transform represents the
+    /// viewer pose. The camera's vertical FOV is inherited as the rendering FOV.
+    /// Adds convergence distance (screen plane depth), IPD, and parallax controls.
     /// </summary>
     [AddComponentMenu("Monado3D/Camera-Centric Rig")]
     [DisallowMultipleComponent]

@@ -33,7 +33,7 @@
     },
     {
       "displayName": "Display Scene",
-      "description": "Tabletop display-centric demo with a turntable and objects at varying depths.",
+      "description": "Crate test scene matching the native reference app, with full stereo rig controls.",
       "path": "Samples~/DisplayScene"
     }
   ]

@@ -14,7 +14,7 @@ extern "C" {
 #endif
 
 /// Compute Kooima asymmetric frustum and return as XrFovf angles.
-/// @param eye_pos Eye position in DISPLAY space (from xrLocateViews).
+/// @param eye_pos Eye position in LOCAL space (from xrLocateViews).
 /// @param screen_width_m Physical display width in meters.
 /// @param screen_height_m Physical display height in meters.
 /// @return XrFovf with asymmetric frustum angles (radians).
@@ -31,8 +31,8 @@ void monado3d_apply_scene_transform(const XrVector3f *raw_left,
                                     XrVector3f *out_right);
 
 /// Apply tunables to raw eye position from xrLocateViews.
-/// @param raw_left Raw left eye position in DISPLAY space.
-/// @param raw_right Raw right eye position in DISPLAY space.
+/// @param raw_left Raw left eye position in LOCAL space.
+/// @param raw_right Raw right eye position in LOCAL space.
 /// @param tunables Current tunable parameters.
 /// @param display_info Display physical properties.
 /// @param out_left Output modified left eye position.

@@ -236,35 +236,25 @@ Display-centric mode anchors a virtual display in the scene. The viewer looks "i
 
 1. **File > New Scene > Basic (Built-in)**. Save it as `DisplayDemo.unity`.
 
-2. **Create the virtual display anchor:**
-   - **GameObject > Create Empty**, name it **VirtualDisplay**.
-   - Position it at `(0, 0, 0.8)` — roughly where a tabletop display would sit.
+2. Select **Main Camera** in the hierarchy.
 
-3. **Add Component > Monado3D > Display-Centric Rig** (`Monado3DDisplay` component).
+3. **Add Component > Monado3D > Display-Centric Rig** (the `Monado3DDisplay` component).
 
-4. **Parent the camera under the display:**
-   - Drag **Main Camera** onto **VirtualDisplay** in the hierarchy to make it a child.
-   - Set Main Camera's local position to `(0, 0.3, −0.5)` — slightly above and behind the display, looking at it.
+4. Position Main Camera at `(0, 0, 0)` — this is now the virtual display's pose. The camera's transform represents where the display surface sits in the scene.
 
-5. **Build tabletop content** — objects arranged around the display's origin:
+5. **Build tabletop content** — objects arranged around the camera's origin:
 
    ```
    Hierarchy:
-     VirtualDisplay       [Monado3DDisplay] at (0, 0, 0.8)
-       Main Camera        at local (0, 0.3, −0.5)
-     Turntable            Empty at (0, 0, 0.8) — parent for rotating objects
-       GoldSphere         Gold sphere at center (0, 0, 0)
-       RedOrbit           Small red sphere at (0.25, 0.08, −0.1) — pops out
-       TealPillar         Cylinder at (−0.2, 0.09, 0.15) — behind display plane
-       PurpleCube         Cube at (0, −0.02, −0.22) — in front
-     Platform             Flat cylinder at (0, −0.08, 0.8) — dark base
-     Floor                Plane
-     Key Light / Fill Light
+     Main Camera          [Monado3DDisplay] at (0, 0, 0)
+     Crate                Textured cube at (0, 0.03, 0) — 0.06m, slowly rotating
+     GroundGrid           Quad at (0, 0, 0) facing up — checker grid
+     Directional Light
    ```
 
-   Or simply add `DisplaySceneSetup.cs` to the VirtualDisplay object — it creates all this programmatically and adds a slow turntable rotation.
+   Or simply add `DisplaySceneSetup.cs` to any object — it creates all content programmatically, plus a second camera with `Monado3DCamera` for A/B comparison (press C to toggle).
 
-6. **Why this content suits display-centric mode:** The display is a fixed anchor in the scene — like a glass case on a table. Objects at the display's origin sit "at the glass." Objects in front pop out toward the viewer; objects behind recede into the case. The turntable rotation is especially effective here because the viewer's eye tracking is relative to the display, not the camera — the 3D effect is stable regardless of where the viewer stands.
+6. **Why this content suits display-centric mode:** The display is a fixed anchor in the scene — like a glass case on a table. Objects at the display's origin sit "at the glass." Objects in front pop out toward the viewer; objects behind recede into the case. The 3D effect is stable regardless of where the viewer stands, because depth is computed relative to the display, not the camera.
 
 ### Key parameters to experiment with
 
@@ -439,9 +429,10 @@ If you see `[Monado3D] Feature not active` or no Monado3D lines at all, the feat
 - **Convergence plane:** Adjusting convergence distance moves where the "screen plane" sits in depth. At 0.3 m everything looks like it pops out; at 1.0 m most content recedes.
 
 ### Display-centric demo
-- **Turntable stability:** As objects rotate, the 3D effect should remain stable — objects don't wobble or swim. This is because depth is computed relative to the display anchor, not the camera.
-- **Pop-out vs. recede:** The red orbit sphere and purple cube are in front of the display plane (pop out); the teal pillar extends behind (recedes into the display).
-- **Scale effect:** Changing Virtual Display Scale makes the whole scene appear larger or smaller, like zooming a magnifying glass.
+- **Crate stability:** As the crate rotates, the 3D effect should remain stable — the crate doesn't wobble or swim. This is because depth is computed relative to the display anchor, not the camera.
+- **Pop-out vs. recede:** The crate sits slightly above the display plane — parts pop out toward the viewer, parts recede behind the glass.
+- **Scale effect:** Changing Virtual Display Scale (scroll wheel) makes the whole scene appear larger or smaller, like zooming a magnifying glass.
+- **A/B comparison:** Press C to switch to the camera-centric camera and compare the same scene from both paradigms.
 
 ---
 

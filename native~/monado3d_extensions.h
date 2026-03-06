@@ -17,7 +17,6 @@ extern "C" {
 #define XR_EXT_DISPLAY_INFO_SPEC_VERSION 5
 
 #define XR_TYPE_DISPLAY_INFO_EXT ((XrStructureType)1000999003)
-#define XR_REFERENCE_SPACE_TYPE_DISPLAY_EXT ((XrReferenceSpaceType)1000999004)
 
 typedef struct XrDisplayInfoEXT {
     XrStructureType type;

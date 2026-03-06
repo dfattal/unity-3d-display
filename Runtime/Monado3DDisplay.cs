@@ -6,11 +6,14 @@ using UnityEngine;
 namespace Monado.Display3D
 {
     /// <summary>
-    /// Display-centric stereo rig. Place at the virtual display position in your scene.
-    /// The display is the fixed anchor; eyes move around it based on tracking.
+    /// Display-centric stereo rig. Attach to a Camera whose transform represents the
+    /// virtual display pose (position and orientation of the display surface).
+    /// The camera's vertical FOV is ignored — the display's physical size and
+    /// scaleFactor determine the frustum. Eyes move around the display based on tracking.
     /// </summary>
     [AddComponentMenu("Monado3D/Display-Centric Rig")]
     [DisallowMultipleComponent]
+    [RequireComponent(typeof(Camera))]
     public class Monado3DDisplay : MonoBehaviour
     {
         [Header("Stereo Tunables")]
@@ -72,7 +75,7 @@ namespace Monado.Display3D
 
             // Push scene transform: this component's world pose maps the virtual display
             // into the scene. The scene transform tells the native plugin how to position
-            // the raw DISPLAY-space eye positions relative to this virtual display.
+            // the raw LOCAL-space eye positions relative to this virtual display.
             m_Feature.SetSceneTransform(
                 transform.position,
                 transform.rotation,

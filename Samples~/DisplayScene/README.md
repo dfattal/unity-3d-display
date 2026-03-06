@@ -1,30 +1,44 @@
-# Display Scene Sample
+# Display Scene Sample — Crate Test
 
-Tabletop display-centric demo for the Monado 3D Display plugin. Objects rotate on a turntable, showcasing how display-centric mode anchors a virtual display in the scene — ideal for object-focused viewing.
-
-## What's Included
-
-- `DisplaySceneSetup.cs` — Script that creates a turntable with objects at varying depths (gold sphere at display plane, red sphere popping out, teal pillar behind, purple cube to the side)
+Reproduces the native `cube_shared_metal_macos` test app in Unity. A wooden crate on a grid floor with two cameras demonstrating both stereo rig modes for direct A/B comparison.
 
 ## Quick Start
 
-1. Import this sample via **Package Manager > Monado 3D Display > Samples > Display Scene**
-2. Create a new scene (**File > New Scene > Basic (Built-in)**)
-3. Create an empty GameObject named **VirtualDisplay** at `(0, 0, 0.8)`
-4. Add the **Monado3DDisplay** component to VirtualDisplay (**Add Component > Monado3D > Display-Centric Rig**)
-5. Add the **DisplaySceneSetup** component to VirtualDisplay
-6. Parent the **Main Camera** under VirtualDisplay, position it at `(0, 0.3, -0.5)` looking forward
-7. Set `XR_RUNTIME_JSON` environment variable to your Monado runtime
-8. Enter Play Mode
+1. Import via **Package Manager > Monado 3D Display > Samples > Display Scene**
+2. Create a new scene (**File > New Scene > Basic Built-in**)
+3. Add **DisplaySceneSetup** to any GameObject (e.g. the Main Camera)
+4. Set `XR_RUNTIME_JSON` environment variable and enter Play Mode
 
-## Why Display-Centric?
+The script creates everything: crate, grid floor, lighting, and both cameras. The default Main Camera is replaced.
 
-This scene places a virtual display as a physical anchor in the scene. The turntable rotates objects at varying depths relative to the display plane — some objects pop out toward the viewer, others recede behind the glass. This is the natural model for:
+## Scene (created by script)
 
-- Tabletop displays (looking down at a 3D diorama)
-- Museum exhibits (a display case with depth)
-- Product viewers (rotate a 3D object on a pedestal)
-- Digital signage (a display mounted on a wall)
+```
+DisplayCam              (0, 0, 0) — display surface pose
+├── Camera + Monado3DDisplay (active by default)
+
+CameraCam               (0, 0.05, 0.3) — viewer behind crate, looking at it
+├── Camera + Monado3DCamera (convergence=0.3m, FOV=40)
+
+Crate                   (0, 0.03, 0) — 0.06m textured cube, slowly rotating
+GroundGrid              (0, 0, 0) — checker-textured quad
+KeyLight                — warm directional light
+```
+
+## Controls
+
+| Input | Action |
+|-------|--------|
+| **C** | **Toggle active camera** (display-centric / camera-centric) |
+| Mouse drag | Rotate active camera (yaw/pitch) |
+| WASD | Move active camera (relative to view direction) |
+| Q/E | Move down/up |
+| Scroll | Display: scale factor. Camera: zoom (FOV) |
+| Shift+Scroll | Adjust IPD factor [0-1] |
+| Ctrl+Scroll | Adjust parallax factor [0-1] |
+| Option+Scroll | Display: perspective factor. Camera: convergence distance |
+| Space | Reset active camera to defaults |
+| Double-click | Reset active camera to defaults |
 
 ## Without Hardware
 

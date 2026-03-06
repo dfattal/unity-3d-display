@@ -18,7 +18,7 @@ extern "C" {
 
 // Scene transform applied to raw eye positions before Kooima computation.
 // Set from C# (game thread) based on camera/display scene hierarchy.
-// Maps raw DISPLAY-space eye positions into the app's desired coordinate frame.
+// Maps raw LOCAL-space eye positions into the app's desired coordinate frame.
 typedef struct Monado3DSceneTransform {
     float position[3];    // Translation offset (meters)
     float orientation[4]; // Rotation quaternion (x, y, z, w)
@@ -55,8 +55,8 @@ typedef struct Monado3DDisplayInfo {
 // --- Eye positions (set from render thread, read from game thread) ---
 
 typedef struct Monado3DEyePositions {
-    XrVector3f left_eye;  // Raw left eye position in DISPLAY space
-    XrVector3f right_eye; // Raw right eye position in DISPLAY space
+    XrVector3f left_eye;  // Raw left eye position in LOCAL space
+    XrVector3f right_eye; // Raw right eye position in LOCAL space
     uint8_t is_tracked;   // Whether eye tracking is active
 } Monado3DEyePositions;
 
