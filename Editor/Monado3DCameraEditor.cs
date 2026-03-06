@@ -30,8 +30,8 @@ namespace Monado.Display3D.Editor
             serializedObject.Update();
 
             EditorGUILayout.HelpBox(
-                "Camera-Centric mode works like a standard Unity camera with added stereo. " +
-                "You control pose and FOV; convergence distance sets the screen plane depth. " +
+                "Camera-Centric mode: the camera's transform is the viewer pose and its " +
+                "vertical FOV is the rendering FOV. Convergence distance sets the screen plane depth. " +
                 "Best for first-person and free-camera setups.",
                 MessageType.Info);
 

@@ -30,8 +30,8 @@ namespace Monado.Display3D.Editor
             serializedObject.Update();
 
             EditorGUILayout.HelpBox(
-                "Display-Centric mode anchors the display in your scene. " +
-                "Attach to a GameObject to keep it in focus automatically. " +
+                "Display-Centric mode: the camera's transform represents the virtual display pose. " +
+                "Camera FOV is ignored — the display geometry determines the frustum. " +
                 "Best for tabletop, AR-like, and object-focused setups.",
                 MessageType.Info);
 

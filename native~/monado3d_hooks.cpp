@@ -30,7 +30,7 @@ static PFN_xrDestroyInstance s_real_destroy_instance = nullptr;
 
 static XrInstance s_instance = XR_NULL_HANDLE;
 static XrSession s_session = XR_NULL_HANDLE;
-static XrSpace s_display_space = XR_NULL_HANDLE;
+static XrSpace s_local_space = XR_NULL_HANDLE;
 static volatile int s_session_alive = 0; // Guard for teardown
 static volatile int s_instance_alive = 0; // Guard for post-destroy polling
 
@@ -53,10 +53,11 @@ hooked_xrLocateViews(XrSession session,
 		                           views);
 	}
 
-	// Use DISPLAY space if available, otherwise pass through the original space
+	// Use our LOCAL space if available, otherwise pass through the original space.
+	// LOCAL space gives us raw eye positions relative to the display.
 	XrViewLocateInfo modified_info = *viewLocateInfo;
-	if (s_display_space != XR_NULL_HANDLE) {
-		modified_info.space = s_display_space;
+	if (s_local_space != XR_NULL_HANDLE) {
+		modified_info.space = s_local_space;
 	}
 
 	// Call the real xrLocateViews
@@ -338,20 +339,21 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 		s_session_alive = 1;
 		fprintf(stderr, "[Monado3D] xrCreateSession succeeded, session=%p\n", (void *)(uintptr_t)s_session);
 
-		// Try to create DISPLAY reference space
+		// Create LOCAL reference space for xrLocateViews.
+		// LOCAL space gives raw eye positions relative to the display origin.
 		if (s_real_create_reference_space != nullptr) {
 			XrReferenceSpaceCreateInfo space_info = {XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
-			space_info.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_DISPLAY_EXT;
+			space_info.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
 			space_info.poseInReferenceSpace.orientation = {0, 0, 0, 1};
 			space_info.poseInReferenceSpace.position = {0, 0, 0};
 
-			XrResult space_result = s_real_create_reference_space(s_session, &space_info, &s_display_space);
+			XrResult space_result = s_real_create_reference_space(s_session, &space_info, &s_local_space);
 			if (XR_FAILED(space_result)) {
-				s_display_space = XR_NULL_HANDLE;
-				fprintf(stderr, "[Monado3D] DISPLAY reference space FAILED (result=%d) — "
+				s_local_space = XR_NULL_HANDLE;
+				fprintf(stderr, "[Monado3D] LOCAL reference space FAILED (result=%d) — "
 				        "will use app's reference space\n", space_result);
 			} else {
-				fprintf(stderr, "[Monado3D] DISPLAY reference space created successfully\n");
+				fprintf(stderr, "[Monado3D] LOCAL reference space created successfully\n");
 			}
 		}
 	}
@@ -364,7 +366,7 @@ hooked_xrDestroySession(XrSession session)
 {
 	fprintf(stderr, "[Monado3D] xrDestroySession BEGIN session=%p\n", (void *)(uintptr_t)session);
 	s_session_alive = 0;
-	s_display_space = XR_NULL_HANDLE;
+	s_local_space = XR_NULL_HANDLE;
 
 	XrResult result = s_real_destroy_session(session);
 
@@ -508,7 +510,7 @@ hooked_xrDestroyInstance(XrInstance instance)
 	fprintf(stderr, "[Monado3D] xrDestroyInstance END result=%d\n", result);
 	s_instance = XR_NULL_HANDLE;
 	s_session = XR_NULL_HANDLE;
-	s_display_space = XR_NULL_HANDLE;
+	s_local_space = XR_NULL_HANDLE;
 	return result;
 }
 
@@ -595,7 +597,7 @@ monado3d_install_hooks(PFN_xrGetInstanceProcAddr next_gipa)
 	s_real_destroy_instance = nullptr;
 	s_instance = XR_NULL_HANDLE;
 	s_session = XR_NULL_HANDLE;
-	s_display_space = XR_NULL_HANDLE;
+	s_local_space = XR_NULL_HANDLE;
 	s_session_alive = 0;
 	s_instance_alive = 0;
 

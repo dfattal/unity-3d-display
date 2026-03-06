@@ -295,7 +295,7 @@ namespace Monado.Display3D
         /// This is the "parent camera pose" from the Unity scene hierarchy.
         /// Chain: raw eyes -> scene transform -> tunables -> Kooima.
         ///
-        /// Use this to map raw DISPLAY-space eye positions into your scene's coordinate
+        /// Use this to map raw LOCAL-space eye positions into your scene's coordinate
         /// frame, mirroring the test app's player transform (rotation, zoom, position offset).
         /// </summary>
         /// <param name="position">Translation offset in display space (meters).</param>

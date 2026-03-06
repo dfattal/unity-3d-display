@@ -60,9 +60,9 @@ typedef struct Display3DStereoView {
  *   7. Build Kooima projection matrix from display-space scaled eye + scaled screen
  *   8. Compute FOV angles from same
  *
- * @param raw_left       Raw left eye in DISPLAY space (from xrLocateViews)
- * @param raw_right      Raw right eye in DISPLAY space (from xrLocateViews)
- * @param nominal_viewer Nominal viewer position in DISPLAY space (or NULL for {0,0,0.5})
+ * @param raw_left       Raw left eye in LOCAL space (from xrLocateViews)
+ * @param raw_right      Raw right eye in LOCAL space (from xrLocateViews)
+ * @param nominal_viewer Nominal viewer position in LOCAL space (or NULL for {0,0,0.5})
  * @param screen         Physical screen dimensions
  * @param tunables       Stereo factors (or NULL for defaults: all 1.0)
  * @param display_pose   Display pose in world space (or NULL for identity)
