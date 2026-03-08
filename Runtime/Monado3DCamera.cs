@@ -40,7 +40,6 @@ namespace Monado.Display3D
         private Monado3DFeature m_Feature;
         private float m_CachedCameraFov;
         private Camera m_Camera;
-        private bool m_InitializedInvd;
 
         void OnEnable()
         {
@@ -69,16 +68,12 @@ namespace Monado.Display3D
                 if (m_Feature == null) return;
             }
 
-            // Auto-init invConvergenceDistance from display info on first frame.
-            if (!m_InitializedInvd)
-            {
-                var info = m_Feature.DisplayInfo;
-                if (info.isValid && info.nominalViewerZ > 0f)
-                {
-                    invConvergenceDistance = 1.0f / info.nominalViewerZ;
-                    m_InitializedInvd = true;
-                }
-            }
+            // Update cached FOV from parent camera when it changes in the editor.
+            // Only accept values >= 1 — below that, XR has overridden fieldOfView
+            // with the Kooima FOV, which would create a feedback loop.
+            float currentFov = m_Camera.fieldOfView;
+            if (currentFov >= 1.0f)
+                m_CachedCameraFov = currentFov;
 
             // Compute half_tan_vfov from the cached camera FOV
             float halfTanVfov = Mathf.Tan(m_CachedCameraFov * 0.5f * Mathf.Deg2Rad);

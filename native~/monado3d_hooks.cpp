@@ -18,6 +18,9 @@
 
 #include <string.h>
 #include <stdio.h>
+#if !defined(_WIN32)
+#include <dlfcn.h>
+#endif
 
 // --- Stored real function pointers ---
 static PFN_xrGetInstanceProcAddr s_next_gipa = nullptr;
@@ -35,6 +38,18 @@ static XrSession s_session = XR_NULL_HANDLE;
 static XrSpace s_local_space = XR_NULL_HANDLE;
 static volatile int s_session_alive = 0; // Guard for teardown
 static volatile int s_instance_alive = 0; // Guard for post-destroy polling
+
+// --- Deferred destruction ---
+// Unity's OpenXR loader calls xrPollEvent AFTER xrDestroyInstance returns,
+// through JIT-generated dispatch trampolines that reference runtime memory.
+// If we actually destroy the instance, those trampolines read freed pages → SIGSEGV.
+// Fix: defer the real destroy calls until the next instance lifecycle begins.
+static XrSession s_deferred_destroy_session = XR_NULL_HANDLE;
+static PFN_xrDestroySession s_deferred_destroy_session_fn = nullptr;
+static XrInstance s_deferred_destroy_instance = XR_NULL_HANDLE;
+static PFN_xrDestroyInstance s_deferred_destroy_instance_fn = nullptr;
+static int s_runtime_pinned = 0; // Whether we've pinned the runtime via RTLD_NODELETE
+static volatile int s_stop_polling = 0; // Stop forwarding xrPollEvent after EXITING event
 
 
 // ============================================================================
@@ -412,15 +427,19 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 static XrResult XRAPI_CALL
 hooked_xrDestroySession(XrSession session)
 {
-	fprintf(stderr, "[Monado3D] xrDestroySession BEGIN session=%p\n", (void *)(uintptr_t)session);
+	fprintf(stderr, "[Monado3D] xrDestroySession BEGIN session=%p (DEFERRED)\n", (void *)(uintptr_t)session);
 	s_session_alive = 0;
 	s_local_space = XR_NULL_HANDLE;
 
-	XrResult result = s_real_destroy_session(session);
+	// Defer the real destroy — Unity calls xrPollEvent after xrDestroyInstance,
+	// and its dispatch trampolines reference runtime session/compositor objects.
+	// Keep everything alive until the next instance lifecycle.
+	s_deferred_destroy_session = session;
+	s_deferred_destroy_session_fn = s_real_destroy_session;
 
-	fprintf(stderr, "[Monado3D] xrDestroySession END result=%d\n", result);
+	fprintf(stderr, "[Monado3D] xrDestroySession END (deferred, returning XR_SUCCESS)\n");
 	s_session = XR_NULL_HANDLE;
-	return result;
+	return XR_SUCCESS;
 }
 
 static XrResult XRAPI_CALL
@@ -535,16 +554,22 @@ hooked_xrEndFrame(XrSession session, const XrFrameEndInfo *frameEndInfo)
 static XrResult XRAPI_CALL
 hooked_xrDestroyInstance(XrInstance instance)
 {
-	fprintf(stderr, "[Monado3D] xrDestroyInstance BEGIN\n");
+	fprintf(stderr, "[Monado3D] xrDestroyInstance BEGIN (DEFERRED)\n");
 	s_instance_alive = 0;
 
-	// Save the destroy function pointer — we're about to null everything
-	PFN_xrDestroyInstance destroy_fn = s_real_destroy_instance;
+	// Defer the real destroy — Unity's OpenXR loader calls xrPollEvent AFTER
+	// xrDestroyInstance returns, through JIT-generated dispatch trampolines that
+	// reference runtime memory (code pages, dispatch tables, session/compositor
+	// objects). If we destroy now, those trampolines read freed pages → SIGSEGV.
+	//
+	// Instead, mark everything as dead (guards will reject API calls) but keep
+	// the runtime instance alive. The actual destroy happens at the start of
+	// the next instance lifecycle in monado3d_install_hooks().
+	s_deferred_destroy_instance = instance;
+	s_deferred_destroy_instance_fn = s_real_destroy_instance;
 
-	// Null out ALL real function pointers. The runtime's dispatch table is
-	// freed after xrDestroyInstance, so any cached pointers become dangling.
-	// Unity may not re-resolve all functions via xrGetInstanceProcAddr for
-	// the next instance, so stale pointers could cause use-after-free.
+	// Null out function pointers so our guards reject post-destroy calls,
+	// but the runtime's actual objects stay allocated and mapped.
 	s_real_locate_views = nullptr;
 	s_real_get_system_properties = nullptr;
 	s_real_create_session = nullptr;
@@ -554,23 +579,48 @@ hooked_xrDestroyInstance(XrInstance instance)
 	s_real_poll_event = nullptr;
 	s_real_destroy_instance = nullptr;
 
-	XrResult result = destroy_fn(instance);
-	fprintf(stderr, "[Monado3D] xrDestroyInstance END result=%d\n", result);
+	fprintf(stderr, "[Monado3D] xrDestroyInstance END (deferred, returning XR_SUCCESS)\n");
 	s_instance = XR_NULL_HANDLE;
 	s_session = XR_NULL_HANDLE;
 	s_local_space = XR_NULL_HANDLE;
-	return result;
+	return XR_SUCCESS;
 }
 
 static XrResult XRAPI_CALL
 hooked_xrPollEvent(XrInstance instance, XrEventDataBuffer *eventData)
 {
-	// Guard: Unity calls xrPollEvent after xrDestroyInstance during teardown.
-	// The runtime may have freed the instance, so we must not forward the call.
+	// Guard 1: instance already destroyed
 	if (!s_instance_alive || s_real_poll_event == nullptr) {
+		fprintf(stderr, "[Monado3D] xrPollEvent BLOCKED (instance dead)\n");
 		return XR_EVENT_UNAVAILABLE;
 	}
-	return s_real_poll_event(instance, eventData);
+
+	// Guard 2: stop polling after EXITING event.
+	// Unity's Internal_PumpMessageLoop loops calling xrPollEvent. After the runtime
+	// sends EXITING, internal resources may be freed. Continuing to poll can crash.
+	if (s_stop_polling) {
+		fprintf(stderr, "[Monado3D] xrPollEvent BLOCKED (stop_polling after EXITING)\n");
+		return XR_EVENT_UNAVAILABLE;
+	}
+
+	XrResult result = s_real_poll_event(instance, eventData);
+
+	// Check if this event is SESSION_STATE_CHANGED → EXITING.
+	// If so, set the stop-polling flag to prevent further xrPollEvent calls
+	// within the same Internal_PumpMessageLoop loop iteration.
+	if (result == XR_SUCCESS && eventData != nullptr &&
+	    eventData->type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
+		const XrEventDataSessionStateChanged *ssc =
+			(const XrEventDataSessionStateChanged *)eventData;
+		fprintf(stderr, "[Monado3D] xrPollEvent: session state → %d\n", (int)ssc->state);
+		if (ssc->state == XR_SESSION_STATE_EXITING ||
+		    ssc->state == XR_SESSION_STATE_LOSS_PENDING) {
+			fprintf(stderr, "[Monado3D] xrPollEvent: EXITING detected, will stop polling\n");
+			s_stop_polling = 1;
+		}
+	}
+
+	return result;
 }
 
 
@@ -592,6 +642,26 @@ monado3d_hook_xrGetInstanceProcAddr(XrInstance instance, const char *name, PFN_x
 		s_instance = instance;
 		s_instance_alive = 1;
 	}
+
+	// Pin the runtime library in memory so Unity's dlclose doesn't unmap
+	// its code pages. We defer xrDestroySession/xrDestroyInstance to keep
+	// runtime objects alive, but Unity calls Internal_UnloadOpenXRLibrary()
+	// which dlcloses the runtime. RTLD_NODELETE prevents the unmap, so
+	// post-destroy xrPollEvent calls (from editor repaint paths) can still
+	// safely reach the runtime's dispatch stubs.
+#if !defined(_WIN32)
+	if (!s_runtime_pinned && *function != nullptr) {
+		Dl_info dl_info;
+		if (dladdr((void *)*function, &dl_info) && dl_info.dli_fname) {
+			void *handle = dlopen(dl_info.dli_fname, RTLD_LAZY | RTLD_NODELETE);
+			if (handle) {
+				fprintf(stderr, "[Monado3D] Pinned runtime library: %s\n", dl_info.dli_fname);
+				s_runtime_pinned = 1;
+				dlclose(handle); // Decrement refcount but RTLD_NODELETE keeps it mapped
+			}
+		}
+	}
+#endif
 
 	// Log function resolution for debugging second-instance issues
 	fprintf(stderr, "[Monado3D] xrGetInstanceProcAddr: resolving '%s'\n", name);
@@ -630,6 +700,24 @@ PFN_xrVoidFunction
 monado3d_install_hooks(PFN_xrGetInstanceProcAddr next_gipa)
 {
 	fprintf(stderr, "[Monado3D] install_hooks called (new instance lifecycle)\n");
+
+	// Clear deferred session/instance destruction from the previous lifecycle.
+	// These were deferred because Unity's loader calls xrPollEvent after
+	// xrDestroyInstance through dispatch trampolines that reference runtime memory.
+	// We do NOT call the saved destroy functions here — Unity has already called
+	// Internal_UnloadOpenXRLibrary() (dlclose) between play sessions, so the
+	// saved function pointers are dangling. The runtime cleans up via dlclose.
+	if (s_deferred_destroy_session != XR_NULL_HANDLE) {
+		fprintf(stderr, "[Monado3D] Clearing deferred xrDestroySession (runtime was unloaded by Unity)\n");
+		s_deferred_destroy_session = XR_NULL_HANDLE;
+		s_deferred_destroy_session_fn = nullptr;
+	}
+	if (s_deferred_destroy_instance != XR_NULL_HANDLE) {
+		fprintf(stderr, "[Monado3D] Clearing deferred xrDestroyInstance (runtime was unloaded by Unity)\n");
+		s_deferred_destroy_instance = XR_NULL_HANDLE;
+		s_deferred_destroy_instance_fn = nullptr;
+	}
+
 	monado3d_state_init();
 	s_next_gipa = next_gipa;
 
@@ -648,6 +736,7 @@ monado3d_install_hooks(PFN_xrGetInstanceProcAddr next_gipa)
 	s_local_space = XR_NULL_HANDLE;
 	s_session_alive = 0;
 	s_instance_alive = 0;
+	s_stop_polling = 0;
 
 	return (PFN_xrVoidFunction)monado3d_hook_xrGetInstanceProcAddr;
 }

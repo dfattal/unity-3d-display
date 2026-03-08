@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using UnityEngine;
+using UnityEngine.XR.Management;
 using UnityEngine.XR.OpenXR;
 using UnityEngine.XR.OpenXR.Features;
 
@@ -172,6 +173,13 @@ namespace Monado.Display3D
                 SharedTextureAvailable = false;
             }
 
+            // Prevent Unity's post-destroy xrPollEvent crash.
+            // Unity's Deinitialize() calls ProcessOpenXRMessageLoop after
+            // Internal_DestroySession, through dispatch trampolines that
+            // reference freed runtime memory. Throttle the pump so it
+            // returns early without calling Internal_PumpMessageLoop.
+            UnhookMessageLoop();
+
             Debug.Log("[Monado3D] OnSessionDestroy END");
         }
 
@@ -181,7 +189,74 @@ namespace Monado.Display3D
             Debug.Log("[Monado3D] OnInstanceDestroy BEGIN");
             Instance = null;
             m_HooksInstalled = false;
+            // Re-throttle in case the state changed between OnSessionDestroy and here
+            UnhookMessageLoop();
             Debug.Log("[Monado3D] OnInstanceDestroy END");
+        }
+
+        /// <summary>
+        /// Prevent post-destroy xrPollEvent calls that crash through freed dispatch trampolines.
+        /// Three-layer defense:
+        /// 1. Remove ProcessOpenXRMessageLoop from onBeforeRender (multiple times for domain reload duplicates)
+        /// 2. Force currentOpenXRState to XrExiting so the method enters its throttle path
+        /// 3. Set lastPollCheckTime to MaxValue so the throttle always returns early
+        /// This makes ProcessOpenXRMessageLoop a complete no-op even if still called
+        /// (e.g., from editor repaint path or explicit calls in Deinitialize).
+        /// </summary>
+        private static void UnhookMessageLoop()
+        {
+            try
+            {
+                var generalSettings = XRGeneralSettings.Instance;
+                if (generalSettings == null || generalSettings.Manager == null) return;
+                var loader = generalSettings.Manager.activeLoader as OpenXRLoaderBase;
+                if (loader == null) return;
+
+                var bindingFlags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+
+                // Layer 1: Remove delegate from onBeforeRender.
+                // Remove multiple times to handle duplicate registrations from domain reload
+                // (Unity re-registers at lines 780-781 of OpenXRLoader.cs during domain reload).
+                var method = typeof(OpenXRLoaderBase).GetMethod("ProcessOpenXRMessageLoop", bindingFlags);
+                if (method != null)
+                {
+                    var callback = (UnityEngine.Events.UnityAction)
+                        System.Delegate.CreateDelegate(typeof(UnityEngine.Events.UnityAction), loader, method);
+                    for (int i = 0; i < 5; i++)
+                        Application.onBeforeRender -= callback;
+                    Debug.Log("[Monado3D] Removed ProcessOpenXRMessageLoop from onBeforeRender");
+                }
+
+                // Layer 2: Force currentOpenXRState to XrExiting.
+                // ProcessOpenXRMessageLoop checks this state — XrExiting enters the throttle path
+                // instead of calling Internal_PumpMessageLoop immediately.
+                var stateField = typeof(OpenXRLoaderBase).GetField("currentOpenXRState", bindingFlags);
+                if (stateField != null)
+                {
+                    var nativeEventType = typeof(OpenXRFeature).GetNestedType("NativeEvent",
+                        System.Reflection.BindingFlags.NonPublic);
+                    if (nativeEventType != null)
+                    {
+                        var xrExiting = System.Enum.Parse(nativeEventType, "XrExiting");
+                        stateField.SetValue(loader, xrExiting);
+                        Debug.Log("[Monado3D] Set currentOpenXRState to XrExiting");
+                    }
+                }
+
+                // Layer 3: Set lastPollCheckTime to MaxValue.
+                // The throttle condition is: if (time - lastPollCheckTime < k_IdlePollingWaitTimeInSeconds) return;
+                // With MaxValue, (time - MaxValue) is hugely negative, always < threshold → always returns.
+                var pollField = typeof(OpenXRLoaderBase).GetField("lastPollCheckTime", bindingFlags);
+                if (pollField != null)
+                {
+                    pollField.SetValue(loader, double.MaxValue);
+                    Debug.Log("[Monado3D] Set lastPollCheckTime to MaxValue");
+                }
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning($"[Monado3D] Failed to unhook message loop: {e.Message}");
+            }
         }
 
         // ====================================================================
