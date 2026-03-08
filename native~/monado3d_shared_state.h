@@ -33,6 +33,8 @@ typedef struct Monado3DTunables {
     float virtual_display_height; // Virtual display height in meters (0 = physical)
     float inv_convergence_distance; // 1/convergence (0 = infinity)
     float fov_override;         // Override FOV in radians (0 = compute)
+    float near_z;               // Near clip plane (meters), from camera
+    float far_z;                // Far clip plane (meters), from camera
     uint8_t camera_centric;     // Use camera-centric parameters
 } Monado3DTunables;
 

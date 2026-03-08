@@ -87,6 +87,8 @@ namespace Monado.Display3D
                 virtualDisplayHeight = 0f,
                 invConvergenceDistance = invConvergenceDistance,
                 fovOverride = halfTanVfov,
+                nearZ = m_Camera.nearClipPlane,
+                farZ = m_Camera.farClipPlane,
                 cameraCentricMode = true,
             };
 

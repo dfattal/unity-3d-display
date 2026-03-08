@@ -45,6 +45,16 @@ namespace Monado.Display3D
         public float fovOverride;
 
         /// <summary>
+        /// Near clip plane distance in meters. Inherited from Camera.nearClipPlane.
+        /// </summary>
+        public float nearZ;
+
+        /// <summary>
+        /// Far clip plane distance in meters. Inherited from Camera.farClipPlane.
+        /// </summary>
+        public float farZ;
+
+        /// <summary>
         /// Whether to use camera-centric mode parameters (convergenceDistance, fovOverride).
         /// </summary>
         [MarshalAs(UnmanagedType.U1)]
@@ -59,6 +69,8 @@ namespace Monado.Display3D
             virtualDisplayHeight = 0.0f,
             invConvergenceDistance = 0.0f,
             fovOverride = 0.0f,
+            nearZ = 0.3f,
+            farZ = 1000.0f,
             cameraCentricMode = false,
         };
     }

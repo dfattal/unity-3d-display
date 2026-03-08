@@ -41,6 +41,8 @@ MONADO3D_EXPORT void monado3d_set_tunables(float ipd_factor,
                                            float virtual_display_height,
                                            float inv_convergence_distance,
                                            float fov_override,
+                                           float near_z,
+                                           float far_z,
                                            int camera_centric);
 
 MONADO3D_EXPORT void monado3d_get_display_info(float *display_width_m,
@@ -98,6 +100,10 @@ MONADO3D_EXPORT void monado3d_get_shared_texture(void **native_ptr,
                                                   uint32_t *width,
                                                   uint32_t *height,
                                                   int *ready);
+
+/// Kill xrPollEvent forwarding immediately. Call from C# before session/instance
+/// teardown to prevent use-after-free when the runtime is unloaded.
+MONADO3D_EXPORT void monado3d_stop_polling(void);
 
 #ifdef __cplusplus
 }

@@ -31,6 +31,8 @@ namespace Monado.Display3D
             float virtualDisplayHeight,
             float invConvergenceDistance,
             float fovOverride,
+            float nearZ,
+            float farZ,
             int cameraCentric);
 
         /// <summary>
@@ -127,5 +129,11 @@ namespace Monado.Display3D
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void monado3d_get_shared_texture(
             out IntPtr nativePtr, out uint width, out uint height, out int ready);
+
+        /// <summary>
+        /// Kill xrPollEvent forwarding. Call before session/instance teardown.
+        /// </summary>
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void monado3d_stop_polling();
     }
 }
