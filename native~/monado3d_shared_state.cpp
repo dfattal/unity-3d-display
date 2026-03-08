@@ -9,6 +9,7 @@ static Monado3DState s_state = {};
 static std::atomic<int> s_tunables_write_idx{1};
 static std::atomic<int> s_eyes_write_idx{1};
 static std::atomic<int> s_scene_transform_write_idx{1};
+static std::atomic<int> s_stereo_matrices_write_idx{1};
 
 Monado3DState *
 monado3d_get_state(void)
@@ -26,7 +27,7 @@ monado3d_state_init(void)
 		s_state.tunables[i].ipd_factor = 1.0f;
 		s_state.tunables[i].parallax_factor = 1.0f;
 		s_state.tunables[i].perspective_factor = 1.0f;
-		s_state.tunables[i].scale_factor = 1.0f;
+		s_state.tunables[i].virtual_display_height = 0.0f;
 		s_state.tunables[i].convergence_distance = 0.0f;
 		s_state.tunables[i].fov_override = 0.0f;
 		s_state.tunables[i].camera_centric = 0;
@@ -47,11 +48,16 @@ monado3d_state_init(void)
 		s_state.scene_transform[i].orientation[1] = 0.0f;
 		s_state.scene_transform[i].orientation[2] = 0.0f;
 		s_state.scene_transform[i].orientation[3] = 1.0f; // w=1 identity
-		s_state.scene_transform[i].zoom_scale = 1.0f;
+		s_state.scene_transform[i].scale[0] = 1.0f;
+		s_state.scene_transform[i].scale[1] = 1.0f;
+		s_state.scene_transform[i].scale[2] = 1.0f;
 		s_state.scene_transform[i].enabled = 0;
 	}
 	s_state.scene_transform_read_idx = 0;
 	s_scene_transform_write_idx.store(1, std::memory_order_relaxed);
+
+	s_state.stereo_matrices_read_idx = 0;
+	s_stereo_matrices_write_idx.store(1, std::memory_order_relaxed);
 }
 
 void
@@ -113,4 +119,23 @@ monado3d_state_get_scene_transform(void)
 {
 	int idx = s_state.scene_transform_read_idx;
 	return s_state.scene_transform[idx];
+}
+
+void
+monado3d_state_set_stereo_matrices(const Monado3DStereoMatrices *m)
+{
+	int write_idx = s_stereo_matrices_write_idx.load(std::memory_order_relaxed);
+	s_state.stereo_matrices[write_idx] = *m;
+
+	int old_read = write_idx;
+	int new_write = 1 - write_idx;
+	s_state.stereo_matrices_read_idx = old_read;
+	s_stereo_matrices_write_idx.store(new_write, std::memory_order_release);
+}
+
+Monado3DStereoMatrices
+monado3d_state_get_stereo_matrices(void)
+{
+	int idx = s_state.stereo_matrices_read_idx;
+	return s_state.stereo_matrices[idx];
 }

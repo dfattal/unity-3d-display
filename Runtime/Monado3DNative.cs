@@ -28,7 +28,7 @@ namespace Monado.Display3D
             float ipdFactor,
             float parallaxFactor,
             float perspectiveFactor,
-            float scaleFactor,
+            float virtualDisplayHeight,
             float convergenceDistance,
             float fovOverride,
             int cameraCentric);
@@ -67,7 +67,7 @@ namespace Monado.Display3D
         internal static extern void monado3d_set_scene_transform(
             float posX, float posY, float posZ,
             float oriX, float oriY, float oriZ, float oriW,
-            float zoomScale,
+            float scaleX, float scaleY, float scaleZ,
             int enabled);
 
         /// <summary>
@@ -83,6 +83,20 @@ namespace Monado.Display3D
         /// <returns>1 on success, 0 on failure or not supported.</returns>
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int monado3d_request_display_mode(int mode3d);
+
+        /// <summary>
+        /// Get the Kooima stereo view and projection matrices computed by the native library.
+        /// These are the matched matrix pairs that should be applied directly, bypassing
+        /// Unity's matrix reconstruction from (fov, position, orientation).
+        /// Matrices are column-major, OpenXR/OpenGL convention.
+        /// </summary>
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void monado3d_get_stereo_matrices(
+            [MarshalAs(UnmanagedType.LPArray, SizeConst = 16)] float[] leftView,
+            [MarshalAs(UnmanagedType.LPArray, SizeConst = 16)] float[] leftProj,
+            [MarshalAs(UnmanagedType.LPArray, SizeConst = 16)] float[] rightView,
+            [MarshalAs(UnmanagedType.LPArray, SizeConst = 16)] float[] rightProj,
+            out int valid);
 
         /// <summary>
         /// Get readback pixel data from offscreen rendering.

@@ -28,10 +28,9 @@ namespace Monado.Display3D
         public float perspectiveFactor;
 
         /// <summary>
-        /// Virtual display size relative to physical. 1.0 = match physical display.
-        /// Affects Kooima screen extents.
+        /// Virtual display height in meters. 0 = use physical display height.
         /// </summary>
-        public float scaleFactor;
+        public float virtualDisplayHeight;
 
         /// <summary>
         /// Override convergence distance in meters. 0 = use nominalViewerZ from display info.
@@ -57,7 +56,7 @@ namespace Monado.Display3D
             ipdFactor = 1.0f,
             parallaxFactor = 1.0f,
             perspectiveFactor = 1.0f,
-            scaleFactor = 1.0f,
+            virtualDisplayHeight = 0.0f,
             convergenceDistance = 0.0f,
             fovOverride = 0.0f,
             cameraCentricMode = false,

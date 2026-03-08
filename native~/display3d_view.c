@@ -108,7 +108,7 @@ display3d_default_tunables(void)
 	t.ipd_factor = 1.0f;
 	t.parallax_factor = 1.0f;
 	t.perspective_factor = 1.0f;
-	t.scale_factor = 1.0f;
+	t.virtual_display_height = 0.0f;
 	return t;
 }
 
@@ -245,8 +245,16 @@ display3d_compute_stereo_views(const XrVector3f *raw_left,
 	// Process each eye
 	Display3DStereoView *outputs[2] = {out_left, out_right};
 	for (int i = 0; i < 2; i++) {
-		// Step 3: Apply perspective + scale to eye XYZ
-		float es = t.perspective_factor / t.scale_factor;
+		// Step 3: Map eye positions and screen into virtual display space.
+		// virtual_display_height defines the virtual screen; both eyes and
+		// screen are scaled by vdh/physical_h so they stay in the same
+		// coordinate system.  Zoom happens via the view matrix (eye_world
+		// moves closer/further from display origin).
+		float vdh = t.virtual_display_height;
+		float m2v = (vdh > 0.001f && screen->height_m > 0.001f)
+		          ? (vdh / screen->height_m) : 1.0f;
+
+		float es = t.perspective_factor * m2v;
 		XrVector3f eye_scaled;
 		eye_scaled.x = processed[i].x * es;
 		eye_scaled.y = processed[i].y * es;
@@ -255,9 +263,9 @@ display3d_compute_stereo_views(const XrVector3f *raw_left,
 		// Store display-space eye (after all factors)
 		outputs[i]->eye_display = eye_scaled;
 
-		// Step 4: Apply scale to screen dimensions
-		float kScreenW = screen->width_m / t.scale_factor;
-		float kScreenH = screen->height_m / t.scale_factor;
+		// Step 4: Virtual screen dimensions (aspect-preserving)
+		float kScreenW = screen->width_m * m2v;
+		float kScreenH = screen->height_m * m2v;
 
 		// Step 5: Transform display-space eye -> world-space via display_pose
 		XrVector3f eye_world = quat_rotate(disp_ori, eye_scaled);

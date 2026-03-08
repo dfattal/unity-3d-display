@@ -38,7 +38,7 @@ MONADO3D_EXPORT PFN_xrVoidFunction monado3d_install_hooks(PFN_xrGetInstanceProcA
 MONADO3D_EXPORT void monado3d_set_tunables(float ipd_factor,
                                            float parallax_factor,
                                            float perspective_factor,
-                                           float scale_factor,
+                                           float virtual_display_height,
                                            float convergence_distance,
                                            float fov_override,
                                            int camera_centric);
@@ -70,12 +70,20 @@ MONADO3D_EXPORT void monado3d_set_scene_transform(float pos_x,
                                                    float ori_y,
                                                    float ori_z,
                                                    float ori_w,
-                                                   float zoom_scale,
+                                                   float scale_x,
+                                                   float scale_y,
+                                                   float scale_z,
                                                    int enabled);
 
 MONADO3D_EXPORT void monado3d_set_window_handle(void *handle);
 
 MONADO3D_EXPORT int monado3d_request_display_mode(int mode_3d);
+
+MONADO3D_EXPORT void monado3d_get_stereo_matrices(float *left_view,
+                                                   float *left_proj,
+                                                   float *right_view,
+                                                   float *right_proj,
+                                                   int *valid);
 
 MONADO3D_EXPORT void monado3d_get_readback(uint8_t **pixels,
                                            uint32_t *width,

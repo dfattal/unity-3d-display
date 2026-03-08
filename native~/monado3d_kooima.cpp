@@ -38,12 +38,13 @@ monado3d_apply_scene_transform(const XrVector3f *raw_left,
 		return;
 	}
 
-	// Apply zoom: scale eye positions (closer zoom = stronger depth)
-	// This mirrors the test app's: localPos = localPos / zoomScale
-	float inv_zoom = 1.0f / xform->zoom_scale;
+	// Apply per-axis scale: divide eye positions by transform scale
+	float sx = (xform->scale[0] > 0.001f) ? xform->scale[0] : 1.0f;
+	float sy = (xform->scale[1] > 0.001f) ? xform->scale[1] : 1.0f;
+	float sz = (xform->scale[2] > 0.001f) ? xform->scale[2] : 1.0f;
 
-	XrVector3f left_scaled = {raw_left->x * inv_zoom, raw_left->y * inv_zoom, raw_left->z * inv_zoom};
-	XrVector3f right_scaled = {raw_right->x * inv_zoom, raw_right->y * inv_zoom, raw_right->z * inv_zoom};
+	XrVector3f left_scaled = {raw_left->x / sx, raw_left->y / sy, raw_left->z / sz};
+	XrVector3f right_scaled = {raw_right->x / sx, raw_right->y / sy, raw_right->z / sz};
 
 	// Apply rotation: worldPos = orientation * scaledPos
 	XrVector3f left_rotated = quat_rotate(xform->orientation, left_scaled);

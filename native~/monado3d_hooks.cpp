@@ -9,6 +9,8 @@
 #include "monado3d_kooima.h"
 #include "monado3d_shared_state.h"
 #include "monado3d_readback.h"
+#include "camera3d_view.h"
+#include <math.h>
 
 #if defined(__APPLE__)
 #include "monado3d_metal.h"
@@ -94,67 +96,110 @@ hooked_xrLocateViews(XrSession session,
 		return result; // No display info — pass through unmodified
 	}
 
-	// Transform chain: raw → scene transform → tunables → Kooima
-	//
-	// Step 1: Apply scene transform (parent camera pose, zoom)
-	// This mirrors the test app's player transform applied before Kooima.
-	XrVector3f scene_left, scene_right;
-	monado3d_apply_scene_transform(&views[0].pose.position, &views[1].pose.position, &scene_xform,
-	                               &scene_left, &scene_right);
+	// Delegate to canonical view libraries for IPD/parallax/Kooima.
+	// Raw eye positions and scene transform (camera/display pose) are passed
+	// to the libraries, matching the native test app's pipeline exactly.
+	XrVector3f raw_left = views[0].pose.position;
+	XrVector3f raw_right = views[1].pose.position;
+	XrVector3f nominal = {di->nominal_viewer_x, di->nominal_viewer_y, di->nominal_viewer_z};
+	Display3DScreen screen = {di->display_width_meters, di->display_height_meters};
 
-	// Step 2: Apply tunables (IPD, parallax, perspective, scale)
-	XrVector3f mod_left, mod_right;
-	monado3d_apply_tunables(&scene_left, &scene_right, &tunables, di, &mod_left, &mod_right);
-
-	// Determine screen extents and eye positions for Kooima
-	float screen_w, screen_h;
-	XrVector3f kooima_left, kooima_right;
-
-	if (tunables.camera_centric && tunables.convergence_distance > 0.0f) {
-		// Camera-centric: compute virtual screen extents
-		monado3d_camera_centric_extents(tunables.convergence_distance, tunables.fov_override, di, &screen_w,
-		                                &screen_h);
-
-		// Camera-centric: subtract nominal position to get eyes in camera space,
-		// then set Z = convergence (eye-to-virtual-screen distance).
-		// Raw eyes are in display space; nominal is the expected viewing position.
-		// Subtracting nominal gives the displacement from the ideal viewpoint,
-		// preserving head-tracking parallax (lean left/right/up/down).
-		kooima_left.x  = mod_left.x  - di->nominal_viewer_x;
-		kooima_left.y  = mod_left.y  - di->nominal_viewer_y;
-		kooima_left.z  = tunables.convergence_distance;
-		kooima_right.x = mod_right.x - di->nominal_viewer_x;
-		kooima_right.y = mod_right.y - di->nominal_viewer_y;
-		kooima_right.z = tunables.convergence_distance;
+	// Build pose from scene transform (Unity camera/display world pose).
+	// Convert Unity coords (left-hand, +Z forward) to OpenXR (right-hand, -Z forward):
+	// position Z negated, quaternion (x,y) negated + (z,w) kept.
+	XrPosef scene_pose = {};
+	if (scene_xform.enabled) {
+		scene_pose.position = (XrVector3f){
+			scene_xform.position[0],
+			scene_xform.position[1],
+			-scene_xform.position[2]};
+		scene_pose.orientation = (XrQuaternionf){
+			-scene_xform.orientation[0],
+			-scene_xform.orientation[1],
+			scene_xform.orientation[2],
+			scene_xform.orientation[3]};
 	} else {
-		// Display-centric: use physical extents scaled by scale factor
-		screen_w = di->display_width_meters * tunables.scale_factor;
-		screen_h = di->display_height_meters * tunables.scale_factor;
-		kooima_left = mod_left;
-		kooima_right = mod_right;
+		scene_pose.orientation = (XrQuaternionf){0, 0, 0, 1};
+		scene_pose.position = (XrVector3f){0, 0, 0};
 	}
 
-	// Compute Kooima asymmetric frustum FOVs
-	XrFovf left_fov = monado3d_compute_kooima_fov(kooima_left, screen_w, screen_h);
-	XrFovf right_fov = monado3d_compute_kooima_fov(kooima_right, screen_w, screen_h);
+	if (tunables.camera_centric && tunables.convergence_distance > 0.0f) {
+		// Camera-centric: tangent-based Kooima (camera3d_view library)
+		// scene_pose = Unity camera world pose converted to OpenXR coords.
+		static int s_cam_log = 0;
+		if (s_cam_log++ % 60 == 0) {
+			fprintf(stderr, "[Monado3D] CAM-CENTRIC: scene_pose=(%.3f,%.3f,%.3f) "
+			        "raw_L=(%.3f,%.3f,%.3f) raw_R=(%.3f,%.3f,%.3f) "
+			        "nominal=(%.3f,%.3f,%.3f) conv=%.3f fov=%.1f°\n",
+			        scene_pose.position.x, scene_pose.position.y, scene_pose.position.z,
+			        raw_left.x, raw_left.y, raw_left.z,
+			        raw_right.x, raw_right.y, raw_right.z,
+			        nominal.x, nominal.y, nominal.z,
+			        tunables.convergence_distance,
+			        tunables.fov_override * 180.0f / 3.14159f);
+		}
+		Camera3DTunables cam_tunables;
+		cam_tunables.ipd_factor = tunables.ipd_factor;
+		cam_tunables.parallax_factor = tunables.parallax_factor;
+		cam_tunables.inv_convergence_distance = 1.0f / tunables.convergence_distance;
+		cam_tunables.half_tan_vfov = tanf(tunables.fov_override * 0.5f);
 
-	// Write modified FOVs back — Unity will use these for projection matrices
-	views[0].fov = left_fov;
-	views[1].fov = right_fov;
+		Camera3DStereoView cam_left, cam_right;
+		camera3d_compute_stereo_views(
+			&raw_left, &raw_right,
+			&nominal, &screen, &cam_tunables,
+			&scene_pose,
+			0.01f, 100.0f,
+			&cam_left, &cam_right);
 
-	// Write modified poses back
-	if (tunables.camera_centric) {
-		// Camera-centric: pass camera-space X/Y + raw Z (scene position).
-		// Unity's XR applies this as camera offset from tracking origin.
-		// Z must be the raw distance so the camera is placed correctly in the scene.
-		views[0].pose.position.x = kooima_left.x;
-		views[0].pose.position.y = kooima_left.y;
-		// Keep original Z — Unity needs it for camera placement
-		views[1].pose.position.x = kooima_right.x;
-		views[1].pose.position.y = kooima_right.y;
+		views[0].fov = cam_left.fov;
+		views[1].fov = cam_right.fov;
+
+		views[0].pose.position = cam_left.eye_world;
+		views[1].pose.position = cam_right.eye_world;
+		views[0].pose.orientation = scene_pose.orientation;
+		views[1].pose.orientation = scene_pose.orientation;
+
+		if (s_cam_log % 60 == 1) {
+			fprintf(stderr, "[Monado3D] OUTPUT L: eye_world=(%.3f,%.3f,%.3f) "
+			        "fov=(L=%.1f R=%.1f U=%.1f D=%.1f)\n",
+			        cam_left.eye_world.x, cam_left.eye_world.y, cam_left.eye_world.z,
+			        cam_left.fov.angleLeft * 57.2958f, cam_left.fov.angleRight * 57.2958f,
+			        cam_left.fov.angleUp * 57.2958f, cam_left.fov.angleDown * 57.2958f);
+		}
 	} else {
-		views[0].pose.position = mod_left;
-		views[1].pose.position = mod_right;
+		// Display-centric: atan-based Kooima (display3d_view library)
+		// Pass raw eyes + display_pose directly (like the native test app).
+		//
+		// Camera transform scale acts as zoom via virtual_display_height:
+		// virtual_display_height is divided by scale.y so a larger scale
+		// means a smaller virtual display → zooms in (like test app mouse wheel).
+
+		float sy = (scene_xform.scale[1] > 0.001f) ? scene_xform.scale[1] : 1.0f;
+		float vdh = tunables.virtual_display_height;
+		// Fold camera scale into virtual display height
+		vdh /= sy;
+
+		Display3DTunables disp_tunables;
+		disp_tunables.ipd_factor = tunables.ipd_factor;
+		disp_tunables.parallax_factor = tunables.parallax_factor;
+		disp_tunables.perspective_factor = tunables.perspective_factor;
+		disp_tunables.virtual_display_height = vdh;
+
+		Display3DStereoView disp_left, disp_right;
+		display3d_compute_stereo_views(
+			&raw_left, &raw_right,
+			&nominal, &screen, &disp_tunables,
+			scene_xform.enabled ? &scene_pose : NULL,
+			0.01f, 100.0f,
+			&disp_left, &disp_right);
+
+		views[0].fov = disp_left.fov;
+		views[1].fov = disp_right.fov;
+		views[0].pose.position = disp_left.eye_world;
+		views[1].pose.position = disp_right.eye_world;
+		views[0].pose.orientation = scene_pose.orientation;
+		views[1].pose.orientation = scene_pose.orientation;
 	}
 
 	// Debug: log every 60 frames (AFTER writeback so we see final values)
@@ -163,7 +208,7 @@ hooked_xrLocateViews(XrSession session,
 		float l_hfov = (views[0].fov.angleRight - views[0].fov.angleLeft) * 57.2958f;
 		float l_vfov = (views[0].fov.angleUp - views[0].fov.angleDown) * 57.2958f;
 		fprintf(stderr,
-		        "[Monado3D] FINAL: cam_centric=%d "
+		        "[Monado3D] FINALv2: cam_centric=%d "
 		        "pos_L=(%.4f,%.4f,%.4f) pos_R=(%.4f,%.4f,%.4f) "
 		        "fov_L=(%.2f,%.2f,%.2f,%.2f)deg hfov=%.1f vfov=%.1f "
 		        "ori_L=(%.3f,%.3f,%.3f,%.3f)\n",
@@ -616,7 +661,7 @@ void
 monado3d_set_tunables(float ipd_factor,
                       float parallax_factor,
                       float perspective_factor,
-                      float scale_factor,
+                      float virtual_display_height,
                       float convergence_distance,
                       float fov_override,
                       int camera_centric)
@@ -625,7 +670,7 @@ monado3d_set_tunables(float ipd_factor,
 	t.ipd_factor = ipd_factor;
 	t.parallax_factor = parallax_factor;
 	t.perspective_factor = perspective_factor;
-	t.scale_factor = scale_factor;
+	t.virtual_display_height = virtual_display_height;
 	t.convergence_distance = convergence_distance;
 	t.fov_override = fov_override;
 	t.camera_centric = camera_centric ? 1 : 0;
@@ -702,7 +747,9 @@ monado3d_set_scene_transform(float pos_x,
                              float ori_y,
                              float ori_z,
                              float ori_w,
-                             float zoom_scale,
+                             float scale_x,
+                             float scale_y,
+                             float scale_z,
                              int enabled)
 {
 	Monado3DSceneTransform t;
@@ -713,9 +760,24 @@ monado3d_set_scene_transform(float pos_x,
 	t.orientation[1] = ori_y;
 	t.orientation[2] = ori_z;
 	t.orientation[3] = ori_w;
-	t.zoom_scale = zoom_scale;
+	t.scale[0] = scale_x;
+	t.scale[1] = scale_y;
+	t.scale[2] = scale_z;
 	t.enabled = enabled ? 1 : 0;
 	monado3d_state_set_scene_transform(&t);
+}
+
+void
+monado3d_get_stereo_matrices(float *left_view, float *left_proj,
+                              float *right_view, float *right_proj,
+                              int *valid)
+{
+	Monado3DStereoMatrices mats = monado3d_state_get_stereo_matrices();
+	memcpy(left_view, mats.left_view, sizeof(float) * 16);
+	memcpy(left_proj, mats.left_projection, sizeof(float) * 16);
+	memcpy(right_view, mats.right_view, sizeof(float) * 16);
+	memcpy(right_proj, mats.right_projection, sizeof(float) * 16);
+	*valid = mats.valid;
 }
 
 void

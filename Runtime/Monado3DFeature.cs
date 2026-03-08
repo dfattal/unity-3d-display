@@ -229,7 +229,7 @@ namespace Monado.Display3D
                 tunables.ipdFactor,
                 tunables.parallaxFactor,
                 tunables.perspectiveFactor,
-                tunables.scaleFactor,
+                tunables.virtualDisplayHeight,
                 tunables.convergenceDistance,
                 tunables.fovOverride,
                 tunables.cameraCentricMode ? 1 : 0);
@@ -290,6 +290,47 @@ namespace Monado.Display3D
             IsEyeTracked = tracked != 0;
         }
 
+        // Reusable buffers for stereo matrix retrieval
+        private float[] m_LeftView = new float[16];
+        private float[] m_LeftProj = new float[16];
+        private float[] m_RightView = new float[16];
+        private float[] m_RightProj = new float[16];
+
+        /// <summary>
+        /// Get the Kooima stereo matrices computed by the native library.
+        /// Returns true if valid matrices are available.
+        /// Matrices are column-major, OpenXR/OpenGL convention (right-hand, -Z forward,
+        /// Z clip range [-1,1]). Caller must convert to Unity convention.
+        /// </summary>
+        public bool GetStereoMatrices(out Matrix4x4 leftView, out Matrix4x4 leftProj,
+                                       out Matrix4x4 rightView, out Matrix4x4 rightProj)
+        {
+            leftView = leftProj = rightView = rightProj = Matrix4x4.identity;
+            if (!m_HooksInstalled) return false;
+
+            Monado3DNative.monado3d_get_stereo_matrices(
+                m_LeftView, m_LeftProj, m_RightView, m_RightProj, out int valid);
+
+            if (valid == 0) return false;
+
+            leftView = FloatsToMatrix(m_LeftView);
+            leftProj = FloatsToMatrix(m_LeftProj);
+            rightView = FloatsToMatrix(m_RightView);
+            rightProj = FloatsToMatrix(m_RightProj);
+            return true;
+        }
+
+        private static Matrix4x4 FloatsToMatrix(float[] m)
+        {
+            // Column-major float[16] → Unity Matrix4x4 (also column-major)
+            var mat = new Matrix4x4();
+            mat.m00 = m[0];  mat.m10 = m[1];  mat.m20 = m[2];  mat.m30 = m[3];
+            mat.m01 = m[4];  mat.m11 = m[5];  mat.m21 = m[6];  mat.m31 = m[7];
+            mat.m02 = m[8];  mat.m12 = m[9];  mat.m22 = m[10]; mat.m32 = m[11];
+            mat.m03 = m[12]; mat.m13 = m[13]; mat.m23 = m[14]; mat.m33 = m[15];
+            return mat;
+        }
+
         /// <summary>
         /// Set the scene transform applied to raw eye positions before Kooima computation.
         /// This is the "parent camera pose" from the Unity scene hierarchy.
@@ -300,16 +341,16 @@ namespace Monado.Display3D
         /// </summary>
         /// <param name="position">Translation offset in display space (meters).</param>
         /// <param name="orientation">Rotation quaternion applied to eye positions.</param>
-        /// <param name="zoomScale">Zoom scale: eye positions divided by this before Kooima. 1.0 = no zoom.</param>
+        /// <param name="scale">Transform scale: spatial coordinates divided by this. (1,1,1) = no scaling.</param>
         /// <param name="enabled">Whether to apply the transform.</param>
-        public void SetSceneTransform(Vector3 position, Quaternion orientation, float zoomScale = 1.0f, bool enabled = true)
+        public void SetSceneTransform(Vector3 position, Quaternion orientation, Vector3 scale, bool enabled = true)
         {
             if (!m_HooksInstalled) return;
 
             Monado3DNative.monado3d_set_scene_transform(
                 position.x, position.y, position.z,
                 orientation.x, orientation.y, orientation.z, orientation.w,
-                zoomScale,
+                scale.x, scale.y, scale.z,
                 enabled ? 1 : 0);
         }
 

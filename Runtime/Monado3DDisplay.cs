@@ -6,10 +6,10 @@ using UnityEngine;
 namespace Monado.Display3D
 {
     /// <summary>
-    /// Display-centric stereo rig. Attach to a Camera whose transform represents the
-    /// virtual display pose (position and orientation of the display surface).
-    /// The camera's vertical FOV is ignored — the display's physical size and
-    /// scaleFactor determine the frustum. Eyes move around the display based on tracking.
+    /// Display-centric stereo rig. Attach to a Camera whose parent transform represents
+    /// the virtual display pose (position and orientation of the display surface).
+    /// The camera's FOV is ignored — the display's physical geometry and virtualDisplayHeight
+    /// determine the frustum. Eyes move around the display based on tracking.
     /// </summary>
     [AddComponentMenu("Monado3D/Display-Centric Rig")]
     [DisallowMultipleComponent]
@@ -26,13 +26,12 @@ namespace Monado.Display3D
         [Range(0f, 3f)]
         public float parallaxFactor = 1.0f;
 
-        [Tooltip("Scales eye Z only (depth intensity without changing baseline). 1.0 = natural.")]
+        [Tooltip("Scales perceived depth. 1.0 = natural perspective.")]
         [Range(0f, 3f)]
         public float perspectiveFactor = 1.0f;
 
-        [Tooltip("Virtual display size relative to physical. 1.0 = match physical display.")]
-        [Range(0.1f, 5f)]
-        public float scaleFactor = 1.0f;
+        [Tooltip("Virtual display height in meters. 0 = use physical display height.")]
+        public float virtualDisplayHeight = 0f;
 
         [Header("Debug")]
 
@@ -59,13 +58,20 @@ namespace Monado.Display3D
                 if (m_Feature == null) return;
             }
 
+            // Resolve virtualDisplayHeight: 0 means use physical display height
+            float vdh = virtualDisplayHeight;
+            if (vdh <= 0f && m_Feature.DisplayInfo.isValid)
+            {
+                vdh = m_Feature.DisplayInfo.displayHeightMeters;
+            }
+
             // Push tunables to native plugin — affects next xrLocateViews
             var tunables = new Monado3DTunables
             {
                 ipdFactor = ipdFactor,
                 parallaxFactor = parallaxFactor,
                 perspectiveFactor = perspectiveFactor,
-                scaleFactor = scaleFactor,
+                virtualDisplayHeight = vdh,
                 convergenceDistance = 0f,
                 fovOverride = 0f,
                 cameraCentricMode = false,
@@ -73,13 +79,12 @@ namespace Monado.Display3D
 
             m_Feature.SetTunables(tunables);
 
-            // Push scene transform: this component's world pose maps the virtual display
-            // into the scene. The scene transform tells the native plugin how to position
-            // the raw LOCAL-space eye positions relative to this virtual display.
+            // Push scene transform: parent camera's world pose is the display pose.
+            // Transform scale acts as zoom: scale > 1 zooms in (display appears bigger).
             m_Feature.SetSceneTransform(
                 transform.position,
                 transform.rotation,
-                zoomScale: 1.0f,
+                transform.lossyScale,
                 enabled: true);
 
             // Refresh eye positions for debug/UI
@@ -97,8 +102,11 @@ namespace Monado.Display3D
         {
             // Draw display plane in editor
             var info = Monado3DFeature.Instance?.DisplayInfo ?? default;
-            float w = info.isValid ? info.displayWidthMeters * scaleFactor : 0.3f * scaleFactor;
-            float h = info.isValid ? info.displayHeightMeters * scaleFactor : 0.2f * scaleFactor;
+            float h = virtualDisplayHeight > 0 ? virtualDisplayHeight
+                     : (info.isValid ? info.displayHeightMeters : 0.2f);
+            float w = info.isValid
+                ? info.displayWidthMeters * (h / info.displayHeightMeters)
+                : h * 1.5f;
 
             Gizmos.color = new Color(0.2f, 0.8f, 1.0f, 0.3f);
             Gizmos.matrix = transform.localToWorldMatrix;
