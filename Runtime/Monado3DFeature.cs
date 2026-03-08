@@ -225,12 +225,15 @@ namespace Monado.Display3D
         {
             if (!m_HooksInstalled) return;
 
+            // For camera-centric mode, fovOverride is already half_tan_vfov
+            // (C# computes Mathf.Tan(fov_rad * 0.5f) before setting it).
+            // For display-centric mode, fovOverride is unused (0).
             Monado3DNative.monado3d_set_tunables(
                 tunables.ipdFactor,
                 tunables.parallaxFactor,
                 tunables.perspectiveFactor,
                 tunables.virtualDisplayHeight,
-                tunables.convergenceDistance,
+                tunables.invConvergenceDistance,
                 tunables.fovOverride,
                 tunables.cameraCentricMode ? 1 : 0);
         }

@@ -33,10 +33,10 @@ namespace Monado.Display3D
         public float virtualDisplayHeight;
 
         /// <summary>
-        /// Override convergence distance in meters. 0 = use nominalViewerZ from display info.
-        /// Used by camera-centric mode.
+        /// Inverse convergence distance (1/meters). 0 = infinity (parallel projection).
+        /// Higher values = screen plane closer to camera. Used by camera-centric mode.
         /// </summary>
-        public float convergenceDistance;
+        public float invConvergenceDistance;
 
         /// <summary>
         /// Override FOV in radians. 0 = compute from display geometry.
@@ -57,7 +57,7 @@ namespace Monado.Display3D
             parallaxFactor = 1.0f,
             perspectiveFactor = 1.0f,
             virtualDisplayHeight = 0.0f,
-            convergenceDistance = 0.0f,
+            invConvergenceDistance = 0.0f,
             fovOverride = 0.0f,
             cameraCentricMode = false,
         };

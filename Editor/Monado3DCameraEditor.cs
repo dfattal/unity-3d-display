@@ -12,16 +12,14 @@ namespace Monado.Display3D.Editor
     {
         private SerializedProperty m_IpdFactor;
         private SerializedProperty m_ParallaxFactor;
-        private SerializedProperty m_ConvergenceDistance;
-        private SerializedProperty m_FieldOfView;
+        private SerializedProperty m_InvConvergenceDistance;
         private SerializedProperty m_LogEyeTracking;
 
         void OnEnable()
         {
             m_IpdFactor = serializedObject.FindProperty("ipdFactor");
             m_ParallaxFactor = serializedObject.FindProperty("parallaxFactor");
-            m_ConvergenceDistance = serializedObject.FindProperty("convergenceDistance");
-            m_FieldOfView = serializedObject.FindProperty("fieldOfView");
+            m_InvConvergenceDistance = serializedObject.FindProperty("invConvergenceDistance");
             m_LogEyeTracking = serializedObject.FindProperty("logEyeTracking");
         }
 
@@ -31,8 +29,8 @@ namespace Monado.Display3D.Editor
 
             EditorGUILayout.HelpBox(
                 "Camera-Centric mode: the camera's transform is the viewer pose and its " +
-                "vertical FOV is the rendering FOV. Convergence distance sets the screen plane depth. " +
-                "Best for first-person and free-camera setups.",
+                "vertical FOV is the rendering FOV. Inverse convergence distance controls " +
+                "the screen plane depth. Best for first-person and free-camera setups.",
                 MessageType.Info);
 
             DrawDisplayInfoBox();
@@ -46,41 +44,25 @@ namespace Monado.Display3D.Editor
                 new GUIContent("Parallax Factor", "Scales eye offset from viewing center."));
 
             EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Camera-Centric Parameters", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Convergence", EditorStyles.boldLabel);
 
-            EditorGUILayout.PropertyField(m_ConvergenceDistance,
-                new GUIContent("Convergence Distance",
-                    "Distance to virtual screen plane (meters). Auto-set from display info."));
+            EditorGUILayout.PropertyField(m_InvConvergenceDistance,
+                new GUIContent("Inv. Convergence Distance",
+                    "1/meters. 0 = infinity (parallel projection). Higher = screen closer."));
 
-            // Show diopters alongside meters
-            float dist = m_ConvergenceDistance.floatValue;
-            if (dist > 0.01f)
+            // Show distance in parenthesis
+            float invd = m_InvConvergenceDistance.floatValue;
+            EditorGUI.indentLevel++;
+            if (invd > 0.001f)
             {
-                float diopters = 1.0f / dist;
-                EditorGUI.indentLevel++;
-                EditorGUILayout.LabelField(" ", $"{dist:F2} m  ({diopters:F1} dpt)");
-                EditorGUI.indentLevel--;
+                float dist = 1.0f / invd;
+                EditorGUILayout.LabelField(" ", $"({dist:F2} m)");
             }
-
-            // Show computed FOV when auto-computing
-            if (m_FieldOfView.floatValue <= 0f)
+            else
             {
-                var feature = Monado3DFeature.Instance;
-                if (feature != null && feature.DisplayInfo.isValid)
-                {
-                    var info = feature.DisplayInfo;
-                    float halfW = info.displayWidthMeters * 0.5f;
-                    float nz = info.nominalViewerZ > 0.01f ? info.nominalViewerZ : 0.5f;
-                    float ratio = m_ConvergenceDistance.floatValue / nz;
-                    float virtualHalfW = halfW * ratio;
-                    float computedFov = Mathf.Atan2(virtualHalfW, m_ConvergenceDistance.floatValue) * 2f * Mathf.Rad2Deg;
-                    EditorGUILayout.LabelField("Computed FOV", $"{computedFov:F1} deg (auto)");
-                }
+                EditorGUILayout.LabelField(" ", "(\u221E)");
             }
-
-            EditorGUILayout.PropertyField(m_FieldOfView,
-                new GUIContent("FOV Override",
-                    "Field of view in degrees. 0 = auto-compute from convergence + display."));
+            EditorGUI.indentLevel--;
 
             EditorGUILayout.Space();
             EditorGUILayout.PropertyField(m_LogEyeTracking);
@@ -91,8 +73,7 @@ namespace Monado.Display3D.Editor
             {
                 m_IpdFactor.floatValue = 1.0f;
                 m_ParallaxFactor.floatValue = 1.0f;
-                m_ConvergenceDistance.floatValue = 0.5f;
-                m_FieldOfView.floatValue = 0f;
+                m_InvConvergenceDistance.floatValue = 0f;
             }
 
             // Runtime info

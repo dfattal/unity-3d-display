@@ -72,7 +72,7 @@ namespace Monado.Display3D
                 parallaxFactor = parallaxFactor,
                 perspectiveFactor = perspectiveFactor,
                 virtualDisplayHeight = vdh,
-                convergenceDistance = 0f,
+                invConvergenceDistance = 0f,
                 fovOverride = 0f,
                 cameraCentricMode = false,
             };
