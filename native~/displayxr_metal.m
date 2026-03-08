@@ -1,4 +1,4 @@
-// Copyright 2024-2026, Monado 3D Display contributors
+// Copyright 2024-2026, DisplayXR contributors
 // SPDX-License-Identifier: BSL-1.0
 //
 // IOSurface creation/destruction for zero-copy GPU texture sharing on macOS.
@@ -8,8 +8,8 @@
 #include <IOSurface/IOSurface.h>
 #include <CoreFoundation/CoreFoundation.h>
 
-#include "monado3d_metal.h"
-#include "monado3d_shared_state.h"
+#include "displayxr_metal.h"
+#include "displayxr_shared_state.h"
 
 // BGRA FourCC as uint32_t: 'B'<<24 | 'G'<<16 | 'R'<<8 | 'A'
 #define PIXEL_FORMAT_BGRA 0x42475241
@@ -26,10 +26,10 @@ cf_dict_set_int(CFMutableDictionaryRef dict, CFStringRef key, int32_t value)
 }
 
 int
-monado3d_metal_create_shared_surface(uint32_t width, uint32_t height)
+displayxr_metal_create_shared_surface(uint32_t width, uint32_t height)
 {
 	// Release any existing surface
-	monado3d_metal_destroy_shared_surface();
+	displayxr_metal_destroy_shared_surface();
 
 	uint32_t bytes_per_element = 4; // BGRA8
 	uint32_t bytes_per_row = width * bytes_per_element;
@@ -66,14 +66,14 @@ monado3d_metal_create_shared_surface(uint32_t width, uint32_t height)
 		s_shared_texture = [device newTextureWithDescriptor:desc
 		    iosurface:s_shared_surface plane:0];
 		if (s_shared_texture == nil) {
-			fprintf(stderr, "[Monado3D] Failed to create MTLTexture from IOSurface\n");
+			fprintf(stderr, "[DisplayXR] Failed to create MTLTexture from IOSurface\n");
 		}
 	} else {
-		fprintf(stderr, "[Monado3D] Failed to get default Metal device\n");
+		fprintf(stderr, "[DisplayXR] Failed to get default Metal device\n");
 	}
 
 	// Store in shared state
-	Monado3DState *state = monado3d_get_state();
+	DisplayXRState *state = displayxr_get_state();
 	state->shared_iosurface = (void *)s_shared_surface;
 	state->shared_texture_width = width;
 	state->shared_texture_height = height;
@@ -83,9 +83,9 @@ monado3d_metal_create_shared_surface(uint32_t width, uint32_t height)
 }
 
 void
-monado3d_metal_destroy_shared_surface(void)
+displayxr_metal_destroy_shared_surface(void)
 {
-	Monado3DState *state = monado3d_get_state();
+	DisplayXRState *state = displayxr_get_state();
 
 	s_shared_texture = nil; // ARC releases the Metal texture
 
@@ -101,13 +101,13 @@ monado3d_metal_destroy_shared_surface(void)
 }
 
 void *
-monado3d_metal_get_iosurface(void)
+displayxr_metal_get_iosurface(void)
 {
 	return (void *)s_shared_surface;
 }
 
 void *
-monado3d_metal_get_texture(void)
+displayxr_metal_get_texture(void)
 {
 	return (__bridge void *)s_shared_texture;
 }

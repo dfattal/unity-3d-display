@@ -1,24 +1,24 @@
-// Copyright 2024-2026, Monado 3D Display contributors
+// Copyright 2024-2026, DisplayXR contributors
 // SPDX-License-Identifier: BSL-1.0
 
-#include "monado3d_shared_state.h"
+#include "displayxr_shared_state.h"
 #include <string.h>
 #include <atomic>
 
-static Monado3DState s_state = {};
+static DisplayXRState s_state = {};
 static std::atomic<int> s_tunables_write_idx{1};
 static std::atomic<int> s_eyes_write_idx{1};
 static std::atomic<int> s_scene_transform_write_idx{1};
 static std::atomic<int> s_stereo_matrices_write_idx{1};
 
-Monado3DState *
-monado3d_get_state(void)
+DisplayXRState *
+displayxr_get_state(void)
 {
 	return &s_state;
 }
 
 void
-monado3d_state_init(void)
+displayxr_state_init(void)
 {
 	memset(&s_state, 0, sizeof(s_state));
 
@@ -63,7 +63,7 @@ monado3d_state_init(void)
 }
 
 void
-monado3d_state_set_tunables(const Monado3DTunables *t)
+displayxr_state_set_tunables(const DisplayXRTunables *t)
 {
 	// Write to the non-read buffer, then swap
 	int write_idx = s_tunables_write_idx.load(std::memory_order_relaxed);
@@ -76,15 +76,15 @@ monado3d_state_set_tunables(const Monado3DTunables *t)
 	s_tunables_write_idx.store(new_write, std::memory_order_release);
 }
 
-Monado3DTunables
-monado3d_state_get_tunables(void)
+DisplayXRTunables
+displayxr_state_get_tunables(void)
 {
 	int idx = s_state.tunables_read_idx;
 	return s_state.tunables[idx];
 }
 
 void
-monado3d_state_set_eye_positions(const XrVector3f *left, const XrVector3f *right, uint8_t tracked)
+displayxr_state_set_eye_positions(const XrVector3f *left, const XrVector3f *right, uint8_t tracked)
 {
 	int write_idx = s_eyes_write_idx.load(std::memory_order_relaxed);
 	s_state.eye_positions[write_idx].left_eye = *left;
@@ -97,15 +97,15 @@ monado3d_state_set_eye_positions(const XrVector3f *left, const XrVector3f *right
 	s_eyes_write_idx.store(new_write, std::memory_order_release);
 }
 
-Monado3DEyePositions
-monado3d_state_get_eye_positions(void)
+DisplayXREyePositions
+displayxr_state_get_eye_positions(void)
 {
 	int idx = s_state.eyes_read_idx;
 	return s_state.eye_positions[idx];
 }
 
 void
-monado3d_state_set_scene_transform(const Monado3DSceneTransform *t)
+displayxr_state_set_scene_transform(const DisplayXRSceneTransform *t)
 {
 	int write_idx = s_scene_transform_write_idx.load(std::memory_order_relaxed);
 	s_state.scene_transform[write_idx] = *t;
@@ -116,15 +116,15 @@ monado3d_state_set_scene_transform(const Monado3DSceneTransform *t)
 	s_scene_transform_write_idx.store(new_write, std::memory_order_release);
 }
 
-Monado3DSceneTransform
-monado3d_state_get_scene_transform(void)
+DisplayXRSceneTransform
+displayxr_state_get_scene_transform(void)
 {
 	int idx = s_state.scene_transform_read_idx;
 	return s_state.scene_transform[idx];
 }
 
 void
-monado3d_state_set_stereo_matrices(const Monado3DStereoMatrices *m)
+displayxr_state_set_stereo_matrices(const DisplayXRStereoMatrices *m)
 {
 	int write_idx = s_stereo_matrices_write_idx.load(std::memory_order_relaxed);
 	s_state.stereo_matrices[write_idx] = *m;
@@ -135,8 +135,8 @@ monado3d_state_set_stereo_matrices(const Monado3DStereoMatrices *m)
 	s_stereo_matrices_write_idx.store(new_write, std::memory_order_release);
 }
 
-Monado3DStereoMatrices
-monado3d_state_get_stereo_matrices(void)
+DisplayXRStereoMatrices
+displayxr_state_get_stereo_matrices(void)
 {
 	int idx = s_state.stereo_matrices_read_idx;
 	return s_state.stereo_matrices[idx];

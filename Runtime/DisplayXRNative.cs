@@ -1,30 +1,30 @@
-// Copyright 2024-2026, Monado 3D Display contributors
+// Copyright 2024-2026, DisplayXR contributors
 // SPDX-License-Identifier: BSL-1.0
 
 using System;
 using System.Runtime.InteropServices;
 
-namespace Monado.Display3D
+namespace DisplayXR
 {
     /// <summary>
-    /// P/Invoke bindings to the monado3d_unity native plugin.
+    /// P/Invoke bindings to the displayxr_unity native plugin.
     /// </summary>
-    internal static class Monado3DNative
+    internal static class DisplayXRNative
     {
-        private const string LibName = "monado3d_unity";
+        private const string LibName = "displayxr_unity";
 
         /// <summary>
         /// Install OpenXR hook chain. Called once with the next xrGetInstanceProcAddr.
         /// Returns our hook function pointer.
         /// </summary>
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern IntPtr monado3d_install_hooks(IntPtr nextGetInstanceProcAddr);
+        internal static extern IntPtr displayxr_install_hooks(IntPtr nextGetInstanceProcAddr);
 
         /// <summary>
         /// Set stereo rig tunables from game thread.
         /// </summary>
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void monado3d_set_tunables(
+        internal static extern void displayxr_set_tunables(
             float ipdFactor,
             float parallaxFactor,
             float perspectiveFactor,
@@ -39,7 +39,7 @@ namespace Monado.Display3D
         /// Get display info queried from runtime via XR_EXT_display_info.
         /// </summary>
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void monado3d_get_display_info(
+        internal static extern void displayxr_get_display_info(
             out float displayWidthM,
             out float displayHeightM,
             out uint pixelWidth,
@@ -56,7 +56,7 @@ namespace Monado.Display3D
         /// Get raw eye positions from last xrLocateViews call.
         /// </summary>
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void monado3d_get_eye_positions(
+        internal static extern void displayxr_get_eye_positions(
             out float lx, out float ly, out float lz,
             out float rx, out float ry, out float rz,
             out int isTracked);
@@ -66,7 +66,7 @@ namespace Monado.Display3D
         /// Chain: raw eyes → scene transform → tunables → Kooima.
         /// </summary>
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void monado3d_set_scene_transform(
+        internal static extern void displayxr_set_scene_transform(
             float posX, float posY, float posZ,
             float oriX, float oriY, float oriZ, float oriW,
             float scaleX, float scaleY, float scaleZ,
@@ -76,7 +76,7 @@ namespace Monado.Display3D
         /// Set the window handle for session creation (HWND on Win32, NSView* on macOS).
         /// </summary>
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void monado3d_set_window_handle(IntPtr handle);
+        internal static extern void displayxr_set_window_handle(IntPtr handle);
 
         /// <summary>
         /// Request 2D or 3D display mode.
@@ -84,7 +84,7 @@ namespace Monado.Display3D
         /// <param name="mode3d">1 for 3D mode, 0 for 2D mode.</param>
         /// <returns>1 on success, 0 on failure or not supported.</returns>
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern int monado3d_request_display_mode(int mode3d);
+        internal static extern int displayxr_request_display_mode(int mode3d);
 
         /// <summary>
         /// Get the Kooima stereo view and projection matrices computed by the native library.
@@ -93,7 +93,7 @@ namespace Monado.Display3D
         /// Matrices are column-major, OpenXR/OpenGL convention.
         /// </summary>
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void monado3d_get_stereo_matrices(
+        internal static extern void displayxr_get_stereo_matrices(
             [MarshalAs(UnmanagedType.LPArray, SizeConst = 16)] float[] leftView,
             [MarshalAs(UnmanagedType.LPArray, SizeConst = 16)] float[] leftProj,
             [MarshalAs(UnmanagedType.LPArray, SizeConst = 16)] float[] rightView,
@@ -104,7 +104,7 @@ namespace Monado.Display3D
         /// Get readback pixel data from offscreen rendering.
         /// </summary>
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void monado3d_get_readback(
+        internal static extern void displayxr_get_readback(
             out IntPtr pixels,
             out uint width,
             out uint height,
@@ -115,25 +115,25 @@ namespace Monado.Display3D
         /// Returns IOSurfaceRef on macOS, HANDLE on Windows, or IntPtr.Zero if not supported.
         /// </summary>
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern IntPtr monado3d_create_shared_texture(uint width, uint height);
+        internal static extern IntPtr displayxr_create_shared_texture(uint width, uint height);
 
         /// <summary>
         /// Destroy the shared GPU texture resources.
         /// </summary>
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void monado3d_destroy_shared_texture();
+        internal static extern void displayxr_destroy_shared_texture();
 
         /// <summary>
         /// Get shared texture info (native pointer, dimensions, ready flag).
         /// </summary>
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void monado3d_get_shared_texture(
+        internal static extern void displayxr_get_shared_texture(
             out IntPtr nativePtr, out uint width, out uint height, out int ready);
 
         /// <summary>
         /// Kill xrPollEvent forwarding. Call before session/instance teardown.
         /// </summary>
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void monado3d_stop_polling();
+        internal static extern void displayxr_stop_polling();
     }
 }

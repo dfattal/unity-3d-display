@@ -1,4 +1,4 @@
-// Copyright 2025-2026, Monado 3D Display contributors
+// Copyright 2025-2026, DisplayXR contributors
 // SPDX-License-Identifier: BSL-1.0
 /*!
  * @file

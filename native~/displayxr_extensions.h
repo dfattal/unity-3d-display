@@ -1,7 +1,7 @@
-// Copyright 2024-2026, Monado 3D Display contributors
+// Copyright 2024-2026, DisplayXR contributors
 // SPDX-License-Identifier: BSL-1.0
 //
-// Custom OpenXR extension constants and structs for Monado 3D display support.
+// Custom OpenXR extension constants and structs for DisplayXR support.
 // These mirror the definitions in the CNSDK-OpenXR extension headers.
 
 #pragma once

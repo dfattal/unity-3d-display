@@ -1,9 +1,9 @@
-// Copyright 2026, Monado 3D Display contributors
+// Copyright 2026, DisplayXR contributors
 // SPDX-License-Identifier: BSL-1.0
 
 using UnityEngine;
 
-namespace Monado.Display3D.Samples
+namespace DisplayXR.Samples
 {
     /// <summary>
     /// Creates a rotating crate on a grid floor with a directional light.
@@ -118,7 +118,7 @@ namespace Monado.Display3D.Samples
             }
 #endif
 
-            Debug.LogWarning("[Monado3D] Crate texture not found. Using solid color fallback.");
+            Debug.LogWarning("[DisplayXR] Crate texture not found. Using solid color fallback.");
             return null;
         }
     }

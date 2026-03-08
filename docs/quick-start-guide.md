@@ -33,7 +33,7 @@ Step-by-step walkthrough: install the plugin, build two demo scenes, test both s
 |-------------|---------|
 | **Unity** | 2022.3 LTS or later (including Unity 6). Install via [Unity Hub](https://unity.com/download). |
 | **Build Support Modules** | In Unity Hub, add modules for your target platform(s): **Windows Build Support (Mono)** and/or **macOS Build Support (Mono)**. |
-| **Monado Runtime** | Either a hardware-connected runtime from [openxr-3d-display](https://github.com/dfattal/openxr-3d-display), or the sim_display driver for testing without hardware. |
+| **DisplayXR Runtime** | Either a hardware-connected runtime from [openxr-3d-display](https://github.com/dfattal/openxr-3d-display), or the sim_display driver for testing without hardware. |
 
 You do **not** need a 3D display to complete this guide — the sim_display driver provides a software display for development.
 
@@ -57,7 +57,7 @@ You do **not** need a 3D display to complete this guide — the sim_display driv
    cmake .. -DCMAKE_BUILD_TYPE=Release
    cmake --build . --config Release
    ```
-   This produces `Runtime/Plugins/macOS/monado3d_unity.bundle`.
+   This produces `Runtime/Plugins/macOS/displayxr_unity.bundle`.
 
 4. In Unity: **Window > Package Manager**.
 
@@ -65,7 +65,7 @@ You do **not** need a 3D display to complete this guide — the sim_display driv
 
 6. Navigate to the cloned `unity-3d-display/package.json` and select it.
 
-7. The package appears as **Monado 3D Display** in the Package Manager list.
+7. The package appears as **DisplayXR** in the Package Manager list.
 
 > **After a release is published:** Once a `v*` tag has been pushed (creating the `upm` branch with pre-built binaries), you can skip the clone/build steps and install directly via git URL: **Add package from git URL...** → `https://github.com/dfattal/unity-3d-display.git#upm`. See the [README](../README.md#installing-the-plugin) for all install methods.
 
@@ -85,13 +85,13 @@ You do **not** need a 3D display to complete this guide — the sim_display driv
    cmake .. -A x64 -DCMAKE_BUILD_TYPE=Release
    cmake --build . --config Release
    ```
-   This produces `Runtime\Plugins\Windows\x64\monado3d_unity.dll`.
+   This produces `Runtime\Plugins\Windows\x64\displayxr_unity.dll`.
 
 4. In Unity: **Window > Package Manager > + > Add package from disk...**
 
 5. Select the cloned `unity-3d-display\package.json`.
 
-6. The package appears as **Monado 3D Display**.
+6. The package appears as **DisplayXR**.
 
 > **Note:** If your machine doesn't have `git` on PATH, install [Git for Windows](https://git-scm.com/download/win) first.
 >
@@ -110,9 +110,9 @@ This step is the same on both platforms:
 
 3. Under **OpenXR**, expand the **Features** list (or click the gear icon next to OpenXR).
 
-4. Check **Monado 3D Display**.
+4. Check **DisplayXR**.
 
-5. Verify by scrolling to **Project Settings > XR Plug-in Management > OpenXR > Monado 3D Display** — you should see a status panel showing whether `XR_RUNTIME_JSON` is configured.
+5. Verify by scrolling to **Project Settings > XR Plug-in Management > OpenXR > DisplayXR** — you should see a status panel showing whether `XR_RUNTIME_JSON` is configured.
 
 ---
 
@@ -125,8 +125,8 @@ You need an OpenXR runtime active for the plugin to connect. For development wit
 Open Terminal **before** launching Unity (environment variables must be set in the process that spawns Unity):
 
 ```bash
-# Point to your Monado runtime build
-export XR_RUNTIME_JSON=/path/to/SRMonado-macOS/share/openxr/1/openxr_monado.json
+# Point to your DisplayXR runtime build
+export XR_RUNTIME_JSON=/path/to/SRDisplayXR-macOS/share/openxr/1/openxr_displayxr.json
 
 # Enable simulated display (skip if you have real hardware)
 export SIM_DISPLAY_ENABLE=1
@@ -144,7 +144,7 @@ Open Command Prompt or PowerShell **before** launching Unity:
 
 **Command Prompt:**
 ```cmd
-set XR_RUNTIME_JSON=C:\path\to\openxr_monado-dev.json
+set XR_RUNTIME_JSON=C:\path\to\openxr_displayxr-dev.json
 
 set SIM_DISPLAY_ENABLE=1
 set SIM_DISPLAY_OUTPUT=sbs
@@ -154,14 +154,14 @@ start "" "C:\Program Files\Unity Hub\Unity Hub.exe"
 
 **PowerShell:**
 ```powershell
-$env:XR_RUNTIME_JSON = "C:\path\to\openxr_monado-dev.json"
+$env:XR_RUNTIME_JSON = "C:\path\to\openxr_displayxr-dev.json"
 $env:SIM_DISPLAY_ENABLE = "1"
 $env:SIM_DISPLAY_OUTPUT = "sbs"
 
 & "C:\Program Files\Unity Hub\Unity Hub.exe"
 ```
 
-> **Tip:** On Windows, if the Monado runtime was installed system-wide via `SRMonadoInstaller.exe`, you don't need to set `XR_RUNTIME_JSON` — it's already registered.
+> **Tip:** On Windows, if the DisplayXR runtime was installed system-wide via `SRDisplayXRInstaller.exe`, you don't need to set `XR_RUNTIME_JSON` — it's already registered.
 
 ---
 
@@ -171,10 +171,10 @@ Camera-centric mode works like a standard Unity camera with added stereo. This i
 
 ### Use the built-in sample
 
-1. Open **Window > Package Manager > Monado 3D Display**.
+1. Open **Window > Package Manager > DisplayXR**.
 2. Expand the **Samples** section and click **Import** next to **Basic Scene**.
-3. Open the imported scene at `Assets/Samples/Monado 3D Display/0.1.0/Basic Scene/BasicScene.unity`.
-4. The Main Camera already has a **Monado3DCamera** component.
+3. Open the imported scene at `Assets/Samples/DisplayXR/0.1.0/Basic Scene/BasicScene.unity`.
+4. The Main Camera already has a **DisplayXRCamera** component.
 
 ### Or build it from scratch
 
@@ -184,7 +184,7 @@ This takes about 5 minutes and teaches you the setup:
 
 2. Select **Main Camera** in the hierarchy.
 
-3. **Add Component > Monado3D > Camera-Centric Rig** (the `Monado3DCamera` component).
+3. **Add Component > DisplayXR > Camera-Centric Rig** (the `DisplayXRCamera` component).
 
 4. In the Inspector, you'll see:
    - A help box explaining camera-centric mode
@@ -198,7 +198,7 @@ This takes about 5 minutes and teaches you the setup:
 
    ```
    Hierarchy:
-     Main Camera          [Monado3DCamera] at (0, 0, 0)
+     Main Camera          [DisplayXRCamera] at (0, 0, 0)
      NearCube             Red cube at (−0.3, 0, 0.3)    — pops out
      MidCube              Green cube at (0, 0, 0.5)      — at screen plane
      FarCube              Blue cube at (0.3, 0, 1.0)     — recedes behind screen
@@ -228,7 +228,7 @@ Display-centric mode anchors a virtual display in the scene. The viewer looks "i
 
 ### Use the built-in sample
 
-1. Open **Window > Package Manager > Monado 3D Display**.
+1. Open **Window > Package Manager > DisplayXR**.
 2. Import the **Display Scene** sample.
 3. Follow the README in the imported folder to set up the hierarchy.
 
@@ -238,7 +238,7 @@ Display-centric mode anchors a virtual display in the scene. The viewer looks "i
 
 2. Select **Main Camera** in the hierarchy.
 
-3. **Add Component > Monado3D > Display-Centric Rig** (the `Monado3DDisplay` component).
+3. **Add Component > DisplayXR > Display-Centric Rig** (the `DisplayXRDisplay` component).
 
 4. Position Main Camera at `(0, 0, 0)` — this is now the virtual display's pose. The camera's transform represents where the display surface sits in the scene.
 
@@ -246,13 +246,13 @@ Display-centric mode anchors a virtual display in the scene. The viewer looks "i
 
    ```
    Hierarchy:
-     Main Camera          [Monado3DDisplay] at (0, 0, 0)
+     Main Camera          [DisplayXRDisplay] at (0, 0, 0)
      Crate                Textured cube at (0, 0.03, 0) — 0.06m, slowly rotating
      GroundGrid           Quad at (0, 0, 0) facing up — checker grid
      Directional Light
    ```
 
-   Or simply add `DisplaySceneSetup.cs` to any object — it creates all content programmatically, plus a second camera with `Monado3DCamera` for A/B comparison (press C to toggle).
+   Or simply add `DisplaySceneSetup.cs` to any object — it creates all content programmatically, plus a second camera with `DisplayXRCamera` for A/B comparison (press C to toggle).
 
 6. **Why this content suits display-centric mode:** The display is a fixed anchor in the scene — like a glass case on a table. Objects at the display's origin sit "at the glass." Objects in front pop out toward the viewer; objects behind recede into the case. The 3D effect is stable regardless of where the viewer stands, because depth is computed relative to the display, not the camera.
 
@@ -269,7 +269,7 @@ Display-centric mode anchors a virtual display in the scene. The viewer looks "i
 
 ## Step 6: Test in the Editor
 
-1. Verify the runtime is configured: **Project Settings > XR Plug-in Management > OpenXR > Monado 3D Display** should show either a connected display or the sim_display info.
+1. Verify the runtime is configured: **Project Settings > XR Plug-in Management > OpenXR > DisplayXR** should show either a connected display or the sim_display info.
 
 2. Open one of the demo scenes and press **Play**.
 
@@ -278,13 +278,13 @@ Display-centric mode anchors a virtual display in the scene. The viewer looks "i
 4. **With real hardware:** The runtime handles display output. The Game view may show a single eye or a composited view depending on the runtime configuration.
 
 5. **Editor Preview Window** (works without Play Mode):
-   - Open **Window > Monado3D > Preview Window**
+   - Open **Window > DisplayXR > Preview Window**
    - Select **SideBySide** mode for a stereo pair preview
    - This works without the runtime — useful for checking scene layout
 
 6. **Enable Log Eye Tracking** on either component to see per-frame eye positions in the Console:
    ```
-   [Monado3D] Eyes: L=(0.032, 0.001, 0.504), R=(-0.031, 0.001, 0.504), tracked=True
+   [DisplayXR] Eyes: L=(0.032, 0.001, 0.504), R=(-0.031, 0.001, 0.504), tracked=True
    ```
 
 ---
@@ -301,7 +301,7 @@ Display-centric mode anchors a virtual display in the scene. The viewer looks "i
 4. Add your demo scene(s) to the **Scenes In Build** list (drag from Project window or click **Add Open Scenes**).
 5. Click **Player Settings** and verify:
    - **XR Plug-in Management > Standalone**: OpenXR is checked
-   - **OpenXR > Features**: Monado 3D Display is checked
+   - **OpenXR > Features**: DisplayXR is checked
 6. Click **Build**. Choose an output folder (e.g., `Builds/Windows/`).
 7. Unity produces:
    ```
@@ -309,7 +309,7 @@ Display-centric mode anchors a virtual display in the scene. The viewer looks "i
      YourApp.exe                     ← main executable
      YourApp_Data/
        Plugins/x86_64/
-         monado3d_unity.dll          ← native plugin (auto-included)
+         displayxr_unity.dll          ← native plugin (auto-included)
      UnityPlayer.dll
      ...
    ```
@@ -328,7 +328,7 @@ The output is a standard `.exe` — no installer is needed for testing. For dist
    YourApp.app/
      Contents/
        Plugins/
-         libmonado3d_unity.dylib     ← native plugin (auto-included)
+         libdisplayxr_unity.dylib     ← native plugin (auto-included)
        MacOS/
          YourApp                     ← main executable
        ...
@@ -345,7 +345,7 @@ You can build a Windows `.exe` from the macOS editor:
 2. In Build Settings, set **Target Platform** to **Windows**, architecture **x86_64**.
 3. Build as normal. Unity includes the Windows DLL automatically.
 
-The resulting `.exe` must be run on a Windows machine with the Monado runtime installed.
+The resulting `.exe` must be run on a Windows machine with the DisplayXR runtime installed.
 
 ---
 
@@ -357,7 +357,7 @@ The resulting `.exe` must be run on a Windows machine with the Monado runtime in
 
 Open Command Prompt in the build folder:
 ```cmd
-set XR_RUNTIME_JSON=C:\path\to\openxr_monado-dev.json
+set XR_RUNTIME_JSON=C:\path\to\openxr_displayxr-dev.json
 set SIM_DISPLAY_ENABLE=1
 set SIM_DISPLAY_OUTPUT=sbs
 
@@ -366,11 +366,11 @@ YourApp.exe
 
 **With the installed runtime:**
 
-If the Monado runtime was installed system-wide (`SRMonadoInstaller.exe`), just double-click `YourApp.exe` — no environment variables needed.
+If the DisplayXR runtime was installed system-wide (`SRDisplayXRInstaller.exe`), just double-click `YourApp.exe` — no environment variables needed.
 
 **With runtime in a custom path:**
 ```cmd
-set XR_RUNTIME_JSON=C:\path\to\openxr_monado-dev.json
+set XR_RUNTIME_JSON=C:\path\to\openxr_displayxr-dev.json
 YourApp.exe
 ```
 
@@ -378,7 +378,7 @@ YourApp.exe
 
 Open Terminal:
 ```bash
-export XR_RUNTIME_JSON=/path/to/SRMonado-macOS/share/openxr/1/openxr_monado.json
+export XR_RUNTIME_JSON=/path/to/SRDisplayXR-macOS/share/openxr/1/openxr_displayxr.json
 
 # For testing without hardware:
 export SIM_DISPLAY_ENABLE=1
@@ -412,12 +412,12 @@ Once the app is running, verify each stage:
 Search the Player.log for these key lines:
 
 ```
-[Monado3D] Feature enabled, hooking OpenXR instance
-[Monado3D] Display info: 1920x1080, 27.0x15.2 cm, viewer at 500 mm
-[Monado3D] Eye tracking active
+[DisplayXR] Feature enabled, hooking OpenXR instance
+[DisplayXR] Display info: 1920x1080, 27.0x15.2 cm, viewer at 500 mm
+[DisplayXR] Eye tracking active
 ```
 
-If you see `[Monado3D] Feature not active` or no Monado3D lines at all, the feature is not enabled in XR settings — go back to Step 2.
+If you see `[DisplayXR] Feature not active` or no DisplayXR lines at all, the feature is not enabled in XR settings — go back to Step 2.
 
 ---
 

@@ -1,25 +1,25 @@
-// Copyright 2024-2026, Monado 3D Display contributors
+// Copyright 2024-2026, DisplayXR contributors
 // SPDX-License-Identifier: BSL-1.0
 
 using System;
 using System.Runtime.InteropServices;
 using UnityEngine;
 
-namespace Monado.Display3D
+namespace DisplayXR
 {
     /// <summary>
     /// Editor preview component providing SBS stereo preview without a running runtime,
     /// and optionally offscreen readback preview with the runtime.
     /// </summary>
-    [AddComponentMenu("Monado3D/Preview")]
-    public class Monado3DPreview : MonoBehaviour
+    [AddComponentMenu("DisplayXR/Preview")]
+    public class DisplayXRPreview : MonoBehaviour
     {
         public enum PreviewMode
         {
             /// <summary>Side-by-side stereo preview computed locally (no runtime).</summary>
             SideBySide,
 
-            /// <summary>Readback from Monado runtime (shows actual display processing).</summary>
+            /// <summary>Readback from DisplayXR runtime (shows actual display processing).</summary>
             Readback,
 
             /// <summary>Zero-copy shared GPU texture from runtime (fastest, macOS only for now).</summary>
@@ -57,7 +57,7 @@ namespace Monado.Display3D
 
             PreviewTexture = new Texture2D(sbsResolution.x, h, TextureFormat.RGBA32, false)
             {
-                name = "Monado3D_Preview",
+                name = "DisplayXR_Preview",
                 filterMode = FilterMode.Bilinear,
             };
 
@@ -72,7 +72,7 @@ namespace Monado.Display3D
 
         void OnDisable()
         {
-            Debug.Log("[Monado3D] Monado3DPreview.OnDisable BEGIN");
+            Debug.Log("[DisplayXR] DisplayXRPreview.OnDisable BEGIN");
             try
             {
                 CleanupSBSCameras();
@@ -89,9 +89,9 @@ namespace Monado.Display3D
             }
             catch (System.Exception e)
             {
-                Debug.LogWarning($"[Monado3D] Preview cleanup exception: {e.Message}");
+                Debug.LogWarning($"[DisplayXR] Preview cleanup exception: {e.Message}");
             }
-            Debug.Log("[Monado3D] Monado3DPreview.OnDisable END");
+            Debug.Log("[DisplayXR] DisplayXRPreview.OnDisable END");
         }
 
         void LateUpdate()
@@ -159,10 +159,10 @@ namespace Monado.Display3D
 
         private void UpdateReadback()
         {
-            var feature = Monado3DFeature.Instance;
+            var feature = DisplayXRFeature.Instance;
             if (feature == null) return;
 
-            Monado3DNative.monado3d_get_readback(out IntPtr pixels, out uint w, out uint h, out int ready);
+            DisplayXRNative.displayxr_get_readback(out IntPtr pixels, out uint w, out uint h, out int ready);
 
             ReadbackAvailable = ready != 0 && pixels != IntPtr.Zero;
 
@@ -182,10 +182,10 @@ namespace Monado.Display3D
 
         private void UpdateSharedTexture()
         {
-            var feature = Monado3DFeature.Instance;
+            var feature = DisplayXRFeature.Instance;
             if (feature == null || !feature.SharedTextureAvailable) return;
 
-            Monado3DNative.monado3d_get_shared_texture(
+            DisplayXRNative.displayxr_get_shared_texture(
                 out IntPtr nativePtr, out uint w, out uint h, out int ready);
 
             SharedTextureAvailable = ready != 0 && nativePtr != IntPtr.Zero;
@@ -209,7 +209,7 @@ namespace Monado.Display3D
 
                 m_SharedTexture = Texture2D.CreateExternalTexture(
                     (int)w, (int)h, TextureFormat.BGRA32, false, false, nativePtr);
-                m_SharedTexture.name = "Monado3D_SharedPreview";
+                m_SharedTexture.name = "DisplayXR_SharedPreview";
                 m_SharedTexture.filterMode = FilterMode.Bilinear;
                 m_SharedNativePtr = nativePtr;
             }
@@ -233,7 +233,7 @@ namespace Monado.Display3D
             m_SharedNativePtr = IntPtr.Zero;
             SharedTextureAvailable = false;
 
-            // Don't call native destroy here — Monado3DFeature.OnSessionDestroy
+            // Don't call native destroy here — DisplayXRFeature.OnSessionDestroy
             // already handles it. Double-destroy would CFRelease a freed IOSurface.
         }
 
@@ -245,7 +245,7 @@ namespace Monado.Display3D
             m_RightRT.Create();
 
             // Create left camera
-            var leftGO = new GameObject("Monado3D_PreviewLeft");
+            var leftGO = new GameObject("DisplayXR_PreviewLeft");
             leftGO.transform.SetParent(transform, false);
             leftGO.hideFlags = HideFlags.HideAndDontSave;
             m_LeftCam = leftGO.AddComponent<Camera>();
@@ -253,7 +253,7 @@ namespace Monado.Display3D
             m_LeftCam.enabled = false; // Render manually
 
             // Create right camera
-            var rightGO = new GameObject("Monado3D_PreviewRight");
+            var rightGO = new GameObject("DisplayXR_PreviewRight");
             rightGO.transform.SetParent(transform, false);
             rightGO.hideFlags = HideFlags.HideAndDontSave;
             m_RightCam = rightGO.AddComponent<Camera>();

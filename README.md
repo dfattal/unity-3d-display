@@ -1,6 +1,6 @@
-# Monado 3D Display — Unity Plugin
+# DisplayXR — Unity Plugin
 
-Unity plugin for rendering on eye-tracked 3D light field displays via the Monado OpenXR runtime. Works with any OpenXR-compatible 3D display.
+Unity plugin for rendering on eye-tracked 3D light field displays via the DisplayXR OpenXR runtime. Works with any OpenXR-compatible 3D display.
 
 ## Table of Contents
 
@@ -47,15 +47,15 @@ The plugin works by hooking `xrLocateViews` before Unity sees the results, repla
 | **Unity** | 2022.3 LTS or later (including Unity 6) |
 | **OpenXR Plugin** | `com.unity.xr.openxr` 1.9.1+ (installed via Package Manager) |
 | **XR Plugin Management** | `com.unity.xr.management` 4.4.0+ (auto-installed with OpenXR) |
-| **Monado Runtime** | Pre-built from [openxr-3d-display](https://github.com/dfattal/openxr-3d-display) CI — see [Deploying to End Users](#deploying-to-end-users) |
+| **DisplayXR Runtime** | Pre-built from [openxr-3d-display](https://github.com/dfattal/openxr-3d-display) CI — see [Deploying to End Users](#deploying-to-end-users) |
 
 ### Platform Support
 
 | Editor Platform | Build Target | Native Plugin | Status |
 |----------------|--------------|---------------|--------|
-| Windows | Windows x64 | `monado3d_unity.dll` | Supported |
-| macOS | macOS | `libmonado3d_unity.dylib` | Supported |
-| macOS | Windows x64 | `monado3d_unity.dll` | Supported (cross-compile) |
+| Windows | Windows x64 | `displayxr_unity.dll` | Supported |
+| macOS | macOS | `libdisplayxr_unity.dylib` | Supported |
+| macOS | Windows x64 | `displayxr_unity.dll` | Supported (cross-compile) |
 
 ---
 
@@ -97,7 +97,7 @@ In Unity: **Window > Package Manager > + > Add package from disk...** → select
 3. Click **+** > **Add package from tarball...**
 4. Select the downloaded `.tgz` file
 
-After installation, the package appears as **Monado 3D Display** in the Package Manager.
+After installation, the package appears as **DisplayXR** in the Package Manager.
 
 ---
 
@@ -106,9 +106,9 @@ After installation, the package appears as **Monado 3D Display** in the Package 
 1. Go to **Edit > Project Settings > XR Plug-in Management**
 2. Under the **Standalone** tab (Windows or macOS), check **OpenXR**
 3. Click the gear icon next to OpenXR (or expand **OpenXR > Features**)
-4. Enable **Monado 3D Display**
+4. Enable **DisplayXR**
 
-You can verify the runtime connection under **Project Settings > XR Plug-in Management > OpenXR > Monado 3D Display** — a status panel shows whether `XR_RUNTIME_JSON` is set.
+You can verify the runtime connection under **Project Settings > XR Plug-in Management > OpenXR > DisplayXR** — a status panel shows whether `XR_RUNTIME_JSON` is set.
 
 ---
 
@@ -120,7 +120,7 @@ This is the simplest setup. Your existing Main Camera stays in place and becomes
 
 **Step 1:** Select your **Main Camera** in the hierarchy.
 
-**Step 2:** Add Component > **Monado3DCamera** (found under Monado3D category).
+**Step 2:** Add Component > **DisplayXRCamera** (found under DisplayXR category).
 
 That's it. The component:
 - Reads eye tracking data from the runtime each frame
@@ -129,7 +129,7 @@ That's it. The component:
 
 ```
 Hierarchy:
-  Main Camera              <-- has Camera + Monado3DCamera
+  Main Camera              <-- has Camera + DisplayXRCamera
     ├── Scene objects...
     └── (everything else in your scene)
 ```
@@ -156,13 +156,13 @@ The display is a fixed object in the scene. Eye positions are transformed relati
 - **GameObject > Create Empty**, name it "VirtualDisplay"
 - Position and orient it in the scene (e.g., at `(0, 1.5, 2)` facing the player)
 
-**Step 2:** Add Component > **Monado3DDisplay**
+**Step 2:** Add Component > **DisplayXRDisplay**
 
 **Step 3:** Make your Main Camera a child of this object, or position it separately — the display's world transform is sent to the native plugin as the "scene transform" applied to raw eye positions.
 
 ```
 Hierarchy:
-  VirtualDisplay           <-- has Monado3DDisplay
+  VirtualDisplay           <-- has DisplayXRDisplay
     └── Main Camera        <-- standard Camera component
 ```
 
@@ -225,10 +225,10 @@ Vertical FOV override in degrees. When 0, auto-computed from convergence distanc
 
 ## 2D UI Overlay
 
-Route a Canvas to a window-space composition layer that the Monado compositor overlays on both eyes with per-eye disparity shift (renders pre-interlace).
+Route a Canvas to a window-space composition layer that the DisplayXR compositor overlays on both eyes with per-eye disparity shift (renders pre-interlace).
 
 1. Create a **Canvas** (any render mode)
-2. Add Component > **Monado3DWindowSpaceUI** to the Canvas
+2. Add Component > **DisplayXRWindowSpaceUI** to the Canvas
 3. Configure position and size in fractional window coordinates [0..1]:
 
 | Parameter | Default | Description |
@@ -240,7 +240,7 @@ Route a Canvas to a window-space composition layer that the Monado compositor ov
 | Disparity | 0.0 | Stereo disparity in pixels. 0 = at screen plane, positive = in front |
 | Resolution | 512 | Render texture resolution (square) |
 
-The overlay is submitted as `XrCompositionLayerWindowSpaceEXT` and composited by Monado before display processing. This means 2D UI text stays sharp and is not interlaced — ideal for HUDs, menus, and status displays.
+The overlay is submitted as `XrCompositionLayerWindowSpaceEXT` and composited by DisplayXR before display processing. This means 2D UI text stays sharp and is not interlaced — ideal for HUDs, menus, and status displays.
 
 ---
 
@@ -248,19 +248,19 @@ The overlay is submitted as `XrCompositionLayerWindowSpaceEXT` and composited by
 
 ### Side-by-Side Preview (no runtime needed)
 
-1. **Window > Monado3D > Preview Window**
+1. **Window > DisplayXR > Preview Window**
 2. Select **SideBySide** mode
 3. The window shows a stereo pair computed from your scene cameras
 
-This works without the Monado runtime running — useful for authoring and layout.
+This works without the DisplayXR runtime running — useful for authoring and layout.
 
 ### Runtime Readback Preview (actual display processing)
 
-1. Add a **Monado3DPreview** component to the same GameObject as your camera
+1. Add a **DisplayXRPreview** component to the same GameObject as your camera
 2. In the Preview Window, select **RuntimeReadback** mode
 3. The preview shows the actual composited + display-processed output
 
-Requires Monado runtime running. Use this for final QA verification.
+Requires DisplayXR runtime running. Use this for final QA verification.
 
 ---
 
@@ -271,19 +271,19 @@ Requires Monado runtime running. Use this for final QA verification.
 1. **File > Build Settings**
 2. Select **Windows, Mac, Linux** platform
 3. Set **Target Platform** to **Windows** and **Architecture** to **x86_64**
-4. Verify in **Player Settings > XR Plug-in Management > Standalone** that OpenXR is enabled with the Monado 3D Display feature
+4. Verify in **Player Settings > XR Plug-in Management > Standalone** that OpenXR is enabled with the DisplayXR feature
 5. Click **Build** or **Build And Run**
 
-The build output includes `monado3d_unity.dll` in the `Plugins/` folder alongside your executable.
+The build output includes `displayxr_unity.dll` in the `Plugins/` folder alongside your executable.
 
 ### macOS Standalone
 
 1. **File > Build Settings**
 2. Select **macOS** platform
-3. Verify OpenXR + Monado 3D Display feature enabled in Standalone XR settings
+3. Verify OpenXR + DisplayXR feature enabled in Standalone XR settings
 4. Click **Build**
 
-The `.app` bundle includes `libmonado3d_unity.dylib` in the plugins folder.
+The `.app` bundle includes `libdisplayxr_unity.dylib` in the plugins folder.
 
 ### Cross-Compiling (macOS Editor to Windows Build)
 
@@ -295,9 +295,9 @@ The `.app` bundle includes `libmonado3d_unity.dylib` in the plugins folder.
 3. Set **Target Platform** to **Windows**
 4. Build as normal
 
-The plugin includes both platform binaries (`monado3d_unity.dll` for Windows, `libmonado3d_unity.dylib` for macOS). Unity automatically selects the correct one based on the build target.
+The plugin includes both platform binaries (`displayxr_unity.dll` for Windows, `libdisplayxr_unity.dylib` for macOS). Unity automatically selects the correct one based on the build target.
 
-**Important:** The built Windows `.exe` still requires the Monado runtime installed on the **target Windows machine** — see [Deploying to End Users](#deploying-to-end-users). You cannot run the Windows build on macOS.
+**Important:** The built Windows `.exe` still requires the DisplayXR runtime installed on the **target Windows machine** — see [Deploying to End Users](#deploying-to-end-users). You cannot run the Windows build on macOS.
 
 ---
 
@@ -307,27 +307,27 @@ Your built app is a standard OpenXR application. It needs an OpenXR runtime on t
 
 ### Windows Deployment
 
-Install the Monado runtime via the `SRMonadoInstaller.exe` from the [openxr-3d-display](https://github.com/dfattal/openxr-3d-display) CI build artifact (registers the runtime JSON and copies DLLs system-wide).
+Install the DisplayXR runtime via the `SRDisplayXRInstaller.exe` from the [openxr-3d-display](https://github.com/dfattal/openxr-3d-display) CI build artifact (registers the runtime JSON and copies DLLs system-wide).
 
 Or, for development/testing, set the environment variable:
 ```cmd
-set XR_RUNTIME_JSON=C:\path\to\openxr_monado-dev.json
+set XR_RUNTIME_JSON=C:\path\to\openxr_displayxr-dev.json
 ```
 
 ### macOS Deployment
 
 Set before launching the app:
 ```bash
-export XR_RUNTIME_JSON=/path/to/SRMonado-macOS/share/openxr/1/openxr_monado.json
+export XR_RUNTIME_JSON=/path/to/DisplayXR-macOS/share/openxr/1/openxr_displayxr.json
 ```
 
 ### What Happens Without the Runtime
 
-If the Monado runtime is not installed, Unity's OpenXR loader fails to find a runtime and logs:
+If the DisplayXR runtime is not installed, Unity's OpenXR loader fails to find a runtime and logs:
 ```
 [OpenXR] No OpenXR runtime found
 ```
-The `Monado3DFeature` logs a warning but doesn't crash — your app runs in mono (non-stereo) mode. You can check `Monado3DFeature.Instance` being null to detect this and show a user-facing message.
+The `DisplayXRFeature` logs a warning but doesn't crash — your app runs in mono (non-stereo) mode. You can check `DisplayXRFeature.Instance` being null to detect this and show a user-facing message.
 
 ---
 
@@ -359,25 +359,25 @@ This lets you develop and test the full stereo pipeline on any machine.
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| "No OpenXR runtime found" | `XR_RUNTIME_JSON` not set or points to missing file | Set the env var to the Monado runtime JSON path |
-| Black screen | Monado 3D Display feature not enabled | Check Project Settings > XR Plug-in Management > OpenXR > Features |
-| No stereo (flat image) | Eye tracking not running | Verify the Monado runtime is configured with a display that supports eye tracking, or use sim_display for testing |
+| "No OpenXR runtime found" | `XR_RUNTIME_JSON` not set or points to missing file | Set the env var to the DisplayXR runtime JSON path |
+| Black screen | DisplayXR feature not enabled | Check Project Settings > XR Plug-in Management > OpenXR > Features |
+| No stereo (flat image) | Eye tracking not running | Verify the DisplayXR runtime is configured with a display that supports eye tracking, or use sim_display for testing |
 | Stereo looks wrong | Tunables misconfigured | Reset to defaults (IPD=1, Parallax=1, Scale=1) |
-| `DllNotFoundException: monado3d_unity` | Native plugin not found by Unity | Ensure the plugin binaries are in `Runtime/Plugins/Windows/x64/` or `Runtime/Plugins/macOS/` |
+| `DllNotFoundException: displayxr_unity` | Native plugin not found by Unity | Ensure the plugin binaries are in `Runtime/Plugins/Windows/x64/` or `Runtime/Plugins/macOS/` |
 | HDRP stereo artifacts | Single-pass instanced issue | Verify both eye views have correct FOVs in Frame Debugger |
-| Editor preview blank | No preview component or wrong mode | Add Monado3DPreview component; use SideBySide mode without runtime |
+| Editor preview blank | No preview component or wrong mode | Add DisplayXRPreview component; use SideBySide mode without runtime |
 | `VK_ERROR_EXTENSION_NOT_PRESENT` on macOS | MoltenVK limitation | Known issue — use sim_display for testing |
 
 ### Debug Logging
 
-Enable **Log Eye Tracking** on the Monado3DCamera or Monado3DDisplay component to see per-frame eye positions in the Console:
+Enable **Log Eye Tracking** on the DisplayXRCamera or DisplayXRDisplay component to see per-frame eye positions in the Console:
 ```
-[Monado3D] Eyes: L=(0.032, 0.001, 0.504), R=(-0.031, 0.001, 0.504), tracked=True
+[DisplayXR] Eyes: L=(0.032, 0.001, 0.504), R=(-0.031, 0.001, 0.504), tracked=True
 ```
 
 ### Checking Runtime Status in Editor
 
-**Project Settings > XR Plug-in Management > OpenXR > Monado 3D Display** shows:
+**Project Settings > XR Plug-in Management > OpenXR > DisplayXR** shows:
 - Runtime JSON path and whether the file exists
 - Runtime connection status
 - Connected display properties (resolution, physical size, nominal viewer distance)
@@ -392,19 +392,19 @@ Unity Editor / Player
 ┌──────────────────────────────────────────────────────────┐
 │  C# Layer                                                │
 │                                                          │
-│  Monado3DFeature : OpenXRFeature                         │
+│  DisplayXRFeature : OpenXRFeature                         │
 │    HookGetInstanceProcAddr → install native hooks        │
 │    OnSystemChange → query XrDisplayInfoEXT               │
 │    API: SetTunables(), SetSceneTransform()               │
 │                                                          │
-│  Monado3DCamera          Monado3DDisplay                 │
+│  DisplayXRCamera          DisplayXRDisplay                 │
 │  (camera-centric)        (display-centric)               │
 │  Attach to Camera        Place in scene                  │
 │                                                          │
-│  Monado3DWindowSpaceUI   Monado3DPreview                 │
+│  DisplayXRWindowSpaceUI   DisplayXRPreview                 │
 │  (2D overlay)            (editor preview)                │
 └──────────────────────────────────────────────────────────┘
-        │ P/Invoke (monado3d_unity.dll / .dylib)
+        │ P/Invoke (displayxr_unity.dll / .dylib)
         ▼
 ┌──────────────────────────────────────────────────────────┐
 │  Native Plugin (C/C++)                                   │
@@ -418,7 +418,7 @@ Unity Editor / Player
         │ Standard OpenXR API
         ▼
 ┌──────────────────────────────────────────────────────────┐
-│  Monado Runtime                                          │
+│  DisplayXR Runtime                                          │
 │  Compositor → Display Processor → Output                 │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -443,18 +443,18 @@ Unity builds projection matrices → renders stereo
 
 | Path | Purpose |
 |------|---------|
-| `Runtime/Monado3DFeature.cs` | OpenXR Feature — lifecycle hooks, P/Invoke, public API |
-| `Runtime/Monado3DCamera.cs` | Camera-centric stereo rig MonoBehaviour |
-| `Runtime/Monado3DDisplay.cs` | Display-centric stereo rig MonoBehaviour |
-| `Runtime/Monado3DDisplayInfo.cs` | Display properties data struct |
-| `Runtime/Monado3DTunables.cs` | Tunable parameters struct |
-| `Runtime/Monado3DWindowSpaceUI.cs` | 2D UI overlay routing |
-| `Runtime/Monado3DPreview.cs` | Editor preview (SBS + readback) |
-| `Runtime/Monado3DNative.cs` | P/Invoke bindings to native plugin |
+| `Runtime/DisplayXRFeature.cs` | OpenXR Feature — lifecycle hooks, P/Invoke, public API |
+| `Runtime/DisplayXRCamera.cs` | Camera-centric stereo rig MonoBehaviour |
+| `Runtime/DisplayXRDisplay.cs` | Display-centric stereo rig MonoBehaviour |
+| `Runtime/DisplayXRDisplayInfo.cs` | Display properties data struct |
+| `Runtime/DisplayXRTunables.cs` | Tunable parameters struct |
+| `Runtime/DisplayXRWindowSpaceUI.cs` | 2D UI overlay routing |
+| `Runtime/DisplayXRPreview.cs` | Editor preview (SBS + readback) |
+| `Runtime/DisplayXRNative.cs` | P/Invoke bindings to native plugin |
 | `Runtime/Plugins/Windows/x64/` | Windows native plugin (DLL) |
 | `Runtime/Plugins/macOS/` | macOS native plugin (dylib) |
-| `Editor/Monado3DDisplayEditor.cs` | Custom inspector for display-centric mode |
-| `Editor/Monado3DCameraEditor.cs` | Custom inspector for camera-centric mode |
-| `Editor/Monado3DPreviewWindow.cs` | Editor preview window |
-| `Editor/Monado3DSettingsProvider.cs` | Project Settings page |
+| `Editor/DisplayXRDisplayEditor.cs` | Custom inspector for display-centric mode |
+| `Editor/DisplayXRCameraEditor.cs` | Custom inspector for camera-centric mode |
+| `Editor/DisplayXRPreviewWindow.cs` | Editor preview window |
+| `Editor/DisplayXRSettingsProvider.cs` | Project Settings page |
 | `native~/` | Native C/C++ plugin source + CMakeLists.txt |

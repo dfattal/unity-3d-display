@@ -1,19 +1,19 @@
 {
-  "name": "com.monado.display3d",
-  "displayName": "Monado 3D Display",
+  "name": "com.displayxr.unity",
+  "displayName": "DisplayXR",
   "version": "0.1.0",
   "unity": "2022.3",
-  "description": "Unity plugin for Monado OpenXR runtime enabling stereo rendering on 3D light field displays. Provides display-centric and camera-centric stereo rig authoring, Kooima asymmetric frustum projection, 2D UI overlay support, and in-editor preview.",
+  "description": "Unity plugin for DisplayXR OpenXR runtime enabling stereo rendering on 3D light field displays. Provides display-centric and camera-centric stereo rig authoring, Kooima asymmetric frustum projection, 2D UI overlay support, and in-editor preview.",
   "keywords": [
     "xr",
     "openxr",
     "3d-display",
     "stereo",
-    "monado",
+    "displayxr",
     "light-field"
   ],
   "author": {
-    "name": "Monado 3D Display contributors",
+    "name": "DisplayXR contributors",
     "url": "https://github.com/dfattal/unity-3d-display"
   },
   "license": "ISC",
@@ -22,7 +22,7 @@
     "url": "https://github.com/dfattal/unity-3d-display.git"
   },
   "dependencies": {
-    "com.unity.xr.openxr": "1.9.1",
+    "com.unity.xr.openxr": "1.16.1",
     "com.unity.xr.management": "4.4.0"
   },
   "samples": [

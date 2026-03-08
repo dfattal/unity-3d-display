@@ -1,4 +1,4 @@
-// Copyright 2024-2026, Monado 3D Display contributors
+// Copyright 2024-2026, DisplayXR contributors
 // SPDX-License-Identifier: BSL-1.0
 
 using System;
@@ -14,16 +14,16 @@ using UnityEditor;
 using UnityEditor.XR.OpenXR.Features;
 #endif
 
-namespace Monado.Display3D
+namespace DisplayXR
 {
 #if UNITY_EDITOR
     [OpenXRFeature(
-        UiName = "Monado 3D Display",
+        UiName = "DisplayXR",
         BuildTargetGroups = new[] {
             UnityEditor.BuildTargetGroup.Standalone
         },
-        Company = "Monado 3D Display",
-        Desc = "Enables stereo rendering on 3D light field displays via Monado OpenXR runtime. " +
+        Company = "DisplayXR",
+        Desc = "Enables stereo rendering on 3D light field displays via DisplayXR OpenXR runtime. " +
                "Provides Kooima asymmetric frustum projection, display-centric and camera-centric " +
                "stereo rig modes, and 2D UI overlay support.",
         DocumentationLink = "https://github.com/dfattal/unity-3d-display",
@@ -32,9 +32,9 @@ namespace Monado.Display3D
         FeatureId = FeatureId
     )]
 #endif
-    public class Monado3DFeature : OpenXRFeature
+    public class DisplayXRFeature : OpenXRFeature
     {
-        public const string FeatureId = "com.monado.display3d.feature";
+        public const string FeatureId = "com.displayxr.unity.feature";
 
         // Extensions requested from the runtime
         private const string ExtensionStrings =
@@ -43,10 +43,10 @@ namespace Monado.Display3D
             "XR_EXT_cocoa_window_binding";
 
         /// <summary>Singleton instance, set during OnInstanceCreate.</summary>
-        public static Monado3DFeature Instance { get; private set; }
+        public static DisplayXRFeature Instance { get; private set; }
 
         /// <summary>Cached display info from the runtime.</summary>
-        public Monado3DDisplayInfo DisplayInfo { get; private set; }
+        public DisplayXRDisplayInfo DisplayInfo { get; private set; }
 
         /// <summary>Whether eye tracking data is being received.</summary>
         public bool IsEyeTracked { get; private set; }
@@ -71,16 +71,16 @@ namespace Monado.Display3D
         {
             // Install our native hook chain. The native plugin stores the next-in-chain
             // function pointer and returns our interceptor.
-            IntPtr hooked = Monado3DNative.monado3d_install_hooks(func);
+            IntPtr hooked = DisplayXRNative.displayxr_install_hooks(func);
             m_HooksInstalled = (hooked != IntPtr.Zero);
 
             if (!m_HooksInstalled)
             {
-                Debug.LogError("[Monado3D] Failed to install native OpenXR hooks");
+                Debug.LogError("[DisplayXR] Failed to install native OpenXR hooks");
                 return func; // Pass through unmodified
             }
 
-            Debug.Log("[Monado3D] Native OpenXR hooks installed");
+            Debug.Log("[DisplayXR] Native OpenXR hooks installed");
             return hooked;
         }
 
@@ -104,7 +104,7 @@ namespace Monado.Display3D
             var settings = OpenXRSettings.Instance;
             if (settings != null && settings.renderMode != OpenXRSettings.RenderMode.MultiPass)
             {
-                Debug.Log("[Monado3D] Forcing MultiPass render mode (required for asymmetric frustum projection)");
+                Debug.Log("[DisplayXR] Forcing MultiPass render mode (required for asymmetric frustum projection)");
                 settings.renderMode = OpenXRSettings.RenderMode.MultiPass;
 
                 // Also update the serialized backing field so ApplySettings()
@@ -115,7 +115,7 @@ namespace Monado.Display3D
                     field.SetValue(settings, OpenXRSettings.RenderMode.MultiPass);
             }
 
-            Debug.Log("[Monado3D] OpenXR instance created");
+            Debug.Log("[DisplayXR] OpenXR instance created");
             return true;
         }
 
@@ -130,81 +130,81 @@ namespace Monado.Display3D
             // injects the IOSurface pointer into the window binding struct.
             if (DisplayInfo.isValid && DisplayInfo.displayPixelWidth > 0 && DisplayInfo.displayPixelHeight > 0)
             {
-                IntPtr ptr = Monado3DNative.monado3d_create_shared_texture(
+                IntPtr ptr = DisplayXRNative.displayxr_create_shared_texture(
                     DisplayInfo.displayPixelWidth, DisplayInfo.displayPixelHeight);
                 SharedTextureAvailable = (ptr != IntPtr.Zero);
 
                 if (SharedTextureAvailable)
-                    Debug.Log($"[Monado3D] Shared texture created: {DisplayInfo.displayPixelWidth}x{DisplayInfo.displayPixelHeight}");
+                    Debug.Log($"[DisplayXR] Shared texture created: {DisplayInfo.displayPixelWidth}x{DisplayInfo.displayPixelHeight}");
                 else
-                    Debug.Log("[Monado3D] Shared texture not available, using CPU readback");
+                    Debug.Log("[DisplayXR] Shared texture not available, using CPU readback");
             }
         }
 
         /// <inheritdoc />
         protected override void OnSessionCreate(ulong xrSession)
         {
-            Debug.Log("[Monado3D] OpenXR session created");
+            Debug.Log("[DisplayXR] OpenXR session created");
 
             // Fallback: Unity's OnSystemChange is unreliable in some versions.
             // By session creation time, xrGetSystemProperties has definitely run
             // and our native hook has cached the display info + created the IOSurface.
             if (!DisplayInfo.isValid)
             {
-                Debug.Log("[Monado3D] OnSystemChange was not called — refreshing display info now");
+                Debug.Log("[DisplayXR] OnSystemChange was not called — refreshing display info now");
                 RefreshDisplayInfo();
             }
 
             // Check if the native layer already created the shared texture
             if (!SharedTextureAvailable && DisplayInfo.isValid)
             {
-                Monado3DNative.monado3d_get_shared_texture(
+                DisplayXRNative.displayxr_get_shared_texture(
                     out IntPtr nativePtr, out uint w, out uint h, out int ready);
                 SharedTextureAvailable = (ready != 0 && nativePtr != IntPtr.Zero);
 
                 if (SharedTextureAvailable)
-                    Debug.Log($"[Monado3D] Shared texture available: {w}x{h}");
+                    Debug.Log($"[DisplayXR] Shared texture available: {w}x{h}");
                 else
-                    Debug.Log("[Monado3D] Shared texture not available, using CPU readback");
+                    Debug.Log("[DisplayXR] Shared texture not available, using CPU readback");
             }
         }
 
         /// <inheritdoc />
         protected override void OnSessionDestroy(ulong xrSession)
         {
-            Debug.Log("[Monado3D] OnSessionDestroy BEGIN");
+            Debug.Log("[DisplayXR] OnSessionDestroy BEGIN");
 
             // FIRST: kill native poll forwarding before anything else.
             // Unity's GameView repaints call ProcessOpenXRMessageLoop → xrPollEvent
             // continuously, even during teardown. This nulls the native function
             // pointer so our hook returns XR_EVENT_UNAVAILABLE immediately.
-            try { Monado3DNative.monado3d_stop_polling(); }
-            catch (System.Exception e) { Debug.LogWarning($"[Monado3D] stop_polling: {e.Message}"); }
+            try { DisplayXRNative.displayxr_stop_polling(); }
+            catch (System.Exception e) { Debug.LogWarning($"[DisplayXR] stop_polling: {e.Message}"); }
 
             if (SharedTextureAvailable)
             {
-                Debug.Log("[Monado3D] OnSessionDestroy: destroying shared texture");
-                try { Monado3DNative.monado3d_destroy_shared_texture(); }
-                catch (System.Exception e) { Debug.LogWarning($"[Monado3D] Shared texture cleanup: {e.Message}"); }
+                Debug.Log("[DisplayXR] OnSessionDestroy: destroying shared texture");
+                try { DisplayXRNative.displayxr_destroy_shared_texture(); }
+                catch (System.Exception e) { Debug.LogWarning($"[DisplayXR] Shared texture cleanup: {e.Message}"); }
                 SharedTextureAvailable = false;
             }
 
-            Debug.Log("[Monado3D] OnSessionDestroy END");
+            Debug.Log("[DisplayXR] OnSessionDestroy END");
         }
 
         /// <inheritdoc />
         protected override void OnInstanceDestroy(ulong xrInstance)
         {
-            Debug.Log("[Monado3D] OnInstanceDestroy BEGIN");
+            Debug.Log("[DisplayXR] OnInstanceDestroy BEGIN");
             Instance = null;
             m_HooksInstalled = false;
 #if UNITY_EDITOR
             EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
 #endif
             // Re-kill in case something reset the flags between OnSessionDestroy and here
-            try { Monado3DNative.monado3d_stop_polling(); }
-            catch (System.Exception e) { Debug.LogWarning($"[Monado3D] stop_polling: {e.Message}"); }
-            Debug.Log("[Monado3D] OnInstanceDestroy END");
+            try { DisplayXRNative.displayxr_stop_polling(); }
+            catch (System.Exception e) { Debug.LogWarning($"[DisplayXR] stop_polling: {e.Message}"); }
+            Debug.Log("[DisplayXR] OnInstanceDestroy END");
         }
 
 #if UNITY_EDITOR
@@ -215,16 +215,37 @@ namespace Monado.Display3D
                 // Kill native poll forwarding BEFORE Deinitialize() starts.
                 // This is the primary crash prevention — once set, hooked_xrPollEvent
                 // returns XR_EVENT_UNAVAILABLE without touching the runtime.
-                Debug.Log("[Monado3D] ExitingPlayMode: killing poll + switching focus");
-                try { Monado3DNative.monado3d_stop_polling(); }
+                Debug.Log("[DisplayXR] ExitingPlayMode: killing poll + closing Game Views");
+                try { DisplayXRNative.displayxr_stop_polling(); }
                 catch (System.Exception) { }
 
-                // Also focus Scene View so Game View stops its RenderToHMDOnly repaint cycle.
+                // Close all Game View windows synchronously. Game View's
+                // RenderToHMDOnly repaint cycle calls xrPollEvent through freed
+                // dispatch trampolines during Deinitialize() → SIGSEGV.
+                // Close() destroys the window and cancels all pending repaints.
+                // Unity auto-recreates the Game View on next Play.
+                CloseAllGameViews();
+
+                // Fallback: focus Scene View in case CloseAllGameViews() missed any.
                 var sceneView = UnityEditor.SceneView.lastActiveSceneView;
                 if (sceneView != null)
-                {
                     sceneView.Focus();
-                    Debug.Log("[Monado3D] Focused Scene View");
+            }
+        }
+
+        private static void CloseAllGameViews()
+        {
+            var gameViewType = typeof(UnityEditor.Editor).Assembly.GetType("UnityEditor.GameView");
+            if (gameViewType == null) return;
+
+            var gameViews = UnityEngine.Resources.FindObjectsOfTypeAll(gameViewType);
+            foreach (var gv in gameViews)
+            {
+                var window = gv as EditorWindow;
+                if (window != null)
+                {
+                    Debug.Log("[DisplayXR] Closing Game View to prevent teardown crash");
+                    window.Close();
                 }
             }
         }
@@ -240,7 +261,7 @@ namespace Monado.Display3D
         {
             rules.Add(new ValidationRule(this)
             {
-                message = "Monado 3D Display requires Multi-Pass render mode. " +
+                message = "DisplayXR requires Multi-Pass render mode. " +
                           "Single-pass instanced is broken on macOS and incompatible with asymmetric frustum projection.",
                 error = true,
                 checkPredicate = () =>
@@ -264,17 +285,17 @@ namespace Monado.Display3D
         // ====================================================================
 
         /// <summary>
-        /// Set stereo rig tunables. Called each LateUpdate by Monado3DDisplay or Monado3DCamera.
+        /// Set stereo rig tunables. Called each LateUpdate by DisplayXRDisplay or DisplayXRCamera.
         /// Thread-safe: double-buffered in the native plugin.
         /// </summary>
-        public void SetTunables(Monado3DTunables tunables)
+        public void SetTunables(DisplayXRTunables tunables)
         {
             if (!m_HooksInstalled) return;
 
             // For camera-centric mode, fovOverride is already half_tan_vfov
             // (C# computes Mathf.Tan(fov_rad * 0.5f) before setting it).
             // For display-centric mode, fovOverride is unused (0).
-            Monado3DNative.monado3d_set_tunables(
+            DisplayXRNative.displayxr_set_tunables(
                 tunables.ipdFactor,
                 tunables.parallaxFactor,
                 tunables.perspectiveFactor,
@@ -293,14 +314,14 @@ namespace Monado.Display3D
         {
             if (!m_HooksInstalled) return;
 
-            Monado3DNative.monado3d_get_display_info(
+            DisplayXRNative.displayxr_get_display_info(
                 out float wm, out float hm,
                 out uint pw, out uint ph,
                 out float nx, out float ny, out float nz,
                 out float sx, out float sy,
                 out int modeSwitch, out int valid);
 
-            DisplayInfo = new Monado3DDisplayInfo
+            DisplayInfo = new DisplayXRDisplayInfo
             {
                 displayWidthMeters = wm,
                 displayHeightMeters = hm,
@@ -317,7 +338,7 @@ namespace Monado.Display3D
 
             if (DisplayInfo.isValid)
             {
-                Debug.Log($"[Monado3D] Display: {pw}x{ph}px, " +
+                Debug.Log($"[DisplayXR] Display: {pw}x{ph}px, " +
                           $"{wm * 100:F1}x{hm * 100:F1}cm, " +
                           $"nominal=({nx * 1000:F0},{ny * 1000:F0},{nz * 1000:F0})mm, " +
                           $"scale={sx:F2}x{sy:F2}");
@@ -331,7 +352,7 @@ namespace Monado.Display3D
         {
             if (!m_HooksInstalled) return;
 
-            Monado3DNative.monado3d_get_eye_positions(
+            DisplayXRNative.displayxr_get_eye_positions(
                 out float lx, out float ly, out float lz,
                 out float rx, out float ry, out float rz,
                 out int tracked);
@@ -359,7 +380,7 @@ namespace Monado.Display3D
             leftView = leftProj = rightView = rightProj = Matrix4x4.identity;
             if (!m_HooksInstalled) return false;
 
-            Monado3DNative.monado3d_get_stereo_matrices(
+            DisplayXRNative.displayxr_get_stereo_matrices(
                 m_LeftView, m_LeftProj, m_RightView, m_RightProj, out int valid);
 
             if (valid == 0) return false;
@@ -398,7 +419,7 @@ namespace Monado.Display3D
         {
             if (!m_HooksInstalled) return;
 
-            Monado3DNative.monado3d_set_scene_transform(
+            DisplayXRNative.displayxr_set_scene_transform(
                 position.x, position.y, position.z,
                 orientation.x, orientation.y, orientation.z, orientation.w,
                 scale.x, scale.y, scale.z,
@@ -412,7 +433,7 @@ namespace Monado.Display3D
         public void SetWindowHandle(IntPtr handle)
         {
             if (!m_HooksInstalled) return;
-            Monado3DNative.monado3d_set_window_handle(handle);
+            DisplayXRNative.displayxr_set_window_handle(handle);
         }
 
         /// <summary>
@@ -423,7 +444,7 @@ namespace Monado.Display3D
         public bool RequestDisplayMode(bool mode3d)
         {
             if (!m_HooksInstalled) return false;
-            return Monado3DNative.monado3d_request_display_mode(mode3d ? 1 : 0) != 0;
+            return DisplayXRNative.displayxr_request_display_mode(mode3d ? 1 : 0) != 0;
         }
     }
 }

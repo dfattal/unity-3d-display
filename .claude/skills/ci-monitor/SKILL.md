@@ -6,7 +6,7 @@ allowed-tools: Read, Grep, Glob, Bash, Task, Edit, Write
 
 # CI-Monitor Skill
 
-This skill automates the complete build workflow for the Monado 3D Display Unity plugin native code: commit → push → monitor → diagnose/fix errors.
+This skill automates the complete build workflow for the DisplayXR Unity plugin native code: commit → push → monitor → diagnose/fix errors.
 
 ## Architecture
 
@@ -22,7 +22,7 @@ Local: analyze logs → apply fix → commit fix → push → re-monitor (up to 
 - **Build System:** CMake (MSVC on Windows, Apple Clang on macOS)
 - **Source:** `native~/` directory (C11/C++17 shared library)
 - **Dependencies:** OpenXR headers fetched via CMake FetchContent
-- **Artifacts:** `monado3d_unity-windows-x64` (DLL), `monado3d_unity-macos` (bundle), `monado3d-unity-plugin` (combined)
+- **Artifacts:** `displayxr_unity-windows-x64` (DLL), `displayxr_unity-macos` (bundle), `displayxr-unity-plugin` (combined)
 
 **Important:** The workflow only triggers on changes to `native~/` or the workflow file itself. If you only changed C#/Editor files, the workflow won't run — report this to the user and STOP.
 
@@ -51,7 +51,7 @@ Before launching the subagent, you MUST determine which files to include in the 
 1. **Review your conversation history** for every file you modified via Edit or Write tools during this session. Collect these paths into a list.
 2. **Cross-reference with `git status --short`** to confirm each file is actually dirty (modified/untracked). Drop any that are clean.
 3. **Build the `[FILES_TO_COMMIT]` value:**
-   - If you found session-modified files: use a newline-separated list of paths (e.g., `native~/monado3d_hooks.cpp\nnative~/monado3d_kooima.h`)
+   - If you found session-modified files: use a newline-separated list of paths (e.g., `native~/displayxr_hooks.cpp\nnative~/displayxr_kooima.h`)
    - If you have no tracked session files (e.g., user invoked `/ci-monitor` directly without prior edits): use the literal string `AUTO`
 4. **Substitute `[FILES_TO_COMMIT]`** in the subagent prompt template below.
 
@@ -67,10 +67,10 @@ Execute the unity-3d-display ci-monitor workflow. You have access to Edit and Wr
 Working directory: /Users/david.fattal/Documents/GitHub/unity-3d-display
 
 ## Configuration
-- Repository: dfattal/unity-3d-display (Monado 3D Display Unity plugin)
+- Repository: dfattal/unity-3d-display (DisplayXR Unity plugin)
 - Workflow: build-native.yml
 - Jobs: build-windows (Windows x64, MSVC), build-macos (macOS Universal, Apple Clang)
-- Artifact Names: monado3d_unity-windows-x64, monado3d_unity-macos, monado3d-unity-plugin
+- Artifact Names: displayxr_unity-windows-x64, displayxr_unity-macos, displayxr-unity-plugin
 - Build: CMake (native~/ directory)
 - Max Fix Attempts: 3
 
@@ -394,7 +394,7 @@ Build completed successfully!
 - Pushed to: [branch]
 - Build: SUCCEEDED (run #RUN_ID)
 - URL: [workflow URL]
-- Artifacts: monado3d_unity-windows-x64 (DLL), monado3d_unity-macos (bundle)
+- Artifacts: displayxr_unity-windows-x64 (DLL), displayxr_unity-macos (bundle)
 ```
 
 If there were fix attempts, add:
@@ -433,11 +433,11 @@ STOP.
 When looking for fixes, check these locations:
 
 **Native plugin source (native~/):**
-- `monado3d_hooks.cpp/.h` - OpenXR function hook chain (xrLocateViews, xrCreateSession, etc.)
-- `monado3d_kooima.cpp/.h` - Kooima asymmetric frustum projection math
-- `monado3d_shared_state.cpp/.h` - Thread-safe double-buffered state between C# and native
-- `monado3d_readback.cpp/.h` - Compositor output readback for preview
-- `monado3d_extensions.h` - OpenXR extension struct definitions (must match runtime)
+- `displayxr_hooks.cpp/.h` - OpenXR function hook chain (xrLocateViews, xrCreateSession, etc.)
+- `displayxr_kooima.cpp/.h` - Kooima asymmetric frustum projection math
+- `displayxr_shared_state.cpp/.h` - Thread-safe double-buffered state between C# and native
+- `displayxr_readback.cpp/.h` - Compositor output readback for preview
+- `displayxr_extensions.h` - OpenXR extension struct definitions (must match runtime)
 - `display3d_view.c/.h` - Display geometry and view computation
 - `CMakeLists.txt` - Build configuration, FetchContent for OpenXR headers
 
@@ -460,18 +460,18 @@ The workflow (`build-native.yml`) does:
 1. **Checkout** - Clones repo
 2. **Configure** - `cmake -S native~ -B native~/build -A x64 -DCMAKE_BUILD_TYPE=Release`
 3. **Build** - `cmake --build native~/build --config Release`
-4. **Verify** - Checks `Runtime/Plugins/Windows/x64/monado3d_unity.dll` exists
-5. **Upload** - Artifact `monado3d_unity-windows-x64`
+4. **Verify** - Checks `Runtime/Plugins/Windows/x64/displayxr_unity.dll` exists
+5. **Upload** - Artifact `displayxr_unity-windows-x64`
 
 ### build-macos job:
 1. **Checkout** - Clones repo
 2. **Configure** - `cmake -S native~ -B native~/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"`
 3. **Build** - `cmake --build native~/build --config Release`
-4. **Verify** - Checks `Runtime/Plugins/macOS/monado3d_unity.bundle` exists
-5. **Upload** - Artifact `monado3d_unity-macos`
+4. **Verify** - Checks `Runtime/Plugins/macOS/displayxr_unity.bundle` exists
+5. **Upload** - Artifact `displayxr_unity-macos`
 
 ### package job (main branch push only):
-- Downloads both artifacts and uploads combined `monado3d-unity-plugin`
+- Downloads both artifacts and uploads combined `displayxr-unity-plugin`
 
 ### Triggers
 - Push to `main` branch (only `native~/` or workflow changes)

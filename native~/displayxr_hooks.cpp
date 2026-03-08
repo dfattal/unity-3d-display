@@ -1,19 +1,19 @@
-// Copyright 2024-2026, Monado 3D Display contributors
+// Copyright 2024-2026, DisplayXR contributors
 // SPDX-License-Identifier: BSL-1.0
 //
-// OpenXR function interception layer for the Monado3D Unity plugin.
+// OpenXR function interception layer for the DisplayXR Unity plugin.
 // Hooks into Unity's OpenXR loader chain via HookGetInstanceProcAddr.
 
-#include "monado3d_hooks.h"
-#include "monado3d_extensions.h"
-#include "monado3d_kooima.h"
-#include "monado3d_shared_state.h"
-#include "monado3d_readback.h"
+#include "displayxr_hooks.h"
+#include "displayxr_extensions.h"
+#include "displayxr_kooima.h"
+#include "displayxr_shared_state.h"
+#include "displayxr_readback.h"
 #include "camera3d_view.h"
 #include <math.h>
 
 #if defined(__APPLE__)
-#include "monado3d_metal.h"
+#include "displayxr_metal.h"
 #endif
 
 #include <string.h>
@@ -91,19 +91,19 @@ hooked_xrLocateViews(XrSession session,
 
 	// Cache raw eye positions for C# access (before any transforms)
 	uint8_t tracked = (viewState->viewStateFlags & XR_VIEW_STATE_POSITION_TRACKED_BIT) != 0;
-	monado3d_state_set_eye_positions(&views[0].pose.position, &views[1].pose.position, tracked);
+	displayxr_state_set_eye_positions(&views[0].pose.position, &views[1].pose.position, tracked);
 
 
 	// Get current tunables, scene transform, and display info
-	Monado3DTunables tunables = monado3d_state_get_tunables();
-	Monado3DSceneTransform scene_xform = monado3d_state_get_scene_transform();
-	Monado3DState *state = monado3d_get_state();
-	Monado3DDisplayInfo *di = &state->display_info;
+	DisplayXRTunables tunables = displayxr_state_get_tunables();
+	DisplayXRSceneTransform scene_xform = displayxr_state_get_scene_transform();
+	DisplayXRState *state = displayxr_get_state();
+	DisplayXRDisplayInfo *di = &state->display_info;
 
 	if (!di->is_valid) {
 		static int s_no_di_count = 0;
 		if (s_no_di_count++ % 60 == 0) {
-			fprintf(stderr, "[Monado3D] xrLocateViews: display_info NOT valid, passing through raw views "
+			fprintf(stderr, "[DisplayXR] xrLocateViews: display_info NOT valid, passing through raw views "
 			        "(raw_L=(%.3f,%.3f,%.3f) raw_R=(%.3f,%.3f,%.3f))\n",
 			        views[0].pose.position.x, views[0].pose.position.y, views[0].pose.position.z,
 			        views[1].pose.position.x, views[1].pose.position.y, views[1].pose.position.z);
@@ -143,7 +143,7 @@ hooked_xrLocateViews(XrSession session,
 		// scene_pose = Unity camera world pose converted to OpenXR coords.
 		static int s_cam_log = 0;
 		if (s_cam_log++ % 60 == 0) {
-			fprintf(stderr, "[Monado3D] CAM-CENTRIC: scene_pose=(%.3f,%.3f,%.3f) "
+			fprintf(stderr, "[DisplayXR] CAM-CENTRIC: scene_pose=(%.3f,%.3f,%.3f) "
 			        "raw_L=(%.3f,%.3f,%.3f) raw_R=(%.3f,%.3f,%.3f) "
 			        "nominal=(%.3f,%.3f,%.3f) invd=%.4f half_tan_vfov=%.4f\n",
 			        scene_pose.position.x, scene_pose.position.y, scene_pose.position.z,
@@ -176,7 +176,7 @@ hooked_xrLocateViews(XrSession session,
 		views[1].pose.orientation = scene_pose.orientation;
 
 		if (s_cam_log % 60 == 1) {
-			fprintf(stderr, "[Monado3D] OUTPUT L: eye_world=(%.3f,%.3f,%.3f) "
+			fprintf(stderr, "[DisplayXR] OUTPUT L: eye_world=(%.3f,%.3f,%.3f) "
 			        "fov=(L=%.1f R=%.1f U=%.1f D=%.1f)\n",
 			        cam_left.eye_world.x, cam_left.eye_world.y, cam_left.eye_world.z,
 			        cam_left.fov.angleLeft * 57.2958f, cam_left.fov.angleRight * 57.2958f,
@@ -223,7 +223,7 @@ hooked_xrLocateViews(XrSession session,
 		float l_hfov = (views[0].fov.angleRight - views[0].fov.angleLeft) * 57.2958f;
 		float l_vfov = (views[0].fov.angleUp - views[0].fov.angleDown) * 57.2958f;
 		fprintf(stderr,
-		        "[Monado3D] FINALv2: cam_centric=%d "
+		        "[DisplayXR] FINALv2: cam_centric=%d "
 		        "pos_L=(%.4f,%.4f,%.4f) pos_R=(%.4f,%.4f,%.4f) "
 		        "fov_L=(%.2f,%.2f,%.2f,%.2f)deg hfov=%.1f vfov=%.1f "
 		        "ori_L=(%.3f,%.3f,%.3f,%.3f)\n",
@@ -262,7 +262,7 @@ hooked_xrGetSystemProperties(XrInstance instance, XrSystemId systemId, XrSystemP
 		XrBaseOutStructure *base = (XrBaseOutStructure *)next;
 		if (base->type == XR_TYPE_DISPLAY_INFO_EXT) {
 			XrDisplayInfoEXT *di = (XrDisplayInfoEXT *)base;
-			Monado3DState *state = monado3d_get_state();
+			DisplayXRState *state = displayxr_get_state();
 
 			state->display_info.display_width_meters = di->displaySizeMeters.width;
 			state->display_info.display_height_meters = di->displaySizeMeters.height;
@@ -276,7 +276,7 @@ hooked_xrGetSystemProperties(XrInstance instance, XrSystemId systemId, XrSystemP
 			state->display_info.supports_display_mode_switch = di->supportsDisplayModeSwitch ? 1 : 0;
 			state->display_info.is_valid = 1;
 
-			fprintf(stderr, "[Monado3D] xrGetSystemProperties: display=%ux%u, %.3fx%.3fm\n",
+			fprintf(stderr, "[DisplayXR] xrGetSystemProperties: display=%ux%u, %.3fx%.3fm\n",
 			        di->displayPixelWidth, di->displayPixelHeight,
 			        di->displaySizeMeters.width, di->displaySizeMeters.height);
 
@@ -286,9 +286,9 @@ hooked_xrGetSystemProperties(XrInstance instance, XrSystemId systemId, XrSystemP
 			// in the native hook to guarantee correct timing.
 			if (state->shared_iosurface == nullptr &&
 			    di->displayPixelWidth > 0 && di->displayPixelHeight > 0) {
-				if (monado3d_metal_create_shared_surface(
+				if (displayxr_metal_create_shared_surface(
 				        di->displayPixelWidth, di->displayPixelHeight)) {
-					fprintf(stderr, "[Monado3D] Shared IOSurface created: %ux%u\n",
+					fprintf(stderr, "[DisplayXR] Shared IOSurface created: %ux%u\n",
 					        di->displayPixelWidth, di->displayPixelHeight);
 				}
 			}
@@ -313,7 +313,7 @@ hooked_xrGetSystemProperties(XrInstance instance, XrSystemId systemId, XrSystemP
 static XrResult XRAPI_CALL
 hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInfo, XrSession *session)
 {
-	Monado3DState *state = monado3d_get_state();
+	DisplayXRState *state = displayxr_get_state();
 
 	// Unity may call xrGetSystemProperties AFTER xrCreateSession, so we
 	// force-call it here to ensure display info (and the IOSurface) are
@@ -321,7 +321,7 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 	if (!state->display_info.is_valid && s_real_get_system_properties != nullptr) {
 		XrSystemProperties sys_props = {XR_TYPE_SYSTEM_PROPERTIES};
 		hooked_xrGetSystemProperties(instance, createInfo->systemId, &sys_props);
-		fprintf(stderr, "[Monado3D] Force-called xrGetSystemProperties: is_valid=%d\n",
+		fprintf(stderr, "[DisplayXR] Force-called xrGetSystemProperties: is_valid=%d\n",
 		        state->display_info.is_valid);
 	}
 
@@ -330,13 +330,13 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 		const XrBaseInStructure *item = (const XrBaseInStructure *)createInfo->next;
 		while (item != nullptr) {
 			if (item->type == XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR) {
-				fprintf(stderr, "[Monado3D] Graphics binding: VULKAN (via MoltenVK on macOS)\n");
+				fprintf(stderr, "[DisplayXR] Graphics binding: VULKAN (via MoltenVK on macOS)\n");
 			} else if (item->type == XR_TYPE_GRAPHICS_BINDING_D3D11_KHR) {
-				fprintf(stderr, "[Monado3D] Graphics binding: D3D11\n");
+				fprintf(stderr, "[DisplayXR] Graphics binding: D3D11\n");
 			} else if (item->type == XR_TYPE_GRAPHICS_BINDING_D3D12_KHR) {
-				fprintf(stderr, "[Monado3D] Graphics binding: D3D12\n");
+				fprintf(stderr, "[DisplayXR] Graphics binding: D3D12\n");
 			} else {
-				fprintf(stderr, "[Monado3D] Session chain struct type=%u\n", (unsigned)item->type);
+				fprintf(stderr, "[DisplayXR] Session chain struct type=%u\n", (unsigned)item->type);
 			}
 			item = item->next;
 		}
@@ -352,10 +352,10 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 		if (state->shared_iosurface == nullptr && state->display_info.is_valid &&
 		    state->display_info.display_pixel_width > 0 &&
 		    state->display_info.display_pixel_height > 0) {
-			if (monado3d_metal_create_shared_surface(
+			if (displayxr_metal_create_shared_surface(
 			        state->display_info.display_pixel_width,
 			        state->display_info.display_pixel_height)) {
-				fprintf(stderr, "[Monado3D] Shared IOSurface created in xrCreateSession: %ux%u\n",
+				fprintf(stderr, "[DisplayXR] Shared IOSurface created in xrCreateSession: %ux%u\n",
 				        state->display_info.display_pixel_width,
 				        state->display_info.display_pixel_height);
 			}
@@ -377,7 +377,7 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 			win_binding.type = XR_TYPE_WIN32_WINDOW_BINDING_CREATE_INFO_EXT;
 			win_binding.next = nullptr;
 			win_binding.windowHandle = state->window_handle;
-			win_binding.readbackCallback = monado3d_readback_callback;
+			win_binding.readbackCallback = displayxr_readback_callback;
 			win_binding.readbackUserdata = nullptr;
 			win_binding.sharedTextureHandle = state->shared_d3d_handle;
 
@@ -387,7 +387,7 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 			mac_binding.type = XR_TYPE_COCOA_WINDOW_BINDING_CREATE_INFO_EXT;
 			mac_binding.next = nullptr;
 			mac_binding.viewHandle = state->window_handle; // NULL = offscreen
-			mac_binding.readbackCallback = monado3d_readback_callback;
+			mac_binding.readbackCallback = displayxr_readback_callback;
 			mac_binding.readbackUserdata = nullptr;
 			mac_binding.sharedIOSurface = state->shared_iosurface;
 
@@ -400,7 +400,7 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 	if (XR_SUCCEEDED(result)) {
 		s_session = *session;
 		s_session_alive = 1;
-		fprintf(stderr, "[Monado3D] xrCreateSession succeeded, session=%p\n", (void *)(uintptr_t)s_session);
+		fprintf(stderr, "[DisplayXR] xrCreateSession succeeded, session=%p\n", (void *)(uintptr_t)s_session);
 
 		// Create LOCAL reference space for xrLocateViews.
 		// LOCAL space gives raw eye positions relative to the display origin.
@@ -413,10 +413,10 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 			XrResult space_result = s_real_create_reference_space(s_session, &space_info, &s_local_space);
 			if (XR_FAILED(space_result)) {
 				s_local_space = XR_NULL_HANDLE;
-				fprintf(stderr, "[Monado3D] LOCAL reference space FAILED (result=%d) — "
+				fprintf(stderr, "[DisplayXR] LOCAL reference space FAILED (result=%d) — "
 				        "will use app's reference space\n", space_result);
 			} else {
-				fprintf(stderr, "[Monado3D] LOCAL reference space created successfully\n");
+				fprintf(stderr, "[DisplayXR] LOCAL reference space created successfully\n");
 			}
 		}
 	}
@@ -427,7 +427,7 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 static XrResult XRAPI_CALL
 hooked_xrDestroySession(XrSession session)
 {
-	fprintf(stderr, "[Monado3D] xrDestroySession BEGIN session=%p (DEFERRED)\n", (void *)(uintptr_t)session);
+	fprintf(stderr, "[DisplayXR] xrDestroySession BEGIN session=%p (DEFERRED)\n", (void *)(uintptr_t)session);
 	s_session_alive = 0;
 	s_local_space = XR_NULL_HANDLE;
 
@@ -437,7 +437,7 @@ hooked_xrDestroySession(XrSession session)
 	s_deferred_destroy_session = session;
 	s_deferred_destroy_session_fn = s_real_destroy_session;
 
-	fprintf(stderr, "[Monado3D] xrDestroySession END (deferred, returning XR_SUCCESS)\n");
+	fprintf(stderr, "[DisplayXR] xrDestroySession END (deferred, returning XR_SUCCESS)\n");
 	s_session = XR_NULL_HANDLE;
 	return XR_SUCCESS;
 }
@@ -447,7 +447,7 @@ hooked_xrEndFrame(XrSession session, const XrFrameEndInfo *frameEndInfo)
 {
 	// Guard: skip if session is being torn down
 	if (!s_session_alive) {
-		fprintf(stderr, "[Monado3D] xrEndFrame: session not alive, passing through\n");
+		fprintf(stderr, "[DisplayXR] xrEndFrame: session not alive, passing through\n");
 		return s_real_end_frame(session, frameEndInfo);
 	}
 
@@ -456,7 +456,7 @@ hooked_xrEndFrame(XrSession session, const XrFrameEndInfo *frameEndInfo)
 	if (s_ef_count >= 2 && s_ef_count % 120 == 0 &&
 	    frameEndInfo != nullptr && frameEndInfo->layerCount > 0 &&
 	    frameEndInfo->layers != nullptr) {
-		fprintf(stderr, "[Monado3D] xrEndFrame: %u layers\n", frameEndInfo->layerCount);
+		fprintf(stderr, "[DisplayXR] xrEndFrame: %u layers\n", frameEndInfo->layerCount);
 		for (uint32_t i = 0; i < frameEndInfo->layerCount; i++) {
 			const XrCompositionLayerBaseHeader *hdr = frameEndInfo->layers[i];
 			if (hdr == nullptr) continue;
@@ -489,11 +489,11 @@ hooked_xrEndFrame(XrSession session, const XrFrameEndInfo *frameEndInfo)
 	}
 	s_ef_count++;
 
-	Monado3DState *state = monado3d_get_state();
+	DisplayXRState *state = displayxr_get_state();
 
 	// Count active window-space layers
 	int active_layers = 0;
-	for (int i = 0; i < MONADO3D_MAX_WINDOW_LAYERS; i++) {
+	for (int i = 0; i < DISPLAYXR_MAX_WINDOW_LAYERS; i++) {
 		if (state->window_layers[i].active && state->window_layers[i].swapchain != XR_NULL_HANDLE) {
 			active_layers++;
 		}
@@ -514,10 +514,10 @@ hooked_xrEndFrame(XrSession session, const XrFrameEndInfo *frameEndInfo)
 	}
 
 	// Append window-space layers
-	static XrCompositionLayerWindowSpaceEXT ws_layers[MONADO3D_MAX_WINDOW_LAYERS] = {};
+	static XrCompositionLayerWindowSpaceEXT ws_layers[DISPLAYXR_MAX_WINDOW_LAYERS] = {};
 	uint32_t idx = frameEndInfo->layerCount;
-	for (int i = 0; i < MONADO3D_MAX_WINDOW_LAYERS; i++) {
-		Monado3DWindowLayer *wl = &state->window_layers[i];
+	for (int i = 0; i < DISPLAYXR_MAX_WINDOW_LAYERS; i++) {
+		DisplayXRWindowLayer *wl = &state->window_layers[i];
 		if (!wl->active || wl->swapchain == XR_NULL_HANDLE) {
 			continue;
 		}
@@ -554,7 +554,7 @@ hooked_xrEndFrame(XrSession session, const XrFrameEndInfo *frameEndInfo)
 static XrResult XRAPI_CALL
 hooked_xrDestroyInstance(XrInstance instance)
 {
-	fprintf(stderr, "[Monado3D] xrDestroyInstance BEGIN (DEFERRED)\n");
+	fprintf(stderr, "[DisplayXR] xrDestroyInstance BEGIN (DEFERRED)\n");
 	s_instance_alive = 0;
 
 	// Defer the real destroy — Unity's OpenXR loader calls xrPollEvent AFTER
@@ -564,7 +564,7 @@ hooked_xrDestroyInstance(XrInstance instance)
 	//
 	// Instead, mark everything as dead (guards will reject API calls) but keep
 	// the runtime instance alive. The actual destroy happens at the start of
-	// the next instance lifecycle in monado3d_install_hooks().
+	// the next instance lifecycle in displayxr_install_hooks().
 	s_deferred_destroy_instance = instance;
 	s_deferred_destroy_instance_fn = s_real_destroy_instance;
 
@@ -579,7 +579,7 @@ hooked_xrDestroyInstance(XrInstance instance)
 	s_real_poll_event = nullptr;
 	s_real_destroy_instance = nullptr;
 
-	fprintf(stderr, "[Monado3D] xrDestroyInstance END (deferred, returning XR_SUCCESS)\n");
+	fprintf(stderr, "[DisplayXR] xrDestroyInstance END (deferred, returning XR_SUCCESS)\n");
 	s_instance = XR_NULL_HANDLE;
 	s_session = XR_NULL_HANDLE;
 	s_local_space = XR_NULL_HANDLE;
@@ -614,7 +614,7 @@ hooked_xrPollEvent(XrInstance instance, XrEventDataBuffer *eventData)
 			(const XrEventDataSessionStateChanged *)eventData;
 		if (ssc->state == XR_SESSION_STATE_EXITING ||
 		    ssc->state == XR_SESSION_STATE_LOSS_PENDING) {
-			fprintf(stderr, "[Monado3D] xrPollEvent: EXITING detected, nulling poll function\n");
+			fprintf(stderr, "[DisplayXR] xrPollEvent: EXITING detected, nulling poll function\n");
 			s_stop_polling = 1;
 			s_real_poll_event = nullptr; // Nuclear: guard 1 catches all future calls
 			s_instance_alive = 0;        // Belt and suspenders
@@ -630,7 +630,7 @@ hooked_xrPollEvent(XrInstance instance, XrEventDataBuffer *eventData)
 // ============================================================================
 
 XrResult XRAPI_CALL
-monado3d_hook_xrGetInstanceProcAddr(XrInstance instance, const char *name, PFN_xrVoidFunction *function)
+displayxr_hook_xrGetInstanceProcAddr(XrInstance instance, const char *name, PFN_xrVoidFunction *function)
 {
 	// First get the real function from the next in chain
 	XrResult result = s_next_gipa(instance, name, function);
@@ -656,7 +656,7 @@ monado3d_hook_xrGetInstanceProcAddr(XrInstance instance, const char *name, PFN_x
 		if (dladdr((void *)*function, &dl_info) && dl_info.dli_fname) {
 			void *handle = dlopen(dl_info.dli_fname, RTLD_LAZY | RTLD_NODELETE);
 			if (handle) {
-				fprintf(stderr, "[Monado3D] Pinned runtime library: %s\n", dl_info.dli_fname);
+				fprintf(stderr, "[DisplayXR] Pinned runtime library: %s\n", dl_info.dli_fname);
 				s_runtime_pinned = 1;
 				dlclose(handle); // Decrement refcount but RTLD_NODELETE keeps it mapped
 			}
@@ -665,7 +665,7 @@ monado3d_hook_xrGetInstanceProcAddr(XrInstance instance, const char *name, PFN_x
 #endif
 
 	// Log function resolution for debugging second-instance issues
-	fprintf(stderr, "[Monado3D] xrGetInstanceProcAddr: resolving '%s'\n", name);
+	fprintf(stderr, "[DisplayXR] xrGetInstanceProcAddr: resolving '%s'\n", name);
 
 	// Intercept specific functions
 	if (strcmp(name, "xrLocateViews") == 0) {
@@ -698,9 +698,9 @@ monado3d_hook_xrGetInstanceProcAddr(XrInstance instance, const char *name, PFN_x
 }
 
 PFN_xrVoidFunction
-monado3d_install_hooks(PFN_xrGetInstanceProcAddr next_gipa)
+displayxr_install_hooks(PFN_xrGetInstanceProcAddr next_gipa)
 {
-	fprintf(stderr, "[Monado3D] install_hooks called (new instance lifecycle)\n");
+	fprintf(stderr, "[DisplayXR] install_hooks called (new instance lifecycle)\n");
 
 	// Clear deferred session/instance destruction from the previous lifecycle.
 	// These were deferred because Unity's loader calls xrPollEvent after
@@ -709,17 +709,17 @@ monado3d_install_hooks(PFN_xrGetInstanceProcAddr next_gipa)
 	// Internal_UnloadOpenXRLibrary() (dlclose) between play sessions, so the
 	// saved function pointers are dangling. The runtime cleans up via dlclose.
 	if (s_deferred_destroy_session != XR_NULL_HANDLE) {
-		fprintf(stderr, "[Monado3D] Clearing deferred xrDestroySession (runtime was unloaded by Unity)\n");
+		fprintf(stderr, "[DisplayXR] Clearing deferred xrDestroySession (runtime was unloaded by Unity)\n");
 		s_deferred_destroy_session = XR_NULL_HANDLE;
 		s_deferred_destroy_session_fn = nullptr;
 	}
 	if (s_deferred_destroy_instance != XR_NULL_HANDLE) {
-		fprintf(stderr, "[Monado3D] Clearing deferred xrDestroyInstance (runtime was unloaded by Unity)\n");
+		fprintf(stderr, "[DisplayXR] Clearing deferred xrDestroyInstance (runtime was unloaded by Unity)\n");
 		s_deferred_destroy_instance = XR_NULL_HANDLE;
 		s_deferred_destroy_instance_fn = nullptr;
 	}
 
-	monado3d_state_init();
+	displayxr_state_init();
 	s_next_gipa = next_gipa;
 
 	// Reset all state for the new instance lifecycle.
@@ -739,7 +739,7 @@ monado3d_install_hooks(PFN_xrGetInstanceProcAddr next_gipa)
 	s_instance_alive = 0;
 	s_stop_polling = 0;
 
-	return (PFN_xrVoidFunction)monado3d_hook_xrGetInstanceProcAddr;
+	return (PFN_xrVoidFunction)displayxr_hook_xrGetInstanceProcAddr;
 }
 
 
@@ -748,9 +748,9 @@ monado3d_install_hooks(PFN_xrGetInstanceProcAddr next_gipa)
 // ============================================================================
 
 void
-monado3d_stop_polling(void)
+displayxr_stop_polling(void)
 {
-	fprintf(stderr, "[Monado3D] monado3d_stop_polling: killing poll forwarding\n");
+	fprintf(stderr, "[DisplayXR] displayxr_stop_polling: killing poll forwarding\n");
 	s_stop_polling = 1;
 	s_real_poll_event = nullptr;
 	s_instance_alive = 0;
@@ -758,7 +758,7 @@ monado3d_stop_polling(void)
 }
 
 void
-monado3d_set_tunables(float ipd_factor,
+displayxr_set_tunables(float ipd_factor,
                       float parallax_factor,
                       float perspective_factor,
                       float virtual_display_height,
@@ -768,7 +768,7 @@ monado3d_set_tunables(float ipd_factor,
                       float far_z,
                       int camera_centric)
 {
-	Monado3DTunables t;
+	DisplayXRTunables t;
 	t.ipd_factor = ipd_factor;
 	t.parallax_factor = parallax_factor;
 	t.perspective_factor = perspective_factor;
@@ -778,11 +778,11 @@ monado3d_set_tunables(float ipd_factor,
 	t.near_z = near_z > 0.0001f ? near_z : 0.01f;
 	t.far_z = far_z > t.near_z ? far_z : 1000.0f;
 	t.camera_centric = camera_centric ? 1 : 0;
-	monado3d_state_set_tunables(&t);
+	displayxr_state_set_tunables(&t);
 }
 
 void
-monado3d_get_display_info(float *display_width_m,
+displayxr_get_display_info(float *display_width_m,
                           float *display_height_m,
                           uint32_t *pixel_width,
                           uint32_t *pixel_height,
@@ -794,8 +794,8 @@ monado3d_get_display_info(float *display_width_m,
                           int *supports_mode_switch,
                           int *is_valid)
 {
-	Monado3DState *state = monado3d_get_state();
-	Monado3DDisplayInfo *di = &state->display_info;
+	DisplayXRState *state = displayxr_get_state();
+	DisplayXRDisplayInfo *di = &state->display_info;
 
 	*display_width_m = di->display_width_meters;
 	*display_height_m = di->display_height_meters;
@@ -811,9 +811,9 @@ monado3d_get_display_info(float *display_width_m,
 }
 
 void
-monado3d_get_eye_positions(float *lx, float *ly, float *lz, float *rx, float *ry, float *rz, int *is_tracked)
+displayxr_get_eye_positions(float *lx, float *ly, float *lz, float *rx, float *ry, float *rz, int *is_tracked)
 {
-	Monado3DEyePositions eyes = monado3d_state_get_eye_positions();
+	DisplayXREyePositions eyes = displayxr_state_get_eye_positions();
 	*lx = eyes.left_eye.x;
 	*ly = eyes.left_eye.y;
 	*lz = eyes.left_eye.z;
@@ -824,16 +824,16 @@ monado3d_get_eye_positions(float *lx, float *ly, float *lz, float *rx, float *ry
 }
 
 void
-monado3d_set_window_handle(void *handle)
+displayxr_set_window_handle(void *handle)
 {
-	Monado3DState *state = monado3d_get_state();
+	DisplayXRState *state = displayxr_get_state();
 	state->window_handle = handle;
 }
 
 int
-monado3d_request_display_mode(int mode_3d)
+displayxr_request_display_mode(int mode_3d)
 {
-	Monado3DState *state = monado3d_get_state();
+	DisplayXRState *state = displayxr_get_state();
 	if (!state->has_display_mode_ext || state->pfn_request_display_mode == nullptr || s_session == XR_NULL_HANDLE) {
 		return 0; // Not supported
 	}
@@ -844,7 +844,7 @@ monado3d_request_display_mode(int mode_3d)
 }
 
 void
-monado3d_set_scene_transform(float pos_x,
+displayxr_set_scene_transform(float pos_x,
                              float pos_y,
                              float pos_z,
                              float ori_x,
@@ -856,7 +856,7 @@ monado3d_set_scene_transform(float pos_x,
                              float scale_z,
                              int enabled)
 {
-	Monado3DSceneTransform t;
+	DisplayXRSceneTransform t;
 	t.position[0] = pos_x;
 	t.position[1] = pos_y;
 	t.position[2] = pos_z;
@@ -868,15 +868,15 @@ monado3d_set_scene_transform(float pos_x,
 	t.scale[1] = scale_y;
 	t.scale[2] = scale_z;
 	t.enabled = enabled ? 1 : 0;
-	monado3d_state_set_scene_transform(&t);
+	displayxr_state_set_scene_transform(&t);
 }
 
 void
-monado3d_get_stereo_matrices(float *left_view, float *left_proj,
+displayxr_get_stereo_matrices(float *left_view, float *left_proj,
                               float *right_view, float *right_proj,
                               int *valid)
 {
-	Monado3DStereoMatrices mats = monado3d_state_get_stereo_matrices();
+	DisplayXRStereoMatrices mats = displayxr_state_get_stereo_matrices();
 	memcpy(left_view, mats.left_view, sizeof(float) * 16);
 	memcpy(left_proj, mats.left_projection, sizeof(float) * 16);
 	memcpy(right_view, mats.right_view, sizeof(float) * 16);
@@ -885,9 +885,9 @@ monado3d_get_stereo_matrices(float *left_view, float *left_proj,
 }
 
 void
-monado3d_get_readback(uint8_t **pixels, uint32_t *width, uint32_t *height, int *ready)
+displayxr_get_readback(uint8_t **pixels, uint32_t *width, uint32_t *height, int *ready)
 {
-	Monado3DState *state = monado3d_get_state();
+	DisplayXRState *state = displayxr_get_state();
 	*pixels = state->readback_pixels;
 	*width = state->readback_width;
 	*height = state->readback_height;
@@ -895,11 +895,11 @@ monado3d_get_readback(uint8_t **pixels, uint32_t *width, uint32_t *height, int *
 }
 
 void *
-monado3d_create_shared_texture(uint32_t width, uint32_t height)
+displayxr_create_shared_texture(uint32_t width, uint32_t height)
 {
 #if defined(__APPLE__)
-	if (monado3d_metal_create_shared_surface(width, height)) {
-		return monado3d_metal_get_texture();
+	if (displayxr_metal_create_shared_surface(width, height)) {
+		return displayxr_metal_get_texture();
 	}
 #endif
 	// Windows: deferred to a later PR
@@ -907,12 +907,12 @@ monado3d_create_shared_texture(uint32_t width, uint32_t height)
 }
 
 void
-monado3d_destroy_shared_texture(void)
+displayxr_destroy_shared_texture(void)
 {
 #if defined(__APPLE__)
-	monado3d_metal_destroy_shared_surface();
+	displayxr_metal_destroy_shared_surface();
 #endif
-	Monado3DState *state = monado3d_get_state();
+	DisplayXRState *state = displayxr_get_state();
 	state->shared_iosurface = nullptr;
 	state->shared_d3d_handle = nullptr;
 	state->shared_texture_width = 0;
@@ -921,11 +921,11 @@ monado3d_destroy_shared_texture(void)
 }
 
 void
-monado3d_get_shared_texture(void **native_ptr, uint32_t *width, uint32_t *height, int *ready)
+displayxr_get_shared_texture(void **native_ptr, uint32_t *width, uint32_t *height, int *ready)
 {
-	Monado3DState *state = monado3d_get_state();
+	DisplayXRState *state = displayxr_get_state();
 #if defined(__APPLE__)
-	*native_ptr = monado3d_metal_get_texture();
+	*native_ptr = displayxr_metal_get_texture();
 #elif defined(_WIN32)
 	*native_ptr = state->shared_d3d_handle;
 #else

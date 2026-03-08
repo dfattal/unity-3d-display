@@ -1,4 +1,4 @@
-// Copyright 2024-2026, Monado 3D Display contributors
+// Copyright 2024-2026, DisplayXR contributors
 // SPDX-License-Identifier: BSL-1.0
 //
 // OpenXR function interception for Unity's OpenXR Feature hook mechanism.
@@ -13,29 +13,29 @@ extern "C" {
 
 // Platform export macros
 #if defined(_WIN32)
-#define MONADO3D_EXPORT __declspec(dllexport)
+#define DISPLAYXR_EXPORT __declspec(dllexport)
 #elif defined(__GNUC__)
-#define MONADO3D_EXPORT __attribute__((visibility("default")))
+#define DISPLAYXR_EXPORT __attribute__((visibility("default")))
 #else
-#define MONADO3D_EXPORT
+#define DISPLAYXR_EXPORT
 #endif
 
 /// Called by Unity's OpenXR Feature via HookGetInstanceProcAddr.
 /// Stores the next xrGetInstanceProcAddr in the chain and returns our interceptor.
 /// @param next The next xrGetInstanceProcAddr function pointer in the chain.
 /// @return Our interceptor function pointer (cast to PFN_xrVoidFunction for C# IntPtr).
-MONADO3D_EXPORT XrResult monado3d_hook_xrGetInstanceProcAddr(XrInstance instance,
+DISPLAYXR_EXPORT XrResult displayxr_hook_xrGetInstanceProcAddr(XrInstance instance,
                                                              const char *name,
                                                              PFN_xrVoidFunction *function);
 
 /// Install the hook chain. Called once from C# with the next-in-chain function pointer.
 /// @param next_gipa The next xrGetInstanceProcAddr in Unity's hook chain.
 /// @return Our hook function pointer as PFN_xrVoidFunction (for C# IntPtr).
-MONADO3D_EXPORT PFN_xrVoidFunction monado3d_install_hooks(PFN_xrGetInstanceProcAddr next_gipa);
+DISPLAYXR_EXPORT PFN_xrVoidFunction displayxr_install_hooks(PFN_xrGetInstanceProcAddr next_gipa);
 
 // --- P/Invoke exports for C# ---
 
-MONADO3D_EXPORT void monado3d_set_tunables(float ipd_factor,
+DISPLAYXR_EXPORT void displayxr_set_tunables(float ipd_factor,
                                            float parallax_factor,
                                            float perspective_factor,
                                            float virtual_display_height,
@@ -45,7 +45,7 @@ MONADO3D_EXPORT void monado3d_set_tunables(float ipd_factor,
                                            float far_z,
                                            int camera_centric);
 
-MONADO3D_EXPORT void monado3d_get_display_info(float *display_width_m,
+DISPLAYXR_EXPORT void displayxr_get_display_info(float *display_width_m,
                                                float *display_height_m,
                                                uint32_t *pixel_width,
                                                uint32_t *pixel_height,
@@ -57,7 +57,7 @@ MONADO3D_EXPORT void monado3d_get_display_info(float *display_width_m,
                                                int *supports_mode_switch,
                                                int *is_valid);
 
-MONADO3D_EXPORT void monado3d_get_eye_positions(float *lx,
+DISPLAYXR_EXPORT void displayxr_get_eye_positions(float *lx,
                                                 float *ly,
                                                 float *lz,
                                                 float *rx,
@@ -65,7 +65,7 @@ MONADO3D_EXPORT void monado3d_get_eye_positions(float *lx,
                                                 float *rz,
                                                 int *is_tracked);
 
-MONADO3D_EXPORT void monado3d_set_scene_transform(float pos_x,
+DISPLAYXR_EXPORT void displayxr_set_scene_transform(float pos_x,
                                                    float pos_y,
                                                    float pos_z,
                                                    float ori_x,
@@ -77,33 +77,33 @@ MONADO3D_EXPORT void monado3d_set_scene_transform(float pos_x,
                                                    float scale_z,
                                                    int enabled);
 
-MONADO3D_EXPORT void monado3d_set_window_handle(void *handle);
+DISPLAYXR_EXPORT void displayxr_set_window_handle(void *handle);
 
-MONADO3D_EXPORT int monado3d_request_display_mode(int mode_3d);
+DISPLAYXR_EXPORT int displayxr_request_display_mode(int mode_3d);
 
-MONADO3D_EXPORT void monado3d_get_stereo_matrices(float *left_view,
+DISPLAYXR_EXPORT void displayxr_get_stereo_matrices(float *left_view,
                                                    float *left_proj,
                                                    float *right_view,
                                                    float *right_proj,
                                                    int *valid);
 
-MONADO3D_EXPORT void monado3d_get_readback(uint8_t **pixels,
+DISPLAYXR_EXPORT void displayxr_get_readback(uint8_t **pixels,
                                            uint32_t *width,
                                            uint32_t *height,
                                            int *ready);
 
-MONADO3D_EXPORT void *monado3d_create_shared_texture(uint32_t width, uint32_t height);
+DISPLAYXR_EXPORT void *displayxr_create_shared_texture(uint32_t width, uint32_t height);
 
-MONADO3D_EXPORT void monado3d_destroy_shared_texture(void);
+DISPLAYXR_EXPORT void displayxr_destroy_shared_texture(void);
 
-MONADO3D_EXPORT void monado3d_get_shared_texture(void **native_ptr,
+DISPLAYXR_EXPORT void displayxr_get_shared_texture(void **native_ptr,
                                                   uint32_t *width,
                                                   uint32_t *height,
                                                   int *ready);
 
 /// Kill xrPollEvent forwarding immediately. Call from C# before session/instance
 /// teardown to prevent use-after-free when the runtime is unloaded.
-MONADO3D_EXPORT void monado3d_stop_polling(void);
+DISPLAYXR_EXPORT void displayxr_stop_polling(void);
 
 #ifdef __cplusplus
 }

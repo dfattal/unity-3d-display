@@ -1,11 +1,11 @@
-# Copyright 2024-2026, Monado 3D Display contributors
+# Copyright 2024-2026, DisplayXR contributors
 # SPDX-License-Identifier: BSL-1.0
 #
-# Build the monado3d_unity native plugin for OpenXR function interception.
-# Produces: monado3d_unity.dll (Windows) or monado3d_unity.bundle (macOS)
+# Build the displayxr_unity native plugin for OpenXR function interception.
+# Produces: displayxr_unity.dll (Windows) or displayxr_unity.bundle (macOS)
 
 cmake_minimum_required(VERSION 3.16)
-project(monado3d_unity LANGUAGES CXX C)
+project(displayxr_unity LANGUAGES CXX C)
 
 if(APPLE)
     enable_language(OBJC)
@@ -39,48 +39,48 @@ endif()
 
 # --- Plugin sources ---
 set(SOURCES
-    monado3d_hooks.cpp
-    monado3d_kooima.cpp
-    monado3d_shared_state.cpp
-    monado3d_readback.cpp
+    displayxr_hooks.cpp
+    displayxr_kooima.cpp
+    displayxr_shared_state.cpp
+    displayxr_readback.cpp
     display3d_view.c
     camera3d_view.c
 )
 
 set(HEADERS
-    monado3d_hooks.h
-    monado3d_kooima.h
-    monado3d_shared_state.h
-    monado3d_readback.h
-    monado3d_extensions.h
+    displayxr_hooks.h
+    displayxr_kooima.h
+    displayxr_shared_state.h
+    displayxr_readback.h
+    displayxr_extensions.h
     display3d_view.h
     camera3d_view.h
 )
 
 # Apple-only: IOSurface helper (Objective-C)
 if(APPLE)
-    list(APPEND SOURCES monado3d_metal.m)
-    list(APPEND HEADERS monado3d_metal.h)
+    list(APPEND SOURCES displayxr_metal.m)
+    list(APPEND HEADERS displayxr_metal.h)
 endif()
 
 # --- Build shared library ---
 # Use MODULE on macOS so BUNDLE property works (creates .bundle directory)
 if(APPLE)
-    add_library(monado3d_unity MODULE ${SOURCES} ${HEADERS})
+    add_library(displayxr_unity MODULE ${SOURCES} ${HEADERS})
 else()
-    add_library(monado3d_unity SHARED ${SOURCES} ${HEADERS})
+    add_library(displayxr_unity SHARED ${SOURCES} ${HEADERS})
 endif()
 
-target_include_directories(monado3d_unity PRIVATE
+target_include_directories(displayxr_unity PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${OPENXR_INCLUDE_DIR}
 )
 
 # Symbol visibility
 if(MSVC)
-    target_compile_definitions(monado3d_unity PRIVATE _CRT_SECURE_NO_WARNINGS)
+    target_compile_definitions(displayxr_unity PRIVATE _CRT_SECURE_NO_WARNINGS)
 else()
-    target_compile_options(monado3d_unity PRIVATE -fvisibility=hidden)
+    target_compile_options(displayxr_unity PRIVATE -fvisibility=hidden)
 endif()
 
 # --- Apple framework linking ---
@@ -90,7 +90,7 @@ if(APPLE)
     find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
     find_library(APPKIT_FRAMEWORK AppKit REQUIRED)
     find_library(METAL_FRAMEWORK Metal REQUIRED)
-    target_link_libraries(monado3d_unity PRIVATE
+    target_link_libraries(displayxr_unity PRIVATE
         ${IOSURFACE_FRAMEWORK}
         ${COREFOUNDATION_FRAMEWORK}
         ${FOUNDATION_FRAMEWORK}
@@ -98,7 +98,7 @@ if(APPLE)
         ${METAL_FRAMEWORK}
     )
     # Enable ARC for Objective-C files
-    set_source_files_properties(monado3d_metal.m PROPERTIES
+    set_source_files_properties(displayxr_metal.m PROPERTIES
         COMPILE_FLAGS "-fobjc-arc"
     )
 endif()
@@ -107,7 +107,7 @@ endif()
 if(WIN32)
     set(PLUGIN_OUTPUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Runtime/Plugins/Windows/x64")
     # Set per-config output dirs to prevent MSVC multi-config subdirectories
-    set_target_properties(monado3d_unity PROPERTIES
+    set_target_properties(displayxr_unity PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${PLUGIN_OUTPUT_DIR}"
         RUNTIME_OUTPUT_DIRECTORY_RELEASE "${PLUGIN_OUTPUT_DIR}"
         RUNTIME_OUTPUT_DIRECTORY_DEBUG "${PLUGIN_OUTPUT_DIR}"
@@ -117,14 +117,14 @@ if(WIN32)
     )
 elseif(APPLE)
     set(PLUGIN_OUTPUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Runtime/Plugins/macOS")
-    set_target_properties(monado3d_unity PROPERTIES
+    set_target_properties(displayxr_unity PROPERTIES
         BUNDLE TRUE
         BUNDLE_EXTENSION "bundle"
         LIBRARY_OUTPUT_DIRECTORY "${PLUGIN_OUTPUT_DIR}"
-        MACOSX_BUNDLE_GUI_IDENTIFIER "com.monado.display3d.native"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.displayxr.unity.native"
     )
 endif()
 
 # --- Summary ---
-message(STATUS "monado3d_unity: OpenXR headers from ${OPENXR_INCLUDE_DIR}")
-message(STATUS "monado3d_unity: Output to ${PLUGIN_OUTPUT_DIR}")
+message(STATUS "displayxr_unity: OpenXR headers from ${OPENXR_INCLUDE_DIR}")
+message(STATUS "displayxr_unity: Output to ${PLUGIN_OUTPUT_DIR}")
