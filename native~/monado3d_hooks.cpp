@@ -123,26 +123,26 @@ hooked_xrLocateViews(XrSession session,
 		scene_pose.position = XrVector3f{0, 0, 0};
 	}
 
-	if (tunables.camera_centric && tunables.convergence_distance > 0.0f) {
+	if (tunables.camera_centric) {
 		// Camera-centric: tangent-based Kooima (camera3d_view library)
 		// scene_pose = Unity camera world pose converted to OpenXR coords.
 		static int s_cam_log = 0;
 		if (s_cam_log++ % 60 == 0) {
 			fprintf(stderr, "[Monado3D] CAM-CENTRIC: scene_pose=(%.3f,%.3f,%.3f) "
 			        "raw_L=(%.3f,%.3f,%.3f) raw_R=(%.3f,%.3f,%.3f) "
-			        "nominal=(%.3f,%.3f,%.3f) conv=%.3f fov=%.1f°\n",
+			        "nominal=(%.3f,%.3f,%.3f) invd=%.4f half_tan_vfov=%.4f\n",
 			        scene_pose.position.x, scene_pose.position.y, scene_pose.position.z,
 			        raw_left.x, raw_left.y, raw_left.z,
 			        raw_right.x, raw_right.y, raw_right.z,
 			        nominal.x, nominal.y, nominal.z,
-			        tunables.convergence_distance,
-			        tunables.fov_override * 180.0f / 3.14159f);
+			        tunables.inv_convergence_distance,
+			        tunables.fov_override);
 		}
 		Camera3DTunables cam_tunables;
 		cam_tunables.ipd_factor = tunables.ipd_factor;
 		cam_tunables.parallax_factor = tunables.parallax_factor;
-		cam_tunables.inv_convergence_distance = 1.0f / tunables.convergence_distance;
-		cam_tunables.half_tan_vfov = tanf(tunables.fov_override * 0.5f);
+		cam_tunables.inv_convergence_distance = tunables.inv_convergence_distance;
+		cam_tunables.half_tan_vfov = tunables.fov_override;
 
 		Camera3DStereoView cam_left, cam_right;
 		camera3d_compute_stereo_views(
@@ -662,7 +662,7 @@ monado3d_set_tunables(float ipd_factor,
                       float parallax_factor,
                       float perspective_factor,
                       float virtual_display_height,
-                      float convergence_distance,
+                      float inv_convergence_distance,
                       float fov_override,
                       int camera_centric)
 {
@@ -671,7 +671,7 @@ monado3d_set_tunables(float ipd_factor,
 	t.parallax_factor = parallax_factor;
 	t.perspective_factor = perspective_factor;
 	t.virtual_display_height = virtual_display_height;
-	t.convergence_distance = convergence_distance;
+	t.inv_convergence_distance = inv_convergence_distance;
 	t.fov_override = fov_override;
 	t.camera_centric = camera_centric ? 1 : 0;
 	monado3d_state_set_tunables(&t);

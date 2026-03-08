@@ -28,7 +28,7 @@ monado3d_state_init(void)
 		s_state.tunables[i].parallax_factor = 1.0f;
 		s_state.tunables[i].perspective_factor = 1.0f;
 		s_state.tunables[i].virtual_display_height = 0.0f;
-		s_state.tunables[i].convergence_distance = 0.0f;
+		s_state.tunables[i].inv_convergence_distance = 0.0f;
 		s_state.tunables[i].fov_override = 0.0f;
 		s_state.tunables[i].camera_centric = 0;
 	}

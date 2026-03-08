@@ -29,7 +29,7 @@ namespace Monado.Display3D
             float parallaxFactor,
             float perspectiveFactor,
             float virtualDisplayHeight,
-            float convergenceDistance,
+            float invConvergenceDistance,
             float fovOverride,
             int cameraCentric);
 

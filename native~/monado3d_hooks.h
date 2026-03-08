@@ -39,7 +39,7 @@ MONADO3D_EXPORT void monado3d_set_tunables(float ipd_factor,
                                            float parallax_factor,
                                            float perspective_factor,
                                            float virtual_display_height,
-                                           float convergence_distance,
+                                           float inv_convergence_distance,
                                            float fov_override,
                                            int camera_centric);
 

@@ -31,7 +31,7 @@ typedef struct Monado3DTunables {
     float parallax_factor;      // Scales eye X/Y offset from center
     float perspective_factor;   // Scales eye Z only
     float virtual_display_height; // Virtual display height in meters (0 = physical)
-    float convergence_distance; // Override convergence (0 = use nominal)
+    float inv_convergence_distance; // 1/convergence (0 = infinity)
     float fov_override;         // Override FOV in radians (0 = compute)
     uint8_t camera_centric;     // Use camera-centric parameters
 } Monado3DTunables;
