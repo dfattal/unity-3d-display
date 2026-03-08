@@ -1,22 +1,22 @@
-// Copyright 2024-2026, Monado 3D Display contributors
+// Copyright 2024-2026, DisplayXR contributors
 // SPDX-License-Identifier: BSL-1.0
 
-#include "monado3d_readback.h"
-#include "monado3d_shared_state.h"
+#include "displayxr_readback.h"
+#include "displayxr_shared_state.h"
 
 #include <stdlib.h>
 #include <string.h>
 
 void
-monado3d_readback_callback(const uint8_t *pixels, uint32_t width, uint32_t height, void *userdata)
+displayxr_readback_callback(const uint8_t *pixels, uint32_t width, uint32_t height, void *userdata)
 {
 	(void)userdata;
 
-	Monado3DState *state = monado3d_get_state();
+	DisplayXRState *state = displayxr_get_state();
 
 	// Reallocate if dimensions changed
 	if (state->readback_width != width || state->readback_height != height) {
-		monado3d_readback_alloc(width, height);
+		displayxr_readback_alloc(width, height);
 	}
 
 	if (state->readback_pixels != nullptr) {
@@ -27,11 +27,11 @@ monado3d_readback_callback(const uint8_t *pixels, uint32_t width, uint32_t heigh
 }
 
 void
-monado3d_readback_alloc(uint32_t width, uint32_t height)
+displayxr_readback_alloc(uint32_t width, uint32_t height)
 {
-	Monado3DState *state = monado3d_get_state();
+	DisplayXRState *state = displayxr_get_state();
 
-	monado3d_readback_free();
+	displayxr_readback_free();
 
 	uint32_t size = width * height * 4; // RGBA
 	state->readback_pixels = (uint8_t *)malloc(size);
@@ -41,9 +41,9 @@ monado3d_readback_alloc(uint32_t width, uint32_t height)
 }
 
 void
-monado3d_readback_free(void)
+displayxr_readback_free(void)
 {
-	Monado3DState *state = monado3d_get_state();
+	DisplayXRState *state = displayxr_get_state();
 
 	if (state->readback_pixels != nullptr) {
 		free(state->readback_pixels);

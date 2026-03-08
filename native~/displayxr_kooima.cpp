@@ -1,7 +1,7 @@
-// Copyright 2024-2026, Monado 3D Display contributors
+// Copyright 2024-2026, DisplayXR contributors
 // SPDX-License-Identifier: BSL-1.0
 
-#include "monado3d_kooima.h"
+#include "displayxr_kooima.h"
 #include "display3d_view.h"
 #include <math.h>
 
@@ -26,9 +26,9 @@ quat_rotate(const float q[4], XrVector3f v)
 }
 
 void
-monado3d_apply_scene_transform(const XrVector3f *raw_left,
+displayxr_apply_scene_transform(const XrVector3f *raw_left,
                                const XrVector3f *raw_right,
-                               const Monado3DSceneTransform *xform,
+                               const DisplayXRSceneTransform *xform,
                                XrVector3f *out_left,
                                XrVector3f *out_right)
 {
@@ -61,17 +61,17 @@ monado3d_apply_scene_transform(const XrVector3f *raw_left,
 }
 
 XrFovf
-monado3d_compute_kooima_fov(XrVector3f eye_pos, float screen_width_m, float screen_height_m)
+displayxr_compute_kooima_fov(XrVector3f eye_pos, float screen_width_m, float screen_height_m)
 {
 	// Delegate to canonical display3d_view library
 	return display3d_compute_fov(eye_pos, screen_width_m, screen_height_m);
 }
 
 void
-monado3d_apply_tunables(const XrVector3f *raw_left,
+displayxr_apply_tunables(const XrVector3f *raw_left,
                         const XrVector3f *raw_right,
-                        const Monado3DTunables *tunables,
-                        const Monado3DDisplayInfo *display_info,
+                        const DisplayXRTunables *tunables,
+                        const DisplayXRDisplayInfo *display_info,
                         XrVector3f *out_left,
                         XrVector3f *out_right)
 {
@@ -98,9 +98,9 @@ monado3d_apply_tunables(const XrVector3f *raw_left,
 }
 
 void
-monado3d_camera_centric_extents(float convergence_distance,
+displayxr_camera_centric_extents(float convergence_distance,
                                 float fov_override,
-                                const Monado3DDisplayInfo *display_info,
+                                const DisplayXRDisplayInfo *display_info,
                                 float *out_width,
                                 float *out_height)
 {

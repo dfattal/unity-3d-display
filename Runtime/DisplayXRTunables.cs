@@ -1,16 +1,16 @@
-// Copyright 2024-2026, Monado 3D Display contributors
+// Copyright 2024-2026, DisplayXR contributors
 // SPDX-License-Identifier: BSL-1.0
 
 using System.Runtime.InteropServices;
 
-namespace Monado.Display3D
+namespace DisplayXR
 {
     /// <summary>
     /// Stereo rig tunable parameters passed to the native plugin.
     /// These modify how xrLocateViews output is transformed before Kooima projection.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
-    public struct Monado3DTunables
+    public struct DisplayXRTunables
     {
         /// <summary>
         /// Scales inter-eye distance. 1.0 = natural, &lt;1 = reduced stereo, &gt;1 = exaggerated.
@@ -61,7 +61,7 @@ namespace Monado.Display3D
         public bool cameraCentricMode;
 
         /// <summary>Returns default tunables with all factors at 1.0 (natural).</summary>
-        public static Monado3DTunables Default => new Monado3DTunables
+        public static DisplayXRTunables Default => new DisplayXRTunables
         {
             ipdFactor = 1.0f,
             parallaxFactor = 1.0f,

@@ -1,15 +1,15 @@
-// Copyright 2024-2026, Monado 3D Display contributors
+// Copyright 2024-2026, DisplayXR contributors
 // SPDX-License-Identifier: BSL-1.0
 
 using System.Runtime.InteropServices;
 
-namespace Monado.Display3D
+namespace DisplayXR
 {
     /// <summary>
-    /// Physical display properties queried from the Monado runtime via XR_EXT_display_info.
+    /// Physical display properties queried from the DisplayXR runtime via XR_EXT_display_info.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
-    public struct Monado3DDisplayInfo
+    public struct DisplayXRDisplayInfo
     {
         /// <summary>Physical display width in meters.</summary>
         public float displayWidthMeters;

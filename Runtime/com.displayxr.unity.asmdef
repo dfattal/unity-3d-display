@@ -1,9 +1,10 @@
 {
-  "name": "com.monado.display3d",
-  "rootNamespace": "Monado.Display3D",
+  "name": "com.displayxr.unity",
+  "rootNamespace": "DisplayXR",
   "references": [
     "Unity.XR.OpenXR",
-    "Unity.XR.Management"
+    "Unity.XR.Management",
+    "UnityEngine.UI"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],

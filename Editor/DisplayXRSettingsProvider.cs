@@ -1,39 +1,39 @@
-// Copyright 2024-2026, Monado 3D Display contributors
+// Copyright 2024-2026, DisplayXR contributors
 // SPDX-License-Identifier: BSL-1.0
 
 using System;
 using UnityEditor;
 using UnityEngine;
-using Monado.Display3D;
+using DisplayXR;
 
-namespace Monado.Display3D.Editor
+namespace DisplayXR.Editor
 {
     /// <summary>
-    /// XR Plugin Management settings page for Monado 3D Display.
-    /// Appears in Project Settings > XR Plug-in Management > OpenXR > Monado 3D Display.
+    /// XR Plugin Management settings page for DisplayXR.
+    /// Appears in Project Settings > XR Plug-in Management > OpenXR > DisplayXR.
     /// </summary>
-    public class Monado3DSettingsProvider : SettingsProvider
+    public class DisplayXRSettingsProvider : SettingsProvider
     {
-        private const string SettingsPath = "Project/XR Plug-in Management/OpenXR/Monado 3D Display";
+        private const string SettingsPath = "Project/XR Plug-in Management/OpenXR/DisplayXR";
 
-        public Monado3DSettingsProvider()
+        public DisplayXRSettingsProvider()
             : base(SettingsPath, SettingsScope.Project)
         {
             keywords = new System.Collections.Generic.HashSet<string>(new[]
             {
-                "monado", "3d", "display", "openxr", "stereo", "light field"
+                "displayxr", "3d", "display", "openxr", "stereo", "light field"
             });
         }
 
         [SettingsProvider]
         public static SettingsProvider CreateProvider()
         {
-            return new Monado3DSettingsProvider();
+            return new DisplayXRSettingsProvider();
         }
 
         public override void OnGUI(string searchContext)
         {
-            EditorGUILayout.LabelField("Monado 3D Display Settings", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("DisplayXR Settings", EditorStyles.boldLabel);
             EditorGUILayout.Space();
 
             // Runtime status
@@ -72,7 +72,7 @@ namespace Monado.Display3D.Editor
             {
                 EditorGUILayout.HelpBox(
                     "XR_RUNTIME_JSON not set. The system default OpenXR runtime will be used.\n" +
-                    "Set this environment variable to point to Monado's openxr_monado.json manifest.",
+                    "Set this environment variable to point to DisplayXR's openxr_displayxr.json manifest.",
                     MessageType.Warning);
             }
 
@@ -115,11 +115,11 @@ namespace Monado.Display3D.Editor
                 return;
             }
 
-            var feature = Monado3DFeature.Instance;
+            var feature = DisplayXRFeature.Instance;
             if (feature == null)
             {
                 EditorGUILayout.HelpBox(
-                    "Monado3DFeature is not active. Enable it in:\n" +
+                    "DisplayXRFeature is not active. Enable it in:\n" +
                     "Project Settings > XR Plug-in Management > OpenXR > Features",
                     MessageType.Warning);
                 return;

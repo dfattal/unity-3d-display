@@ -1,9 +1,9 @@
-// Copyright 2024-2026, Monado 3D Display contributors
+// Copyright 2024-2026, DisplayXR contributors
 // SPDX-License-Identifier: BSL-1.0
 
 using UnityEngine;
 
-namespace Monado.Display3D
+namespace DisplayXR
 {
     /// <summary>
     /// Display-centric stereo rig. Attach to a Camera whose parent transform represents
@@ -11,10 +11,10 @@ namespace Monado.Display3D
     /// The camera's FOV is ignored — the display's physical geometry and virtualDisplayHeight
     /// determine the frustum. Eyes move around the display based on tracking.
     /// </summary>
-    [AddComponentMenu("Monado3D/Display-Centric Rig")]
+    [AddComponentMenu("DisplayXR/Display-Centric Rig")]
     [DisallowMultipleComponent]
     [RequireComponent(typeof(Camera))]
-    public class Monado3DDisplay : MonoBehaviour
+    public class DisplayXRDisplay : MonoBehaviour
     {
         [Header("Stereo Tunables")]
 
@@ -38,16 +38,16 @@ namespace Monado.Display3D
         [Tooltip("Show eye tracking status in the console.")]
         public bool logEyeTracking;
 
-        private Monado3DFeature m_Feature;
+        private DisplayXRFeature m_Feature;
         private Camera m_Camera;
 
         void OnEnable()
         {
             m_Camera = GetComponent<Camera>();
-            m_Feature = Monado3DFeature.Instance;
+            m_Feature = DisplayXRFeature.Instance;
             if (m_Feature == null)
             {
-                Debug.LogWarning("[Monado3D] Monado3DFeature not active. " +
+                Debug.LogWarning("[DisplayXR] DisplayXRFeature not active. " +
                     "Enable it in Project Settings > XR Plug-in Management > OpenXR.");
             }
         }
@@ -56,7 +56,7 @@ namespace Monado.Display3D
         {
             if (m_Feature == null)
             {
-                m_Feature = Monado3DFeature.Instance;
+                m_Feature = DisplayXRFeature.Instance;
                 if (m_Feature == null) return;
             }
 
@@ -68,7 +68,7 @@ namespace Monado.Display3D
             }
 
             // Push tunables to native plugin — affects next xrLocateViews
-            var tunables = new Monado3DTunables
+            var tunables = new DisplayXRTunables
             {
                 ipdFactor = ipdFactor,
                 parallaxFactor = parallaxFactor,
@@ -96,7 +96,7 @@ namespace Monado.Display3D
 
             if (logEyeTracking)
             {
-                Debug.Log($"[Monado3D] Display: pos={transform.position} " +
+                Debug.Log($"[DisplayXR] Display: pos={transform.position} " +
                           $"near={m_Camera.nearClipPlane} far={m_Camera.farClipPlane} " +
                           $"camWorldPos={m_Camera.transform.position} " +
                           $"Eyes: L={m_Feature.LeftEyePosition}, " +
@@ -108,7 +108,7 @@ namespace Monado.Display3D
         void OnDrawGizmosSelected()
         {
             // Draw display plane in editor
-            var info = Monado3DFeature.Instance?.DisplayInfo ?? default;
+            var info = DisplayXRFeature.Instance?.DisplayInfo ?? default;
             float h = virtualDisplayHeight > 0 ? virtualDisplayHeight
                      : (info.isValid ? info.displayHeightMeters : 0.2f);
             float w = info.isValid

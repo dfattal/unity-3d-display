@@ -1,27 +1,25 @@
-// Copyright 2024-2026, Monado 3D Display contributors
+// Copyright 2024-2026, DisplayXR contributors
 // SPDX-License-Identifier: BSL-1.0
 
 using UnityEditor;
 using UnityEngine;
-using Monado.Display3D;
+using DisplayXR;
 
-namespace Monado.Display3D.Editor
+namespace DisplayXR.Editor
 {
-    [CustomEditor(typeof(Monado3DDisplay))]
-    public class Monado3DDisplayEditor : UnityEditor.Editor
+    [CustomEditor(typeof(DisplayXRCamera))]
+    public class DisplayXRCameraEditor : UnityEditor.Editor
     {
         private SerializedProperty m_IpdFactor;
         private SerializedProperty m_ParallaxFactor;
-        private SerializedProperty m_PerspectiveFactor;
-        private SerializedProperty m_VirtualDisplayHeight;
+        private SerializedProperty m_InvConvergenceDistance;
         private SerializedProperty m_LogEyeTracking;
 
         void OnEnable()
         {
             m_IpdFactor = serializedObject.FindProperty("ipdFactor");
             m_ParallaxFactor = serializedObject.FindProperty("parallaxFactor");
-            m_PerspectiveFactor = serializedObject.FindProperty("perspectiveFactor");
-            m_VirtualDisplayHeight = serializedObject.FindProperty("virtualDisplayHeight");
+            m_InvConvergenceDistance = serializedObject.FindProperty("invConvergenceDistance");
             m_LogEyeTracking = serializedObject.FindProperty("logEyeTracking");
         }
 
@@ -30,12 +28,11 @@ namespace Monado.Display3D.Editor
             serializedObject.Update();
 
             EditorGUILayout.HelpBox(
-                "Display-Centric mode: the camera's transform represents the virtual display pose. " +
-                "Camera FOV is ignored — the display geometry determines the frustum. " +
-                "Best for tabletop, AR-like, and object-focused setups.",
+                "Camera-Centric mode: the camera's transform is the viewer pose and its " +
+                "vertical FOV is the rendering FOV. Inverse convergence distance controls " +
+                "the screen plane depth. Best for first-person and free-camera setups.",
                 MessageType.Info);
 
-            // Display info header
             DrawDisplayInfoBox();
 
             EditorGUILayout.Space();
@@ -44,32 +41,28 @@ namespace Monado.Display3D.Editor
             EditorGUILayout.PropertyField(m_IpdFactor,
                 new GUIContent("IPD Factor", "Scales inter-eye distance. 1.0 = natural."));
             EditorGUILayout.PropertyField(m_ParallaxFactor,
-                new GUIContent("Parallax Factor", "Scales eye X/Y offset from display center."));
-            EditorGUILayout.PropertyField(m_PerspectiveFactor,
-                new GUIContent("Perspective Factor", "Scales perceived depth. 1.0 = natural."));
+                new GUIContent("Parallax Factor", "Scales eye offset from viewing center."));
 
             EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Display Parameters", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Convergence", EditorStyles.boldLabel);
 
-            EditorGUILayout.PropertyField(m_VirtualDisplayHeight,
-                new GUIContent("Virtual Display Height (m)",
-                    "Virtual display height in meters. 0 = use physical display height."));
+            EditorGUILayout.PropertyField(m_InvConvergenceDistance,
+                new GUIContent("Inv. Convergence Distance",
+                    "1/meters. 0 = infinity (parallel projection). Higher = screen closer."));
 
-            // Show computed display size
+            // Show distance in parenthesis
+            float invd = m_InvConvergenceDistance.floatValue;
+            EditorGUI.indentLevel++;
+            if (invd > 0.001f)
             {
-                var feature = Monado3DFeature.Instance;
-                if (feature != null && feature.DisplayInfo.isValid)
-                {
-                    var info = feature.DisplayInfo;
-                    float h = m_VirtualDisplayHeight.floatValue > 0
-                        ? m_VirtualDisplayHeight.floatValue
-                        : info.displayHeightMeters;
-                    float w = info.displayWidthMeters * (h / info.displayHeightMeters);
-                    EditorGUI.indentLevel++;
-                    EditorGUILayout.LabelField(" ", $"{w * 100:F1} x {h * 100:F1} cm (virtual)");
-                    EditorGUI.indentLevel--;
-                }
+                float dist = 1.0f / invd;
+                EditorGUILayout.LabelField(" ", $"({dist:F2} m)");
             }
+            else
+            {
+                EditorGUILayout.LabelField(" ", "(\u221E)");
+            }
+            EditorGUI.indentLevel--;
 
             EditorGUILayout.Space();
             EditorGUILayout.PropertyField(m_LogEyeTracking);
@@ -80,17 +73,16 @@ namespace Monado.Display3D.Editor
             {
                 m_IpdFactor.floatValue = 1.0f;
                 m_ParallaxFactor.floatValue = 1.0f;
-                m_PerspectiveFactor.floatValue = 1.0f;
-                m_VirtualDisplayHeight.floatValue = 0f;
+                m_InvConvergenceDistance.floatValue = 0f;
             }
 
-            // Runtime eye tracking info
-            if (Application.isPlaying && Monado3DFeature.Instance != null)
+            // Runtime info
+            if (Application.isPlaying && DisplayXRFeature.Instance != null)
             {
                 EditorGUILayout.Space();
                 EditorGUILayout.LabelField("Runtime Status", EditorStyles.boldLabel);
 
-                var feature = Monado3DFeature.Instance;
+                var feature = DisplayXRFeature.Instance;
                 EditorGUILayout.LabelField("Eye Tracked", feature.IsEyeTracked ? "Yes" : "No");
                 EditorGUILayout.Vector3Field("Left Eye", feature.LeftEyePosition);
                 EditorGUILayout.Vector3Field("Right Eye", feature.RightEyePosition);
@@ -101,11 +93,11 @@ namespace Monado.Display3D.Editor
 
         private void DrawDisplayInfoBox()
         {
-            var feature = Monado3DFeature.Instance;
+            var feature = DisplayXRFeature.Instance;
             if (feature == null || !feature.DisplayInfo.isValid)
             {
                 EditorGUILayout.HelpBox(
-                    "Display info not available. Monado3DFeature must be active with a connected runtime.",
+                    "Display info not available. DisplayXRFeature must be active with a connected runtime.",
                     MessageType.Info);
                 return;
             }

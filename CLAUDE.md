@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working with this repository.
 
 ## Project Overview
 
-Unity plugin for eye-tracked 3D light field displays via the **Monado OpenXR runtime**. This is a Unity Package Manager (UPM) package that intercepts Unity's OpenXR pipeline at the native layer to provide Kooima asymmetric frustum projection for stereo rendering.
+Unity plugin for eye-tracked 3D light field displays via the **DisplayXR OpenXR runtime**. This is a Unity Package Manager (UPM) package that intercepts Unity's OpenXR pipeline at the native layer to provide Kooima asymmetric frustum projection for stereo rendering.
 
 The plugin works with the **openxr-3d-display** runtime ([dfattal/openxr-3d-display](https://github.com/dfattal/openxr-3d-display)) but has **no source dependency** on it — native code fetches OpenXR headers independently from Khronos.
 
@@ -34,7 +34,7 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build . --config Release
 ```
 
-Output: `monado3d_unity.dll` (Windows) or `libmonado3d_unity.dylib` (macOS).
+Output: `displayxr_unity.dll` (Windows) or `libdisplayxr_unity.dylib` (macOS).
 
 Copy built binary to `Runtime/Plugins/Windows/x64/` or `Runtime/Plugins/macOS/`.
 
@@ -51,7 +51,7 @@ cmake --build . --config Release
 
 ### Three Layers
 
-1. **Runtime (C#)** — `Monado3DFeature.cs` hooks into OpenXR lifecycle; `Monado3DCamera.cs` and `Monado3DDisplay.cs` are the two stereo rig modes
+1. **Runtime (C#)** — `DisplayXRFeature.cs` hooks into OpenXR lifecycle; `DisplayXRCamera.cs` and `DisplayXRDisplay.cs` are the two stereo rig modes
 2. **Editor (C#)** — Custom inspectors, preview window, settings page
 3. **Native (C/C++)** — Hook chain on `xrLocateViews`, `xrCreateSession`, `xrGetSystemProperties`, `xrEndFrame`; Kooima projection math; thread-safe shared state
 
@@ -65,7 +65,7 @@ The native plugin intercepts OpenXR calls via `xrGetInstanceProcAddr` hooking:
 
 ### Wire Protocol
 
-Extension struct definitions in `native~/monado3d_extensions.h` must match the runtime's implementation. These are versioned by extension spec version. When changing extensions, update the runtime first, then the plugin.
+Extension struct definitions in `native~/displayxr_extensions.h` must match the runtime's implementation. These are versioned by extension spec version. When changing extensions, update the runtime first, then the plugin.
 
 ## Development Workflow
 
@@ -73,14 +73,18 @@ Extension struct definitions in `native~/monado3d_extensions.h` must match the r
 
 1. Open any Unity 2022.3+ project
 2. Add this package via Package Manager (local path or git URL)
-3. Enable the feature: Project Settings > XR Plug-in Management > OpenXR > Monado 3D Display
-4. Set `XR_RUNTIME_JSON` environment variable to point to a Monado runtime build
+3. Enable the feature: Project Settings > XR Plug-in Management > OpenXR > DisplayXR
+4. Set `XR_RUNTIME_JSON` environment variable to point to a DisplayXR runtime build
 5. For testing without hardware: `SIM_DISPLAY_ENABLE=1 SIM_DISPLAY_OUTPUT=sbs`
+
+### Critical: OpenXR Package Version
+
+**You MUST use `com.unity.xr.openxr` version 1.16.1 or later.** The minimum version in `package.json` is 1.9.1 for broad compatibility, but versions before 1.16.1 ignore the `XR_RUNTIME_JSON` environment variable and the system `active_runtime.json` in editor play mode — they silently fall back to Unity's built-in Mock Runtime. This causes `0x0` display resolution, no IOSurface/shared texture, and no display info from the runtime. The failure is silent (no error logged, just mock runtime loaded). Always pin `1.16.1+` in your test project's `Packages/manifest.json`.
 
 ### Code Style
 
 - C# follows Unity conventions (PascalCase for public members, camelCase for private)
-- C/C++ follows the Monado coding style (snake_case, C11/C++17)
+- C/C++ follows the DisplayXR coding style (snake_case, C11/C++17)
 - Native code in `native~/` uses tabs for indentation
 
 ## CI and Releases

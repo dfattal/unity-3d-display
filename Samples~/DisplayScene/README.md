@@ -4,7 +4,7 @@ Reproduces the native `cube_shared_metal_macos` test app in Unity. A wooden crat
 
 ## Quick Start
 
-1. Import via **Package Manager > Monado 3D Display > Samples > Display Scene**
+1. Import via **Package Manager > DisplayXR > Samples > Display Scene**
 2. Create a new scene (**File > New Scene > Basic Built-in**)
 3. Add **DisplaySceneSetup** to any GameObject (e.g. the Main Camera)
 4. Set `XR_RUNTIME_JSON` environment variable and enter Play Mode
@@ -15,10 +15,10 @@ The script creates everything: crate, grid floor, lighting, and both cameras. Th
 
 ```
 DisplayCam              (0, 0, 0) — display surface pose
-├── Camera + Monado3DDisplay (active by default)
+├── Camera + DisplayXRDisplay (active by default)
 
 CameraCam               (0, 0.05, 0.3) — viewer behind crate, looking at it
-├── Camera + Monado3DCamera (convergence=0.3m, FOV=40)
+├── Camera + DisplayXRCamera (convergence=0.3m, FOV=40)
 
 Crate                   (0, 0.03, 0) — 0.06m textured cube, slowly rotating
 GroundGrid              (0, 0, 0) — checker-textured quad

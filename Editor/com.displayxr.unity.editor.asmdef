@@ -1,8 +1,8 @@
 {
-  "name": "com.monado.display3d.editor",
-  "rootNamespace": "Monado.Display3D.Editor",
+  "name": "com.displayxr.unity.editor",
+  "rootNamespace": "DisplayXR.Editor",
   "references": [
-    "com.monado.display3d",
+    "com.displayxr.unity",
     "Unity.XR.OpenXR",
     "Unity.XR.Management",
     "Unity.XR.Management.Editor"

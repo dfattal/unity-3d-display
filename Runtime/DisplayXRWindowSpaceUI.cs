@@ -1,10 +1,10 @@
-// Copyright 2024-2026, Monado 3D Display contributors
+// Copyright 2024-2026, DisplayXR contributors
 // SPDX-License-Identifier: BSL-1.0
 
 using UnityEngine;
 using UnityEngine.UI;
 
-namespace Monado.Display3D
+namespace DisplayXR
 {
     /// <summary>
     /// Routes a Canvas to a window-space composition layer for 2D UI overlay.
@@ -14,9 +14,9 @@ namespace Monado.Display3D
     /// The overlay is composited to both eyes with per-eye horizontal shift (disparity),
     /// rendered pre-interlace by the runtime's display processor.
     /// </summary>
-    [AddComponentMenu("Monado3D/Window Space UI")]
+    [AddComponentMenu("DisplayXR/Window Space UI")]
     [RequireComponent(typeof(Canvas))]
-    public class Monado3DWindowSpaceUI : MonoBehaviour
+    public class DisplayXRWindowSpaceUI : MonoBehaviour
     {
         [Header("Window Position (fractional 0..1)")]
 
@@ -63,14 +63,14 @@ namespace Monado.Display3D
             OverlayTexture = new RenderTexture(resolution.x, resolution.y, 0,
                 RenderTextureFormat.ARGB32)
             {
-                name = "Monado3D_Overlay",
+                name = "DisplayXR_Overlay",
                 useMipMap = false,
                 autoGenerateMips = false,
             };
             OverlayTexture.Create();
 
             // Create a dedicated camera for rendering the Canvas
-            var camGO = new GameObject("Monado3D_OverlayCam");
+            var camGO = new GameObject("DisplayXR_OverlayCam");
             camGO.transform.SetParent(transform, false);
             camGO.hideFlags = HideFlags.HideAndDontSave;
 
@@ -89,7 +89,7 @@ namespace Monado.Display3D
             m_Canvas.renderMode = RenderMode.ScreenSpaceCamera;
             m_Canvas.worldCamera = m_OverlayCamera;
 
-            Debug.Log($"[Monado3D] WindowSpaceUI enabled: {resolution.x}x{resolution.y}, " +
+            Debug.Log($"[DisplayXR] WindowSpaceUI enabled: {resolution.x}x{resolution.y}, " +
                       $"pos=({positionX},{positionY}), size=({width},{height})");
         }
 

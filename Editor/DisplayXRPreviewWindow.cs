@@ -1,17 +1,17 @@
-// Copyright 2024-2026, Monado 3D Display contributors
+// Copyright 2024-2026, DisplayXR contributors
 // SPDX-License-Identifier: BSL-1.0
 
 using UnityEditor;
 using UnityEngine;
-using Monado.Display3D;
+using DisplayXR;
 
-namespace Monado.Display3D.Editor
+namespace DisplayXR.Editor
 {
     /// <summary>
     /// Editor window for stereo preview (SBS or readback mode).
     /// Docks next to the Game view by default.
     /// </summary>
-    public class Monado3DPreviewWindow : EditorWindow
+    public class DisplayXRPreviewWindow : EditorWindow
     {
         private enum PreviewSource
         {
@@ -24,15 +24,15 @@ namespace Monado.Display3D.Editor
         [SerializeField] private bool m_AutoRefresh = true;
 
         private Texture2D m_PreviewTexture;
-        private Monado3DPreview m_CachedPreview;
+        private DisplayXRPreview m_CachedPreview;
         private bool m_ExitingPlayMode;
 
-        [MenuItem("Window/Monado3D/Preview Window")]
+        [MenuItem("Window/DisplayXR/Preview Window")]
         public static void ShowWindow()
         {
             // Dock next to Game view by default so it stays inside the editor layout
             var gameViewType = typeof(UnityEditor.Editor).Assembly.GetType("UnityEditor.GameView");
-            var window = GetWindow<Monado3DPreviewWindow>("Monado3D Preview", gameViewType);
+            var window = GetWindow<DisplayXRPreviewWindow>("DisplayXR Preview", gameViewType);
             window.minSize = new Vector2(640, 400);
         }
 
@@ -54,6 +54,9 @@ namespace Monado.Display3D.Editor
             {
                 m_CachedPreview = null;
                 m_ExitingPlayMode = true;
+
+                // Game View closing is handled by DisplayXRFeature.OnPlayModeStateChanged
+                // which is always registered (unlike this window which may not be open).
             }
             else if (state == PlayModeStateChange.EnteredEditMode)
             {
@@ -88,8 +91,8 @@ namespace Monado.Display3D.Editor
             GUILayout.FlexibleSpace();
 
             // Status indicator — guard against accessing destroyed singletons during teardown
-            Monado3DFeature feature = null;
-            try { feature = Application.isPlaying ? Monado3DFeature.Instance : null; }
+            DisplayXRFeature feature = null;
+            try { feature = Application.isPlaying ? DisplayXRFeature.Instance : null; }
             catch (System.Exception) { /* destroyed during teardown */ }
 
             if (feature != null && feature.DisplayInfo.isValid)
@@ -147,13 +150,13 @@ namespace Monado.Display3D.Editor
                 switch (m_Source)
                 {
                     case PreviewSource.SideBySide:
-                        hint = "Add a Monado3DPreview component to a camera to see SBS preview.";
+                        hint = "Add a DisplayXRPreview component to a camera to see SBS preview.";
                         break;
                     case PreviewSource.SharedTexture:
                         hint = "Shared texture not available. Ensure runtime supports GPU texture sharing (macOS).";
                         break;
                     default:
-                        hint = "Runtime readback not available. Ensure Monado is running with offscreen mode.";
+                        hint = "Runtime readback not available. Ensure DisplayXR is running with offscreen mode.";
                         break;
                 }
                 EditorGUI.LabelField(previewRect, hint, EditorStyles.centeredGreyMiniLabel);
@@ -183,26 +186,26 @@ namespace Monado.Display3D.Editor
 
             // Cache the preview component to avoid FindFirstObjectByType inside OnGUI
             if (m_CachedPreview == null)
-                m_CachedPreview = FindFirstObjectByType<Monado3DPreview>();
+                m_CachedPreview = FindFirstObjectByType<DisplayXRPreview>();
             if (m_CachedPreview == null)
                 return null;
 
             switch (m_Source)
             {
                 case PreviewSource.SharedTexture:
-                    if (m_CachedPreview.mode == Monado3DPreview.PreviewMode.SharedTexture &&
+                    if (m_CachedPreview.mode == DisplayXRPreview.PreviewMode.SharedTexture &&
                         m_CachedPreview.PreviewTexture != null && m_CachedPreview.SharedTextureAvailable)
                         return m_CachedPreview.PreviewTexture;
                     return null;
 
                 case PreviewSource.RuntimeReadback:
-                    if (m_CachedPreview.mode == Monado3DPreview.PreviewMode.Readback &&
+                    if (m_CachedPreview.mode == DisplayXRPreview.PreviewMode.Readback &&
                         m_CachedPreview.PreviewTexture != null && m_CachedPreview.ReadbackAvailable)
                         return m_CachedPreview.PreviewTexture;
                     return null;
 
                 default: // SideBySide
-                    if (m_CachedPreview.mode == Monado3DPreview.PreviewMode.SideBySide &&
+                    if (m_CachedPreview.mode == DisplayXRPreview.PreviewMode.SideBySide &&
                         m_CachedPreview.PreviewTexture != null)
                         return m_CachedPreview.PreviewTexture;
                     return null;

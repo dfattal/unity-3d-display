@@ -30,18 +30,18 @@ jobs:
 
       - name: Verify output
         run: |
-          if (!(Test-Path "Runtime/Plugins/Windows/x64/monado3d_unity.dll")) {
+          if (!(Test-Path "Runtime/Plugins/Windows/x64/displayxr_unity.dll")) {
             Write-Error "DLL not found at expected path"
             exit 1
           }
-          Write-Host "Built successfully: Runtime/Plugins/Windows/x64/monado3d_unity.dll"
-          Get-Item "Runtime/Plugins/Windows/x64/monado3d_unity.dll" | Select-Object Name, Length
+          Write-Host "Built successfully: Runtime/Plugins/Windows/x64/displayxr_unity.dll"
+          Get-Item "Runtime/Plugins/Windows/x64/displayxr_unity.dll" | Select-Object Name, Length
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: monado3d_unity-windows-x64
-          path: Runtime/Plugins/Windows/x64/monado3d_unity.dll
+          name: displayxr_unity-windows-x64
+          path: Runtime/Plugins/Windows/x64/displayxr_unity.dll
 
   build-macos:
     name: macOS (Universal)
@@ -57,20 +57,20 @@ jobs:
 
       - name: Verify output
         run: |
-          BUNDLE="Runtime/Plugins/macOS/monado3d_unity.bundle"
+          BUNDLE="Runtime/Plugins/macOS/displayxr_unity.bundle"
           if [ ! -d "$BUNDLE" ]; then
             echo "ERROR: Bundle not found at $BUNDLE"
             exit 1
           fi
           echo "Built successfully: $BUNDLE"
           ls -la "$BUNDLE"
-          file "$BUNDLE/monado3d_unity" 2>/dev/null || file "$BUNDLE/Contents/MacOS/monado3d_unity" 2>/dev/null || echo "Binary location varies by CMake version"
+          file "$BUNDLE/displayxr_unity" 2>/dev/null || file "$BUNDLE/Contents/MacOS/displayxr_unity" 2>/dev/null || echo "Binary location varies by CMake version"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: monado3d_unity-macos
-          path: Runtime/Plugins/macOS/monado3d_unity.bundle
+          name: displayxr_unity-macos
+          path: Runtime/Plugins/macOS/displayxr_unity.bundle
 
   # ── Release job: runs on v* tags ──────────────────────────────────────
   release:
@@ -86,13 +86,13 @@ jobs:
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
         with:
-          name: monado3d_unity-windows-x64
+          name: displayxr_unity-windows-x64
           path: Runtime/Plugins/Windows/x64/
 
       - name: Download macOS artifact
         uses: actions/download-artifact@v4
         with:
-          name: monado3d_unity-macos
+          name: displayxr_unity-macos
           path: Runtime/Plugins/macOS/
 
       - name: Get version from tag
@@ -113,7 +113,7 @@ jobs:
       - name: Create UPM tarball
         run: |
           # Build the package directory with binaries included
-          PKG_DIR="com.monado.display3d-${{ steps.version.outputs.version }}"
+          PKG_DIR="com.displayxr.unity-${{ steps.version.outputs.version }}"
           mkdir "$PKG_DIR"
           # Copy package contents (everything Unity needs)
           cp -r Runtime/ "$PKG_DIR/Runtime/"
@@ -126,8 +126,8 @@ jobs:
           cp CHANGELOG.md "$PKG_DIR/"
           cp LICENSE "$PKG_DIR/"
           # Create tarball (npm pack format that UPM understands)
-          tar czf "com.monado.display3d-${{ steps.version.outputs.version }}.tgz" "$PKG_DIR"
-          echo "Created: com.monado.display3d-${{ steps.version.outputs.version }}.tgz"
+          tar czf "com.displayxr.unity-${{ steps.version.outputs.version }}.tgz" "$PKG_DIR"
+          echo "Created: com.displayxr.unity-${{ steps.version.outputs.version }}.tgz"
           ls -lh *.tgz
 
       - name: Push upm branch with binaries
@@ -137,8 +137,8 @@ jobs:
           # Create orphan upm branch from the tag contents + binaries
           git checkout -B upm
           # Force-add the binaries (normally gitignored or absent)
-          git add -f Runtime/Plugins/Windows/x64/monado3d_unity.dll
-          git add -f Runtime/Plugins/macOS/monado3d_unity.bundle
+          git add -f Runtime/Plugins/Windows/x64/displayxr_unity.dll
+          git add -f Runtime/Plugins/macOS/displayxr_unity.bundle
           git commit -m "Release ${{ github.ref_name }}: add native binaries for UPM git install"
           git push -f origin upm
           # Also tag the upm branch for version-pinned installs
@@ -164,9 +164,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${{ github.ref_name }}" \
-            --title "Monado 3D Display ${{ github.ref_name }}" \
+            --title "DisplayXR ${{ github.ref_name }}" \
             --notes-file release_notes.md \
-            "com.monado.display3d-${{ steps.version.outputs.version }}.tgz#UPM Package (.tgz)"
+            "com.displayxr.unity-${{ steps.version.outputs.version }}.tgz#UPM Package (.tgz)"
 
   # ── Package job: runs on main push (non-tag) ─────────────────────────
   package:
@@ -180,19 +180,19 @@ jobs:
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
         with:
-          name: monado3d_unity-windows-x64
+          name: displayxr_unity-windows-x64
           path: Runtime/Plugins/Windows/x64/
 
       - name: Download macOS artifact
         uses: actions/download-artifact@v4
         with:
-          name: monado3d_unity-macos
+          name: displayxr_unity-macos
           path: Runtime/Plugins/macOS/
 
       - name: Upload combined artifact
         uses: actions/upload-artifact@v4
         with:
-          name: monado3d-unity-plugin
+          name: displayxr-unity-plugin
           path: |
             Runtime/
             Runtime.meta
