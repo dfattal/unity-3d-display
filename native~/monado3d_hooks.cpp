@@ -109,18 +109,18 @@ hooked_xrLocateViews(XrSession session,
 	// position Z negated, quaternion (x,y) negated + (z,w) kept.
 	XrPosef scene_pose = {};
 	if (scene_xform.enabled) {
-		scene_pose.position = (XrVector3f){
+		scene_pose.position = XrVector3f{
 			scene_xform.position[0],
 			scene_xform.position[1],
 			-scene_xform.position[2]};
-		scene_pose.orientation = (XrQuaternionf){
+		scene_pose.orientation = XrQuaternionf{
 			-scene_xform.orientation[0],
 			-scene_xform.orientation[1],
 			scene_xform.orientation[2],
 			scene_xform.orientation[3]};
 	} else {
-		scene_pose.orientation = (XrQuaternionf){0, 0, 0, 1};
-		scene_pose.position = (XrVector3f){0, 0, 0};
+		scene_pose.orientation = XrQuaternionf{0, 0, 0, 1};
+		scene_pose.position = XrVector3f{0, 0, 0};
 	}
 
 	if (tunables.camera_centric && tunables.convergence_distance > 0.0f) {
