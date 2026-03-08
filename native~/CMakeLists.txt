@@ -44,6 +44,7 @@ set(SOURCES
     monado3d_shared_state.cpp
     monado3d_readback.cpp
     display3d_view.c
+    camera3d_view.c
 )
 
 set(HEADERS
@@ -53,6 +54,7 @@ set(HEADERS
     monado3d_readback.h
     monado3d_extensions.h
     display3d_view.h
+    camera3d_view.h
 )
 
 # Apple-only: IOSurface helper (Objective-C)

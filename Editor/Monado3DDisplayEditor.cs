@@ -13,7 +13,7 @@ namespace Monado.Display3D.Editor
         private SerializedProperty m_IpdFactor;
         private SerializedProperty m_ParallaxFactor;
         private SerializedProperty m_PerspectiveFactor;
-        private SerializedProperty m_ScaleFactor;
+        private SerializedProperty m_VirtualDisplayHeight;
         private SerializedProperty m_LogEyeTracking;
 
         void OnEnable()
@@ -21,7 +21,7 @@ namespace Monado.Display3D.Editor
             m_IpdFactor = serializedObject.FindProperty("ipdFactor");
             m_ParallaxFactor = serializedObject.FindProperty("parallaxFactor");
             m_PerspectiveFactor = serializedObject.FindProperty("perspectiveFactor");
-            m_ScaleFactor = serializedObject.FindProperty("scaleFactor");
+            m_VirtualDisplayHeight = serializedObject.FindProperty("virtualDisplayHeight");
             m_LogEyeTracking = serializedObject.FindProperty("logEyeTracking");
         }
 
@@ -45,29 +45,28 @@ namespace Monado.Display3D.Editor
                 new GUIContent("IPD Factor", "Scales inter-eye distance. 1.0 = natural."));
             EditorGUILayout.PropertyField(m_ParallaxFactor,
                 new GUIContent("Parallax Factor", "Scales eye X/Y offset from display center."));
+            EditorGUILayout.PropertyField(m_PerspectiveFactor,
+                new GUIContent("Perspective Factor", "Scales perceived depth. 1.0 = natural."));
 
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Display Parameters", EditorStyles.boldLabel);
 
-            EditorGUILayout.PropertyField(m_PerspectiveFactor,
-                new GUIContent("Depth Scale",
-                    "Scales perceived depth behind the screen. 1.0 = natural. " +
-                    "<1 compresses background depth (reduces distortion). Leave at 1.0 for undistorted rendering."));
-            EditorGUILayout.PropertyField(m_ScaleFactor,
-                new GUIContent("Virtual Display Scale",
-                    "Size of the virtual display relative to the physical display. " +
-                    "1.0 = matches physical display exactly."));
+            EditorGUILayout.PropertyField(m_VirtualDisplayHeight,
+                new GUIContent("Virtual Display Height (m)",
+                    "Virtual display height in meters. 0 = use physical display height."));
 
-            // Show computed absolute display size
+            // Show computed display size
             {
                 var feature = Monado3DFeature.Instance;
                 if (feature != null && feature.DisplayInfo.isValid)
                 {
                     var info = feature.DisplayInfo;
-                    float wCm = info.displayWidthMeters * m_ScaleFactor.floatValue * 100f;
-                    float hCm = info.displayHeightMeters * m_ScaleFactor.floatValue * 100f;
+                    float h = m_VirtualDisplayHeight.floatValue > 0
+                        ? m_VirtualDisplayHeight.floatValue
+                        : info.displayHeightMeters;
+                    float w = info.displayWidthMeters * (h / info.displayHeightMeters);
                     EditorGUI.indentLevel++;
-                    EditorGUILayout.LabelField(" ", $"{wCm:F1} x {hCm:F1} cm (virtual)");
+                    EditorGUILayout.LabelField(" ", $"{w * 100:F1} x {h * 100:F1} cm (virtual)");
                     EditorGUI.indentLevel--;
                 }
             }
@@ -82,7 +81,7 @@ namespace Monado.Display3D.Editor
                 m_IpdFactor.floatValue = 1.0f;
                 m_ParallaxFactor.floatValue = 1.0f;
                 m_PerspectiveFactor.floatValue = 1.0f;
-                m_ScaleFactor.floatValue = 1.0f;
+                m_VirtualDisplayHeight.floatValue = 0f;
             }
 
             // Runtime eye tracking info
