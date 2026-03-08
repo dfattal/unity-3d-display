@@ -39,9 +39,11 @@ namespace Monado.Display3D
         public bool logEyeTracking;
 
         private Monado3DFeature m_Feature;
+        private Camera m_Camera;
 
         void OnEnable()
         {
+            m_Camera = GetComponent<Camera>();
             m_Feature = Monado3DFeature.Instance;
             if (m_Feature == null)
             {
@@ -74,6 +76,8 @@ namespace Monado.Display3D
                 virtualDisplayHeight = vdh,
                 invConvergenceDistance = 0f,
                 fovOverride = 0f,
+                nearZ = m_Camera.nearClipPlane,
+                farZ = m_Camera.farClipPlane,
                 cameraCentricMode = false,
             };
 
@@ -92,7 +96,10 @@ namespace Monado.Display3D
 
             if (logEyeTracking)
             {
-                Debug.Log($"[Monado3D] Eyes: L={m_Feature.LeftEyePosition}, " +
+                Debug.Log($"[Monado3D] Display: pos={transform.position} " +
+                          $"near={m_Camera.nearClipPlane} far={m_Camera.farClipPlane} " +
+                          $"camWorldPos={m_Camera.transform.position} " +
+                          $"Eyes: L={m_Feature.LeftEyePosition}, " +
                           $"R={m_Feature.RightEyePosition}, tracked={m_Feature.IsEyeTracked}");
             }
         }

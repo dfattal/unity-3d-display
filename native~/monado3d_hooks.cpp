@@ -30,7 +30,7 @@ static PFN_xrCreateSession s_real_create_session = nullptr;
 static PFN_xrDestroySession s_real_destroy_session = nullptr;
 static PFN_xrEndFrame s_real_end_frame = nullptr;
 static PFN_xrCreateReferenceSpace s_real_create_reference_space = nullptr;
-static PFN_xrPollEvent s_real_poll_event = nullptr;
+static volatile PFN_xrPollEvent s_real_poll_event = nullptr;
 static PFN_xrDestroyInstance s_real_destroy_instance = nullptr;
 
 static XrInstance s_instance = XR_NULL_HANDLE;
@@ -164,7 +164,7 @@ hooked_xrLocateViews(XrSession session,
 			&raw_left, &raw_right,
 			&nominal, &screen, &cam_tunables,
 			&scene_pose,
-			0.01f, 100.0f,
+			tunables.near_z, tunables.far_z,
 			&cam_left, &cam_right);
 
 		views[0].fov = cam_left.fov;
@@ -206,7 +206,7 @@ hooked_xrLocateViews(XrSession session,
 			&raw_left, &raw_right,
 			&nominal, &screen, &disp_tunables,
 			scene_xform.enabled ? &scene_pose : NULL,
-			0.01f, 100.0f,
+			tunables.near_z, tunables.far_z,
 			&disp_left, &disp_right);
 
 		views[0].fov = disp_left.fov;
@@ -589,34 +589,35 @@ hooked_xrDestroyInstance(XrInstance instance)
 static XrResult XRAPI_CALL
 hooked_xrPollEvent(XrInstance instance, XrEventDataBuffer *eventData)
 {
-	// Guard 1: instance already destroyed
-	if (!s_instance_alive || s_real_poll_event == nullptr) {
-		fprintf(stderr, "[Monado3D] xrPollEvent BLOCKED (instance dead)\n");
+	// Load function pointer into local BEFORE any guards, so the compiler
+	// can't reorder the load past the null check.
+	PFN_xrPollEvent poll_fn = s_real_poll_event;
+
+	// Guard 1: instance dead or function pointer nulled
+	if (!s_instance_alive || poll_fn == nullptr) {
 		return XR_EVENT_UNAVAILABLE;
 	}
 
-	// Guard 2: stop polling after EXITING event.
-	// Unity's Internal_PumpMessageLoop loops calling xrPollEvent. After the runtime
-	// sends EXITING, internal resources may be freed. Continuing to poll can crash.
+	// Guard 2: stop polling after EXITING event
 	if (s_stop_polling) {
-		fprintf(stderr, "[Monado3D] xrPollEvent BLOCKED (stop_polling after EXITING)\n");
 		return XR_EVENT_UNAVAILABLE;
 	}
 
-	XrResult result = s_real_poll_event(instance, eventData);
+	XrResult result = poll_fn(instance, eventData);
 
-	// Check if this event is SESSION_STATE_CHANGED → EXITING.
-	// If so, set the stop-polling flag to prevent further xrPollEvent calls
-	// within the same Internal_PumpMessageLoop loop iteration.
+	// After EXITING, null out the function pointer to prevent ALL future calls.
+	// This is the nuclear guard: even if s_stop_polling is somehow reset,
+	// the nullptr check in guard 1 will catch it.
 	if (result == XR_SUCCESS && eventData != nullptr &&
 	    eventData->type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
 		const XrEventDataSessionStateChanged *ssc =
 			(const XrEventDataSessionStateChanged *)eventData;
-		fprintf(stderr, "[Monado3D] xrPollEvent: session state → %d\n", (int)ssc->state);
 		if (ssc->state == XR_SESSION_STATE_EXITING ||
 		    ssc->state == XR_SESSION_STATE_LOSS_PENDING) {
-			fprintf(stderr, "[Monado3D] xrPollEvent: EXITING detected, will stop polling\n");
+			fprintf(stderr, "[Monado3D] xrPollEvent: EXITING detected, nulling poll function\n");
 			s_stop_polling = 1;
+			s_real_poll_event = nullptr; // Nuclear: guard 1 catches all future calls
+			s_instance_alive = 0;        // Belt and suspenders
 		}
 	}
 
@@ -747,12 +748,24 @@ monado3d_install_hooks(PFN_xrGetInstanceProcAddr next_gipa)
 // ============================================================================
 
 void
+monado3d_stop_polling(void)
+{
+	fprintf(stderr, "[Monado3D] monado3d_stop_polling: killing poll forwarding\n");
+	s_stop_polling = 1;
+	s_real_poll_event = nullptr;
+	s_instance_alive = 0;
+	s_session_alive = 0;
+}
+
+void
 monado3d_set_tunables(float ipd_factor,
                       float parallax_factor,
                       float perspective_factor,
                       float virtual_display_height,
                       float inv_convergence_distance,
                       float fov_override,
+                      float near_z,
+                      float far_z,
                       int camera_centric)
 {
 	Monado3DTunables t;
@@ -762,6 +775,8 @@ monado3d_set_tunables(float ipd_factor,
 	t.virtual_display_height = virtual_display_height;
 	t.inv_convergence_distance = inv_convergence_distance;
 	t.fov_override = fov_override;
+	t.near_z = near_z > 0.0001f ? near_z : 0.01f;
+	t.far_z = far_z > t.near_z ? far_z : 1000.0f;
 	t.camera_centric = camera_centric ? 1 : 0;
 	monado3d_state_set_tunables(&t);
 }

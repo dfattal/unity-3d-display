@@ -89,6 +89,15 @@ namespace Monado.Display3D
         {
             Instance = this;
 
+#if UNITY_EDITOR
+            // Register to switch focus away from Game View before teardown.
+            // Game View's RenderToHMDOnly repaint cycle calls xrPollEvent through
+            // freed dispatch trampolines during Deinitialize(), causing SIGSEGV.
+            // Switching to Scene View stops the repaint cycle before it starts.
+            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+#endif
+
             // Force multi-pass rendering. Single-pass instanced is broken on
             // macOS/Metal (confirmed Unity bug, Won't Fix) and incompatible
             // with our per-eye asymmetric Kooima frustum projection.
@@ -165,6 +174,13 @@ namespace Monado.Display3D
         {
             Debug.Log("[Monado3D] OnSessionDestroy BEGIN");
 
+            // FIRST: kill native poll forwarding before anything else.
+            // Unity's GameView repaints call ProcessOpenXRMessageLoop → xrPollEvent
+            // continuously, even during teardown. This nulls the native function
+            // pointer so our hook returns XR_EVENT_UNAVAILABLE immediately.
+            try { Monado3DNative.monado3d_stop_polling(); }
+            catch (System.Exception e) { Debug.LogWarning($"[Monado3D] stop_polling: {e.Message}"); }
+
             if (SharedTextureAvailable)
             {
                 Debug.Log("[Monado3D] OnSessionDestroy: destroying shared texture");
@@ -172,13 +188,6 @@ namespace Monado.Display3D
                 catch (System.Exception e) { Debug.LogWarning($"[Monado3D] Shared texture cleanup: {e.Message}"); }
                 SharedTextureAvailable = false;
             }
-
-            // Prevent Unity's post-destroy xrPollEvent crash.
-            // Unity's Deinitialize() calls ProcessOpenXRMessageLoop after
-            // Internal_DestroySession, through dispatch trampolines that
-            // reference freed runtime memory. Throttle the pump so it
-            // returns early without calling Internal_PumpMessageLoop.
-            UnhookMessageLoop();
 
             Debug.Log("[Monado3D] OnSessionDestroy END");
         }
@@ -189,75 +198,37 @@ namespace Monado.Display3D
             Debug.Log("[Monado3D] OnInstanceDestroy BEGIN");
             Instance = null;
             m_HooksInstalled = false;
-            // Re-throttle in case the state changed between OnSessionDestroy and here
-            UnhookMessageLoop();
+#if UNITY_EDITOR
+            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+#endif
+            // Re-kill in case something reset the flags between OnSessionDestroy and here
+            try { Monado3DNative.monado3d_stop_polling(); }
+            catch (System.Exception e) { Debug.LogWarning($"[Monado3D] stop_polling: {e.Message}"); }
             Debug.Log("[Monado3D] OnInstanceDestroy END");
         }
 
-        /// <summary>
-        /// Prevent post-destroy xrPollEvent calls that crash through freed dispatch trampolines.
-        /// Three-layer defense:
-        /// 1. Remove ProcessOpenXRMessageLoop from onBeforeRender (multiple times for domain reload duplicates)
-        /// 2. Force currentOpenXRState to XrExiting so the method enters its throttle path
-        /// 3. Set lastPollCheckTime to MaxValue so the throttle always returns early
-        /// This makes ProcessOpenXRMessageLoop a complete no-op even if still called
-        /// (e.g., from editor repaint path or explicit calls in Deinitialize).
-        /// </summary>
-        private static void UnhookMessageLoop()
+#if UNITY_EDITOR
+        private static void OnPlayModeStateChanged(PlayModeStateChange state)
         {
-            try
+            if (state == PlayModeStateChange.ExitingPlayMode)
             {
-                var generalSettings = XRGeneralSettings.Instance;
-                if (generalSettings == null || generalSettings.Manager == null) return;
-                var loader = generalSettings.Manager.activeLoader as OpenXRLoaderBase;
-                if (loader == null) return;
+                // Kill native poll forwarding BEFORE Deinitialize() starts.
+                // This is the primary crash prevention — once set, hooked_xrPollEvent
+                // returns XR_EVENT_UNAVAILABLE without touching the runtime.
+                Debug.Log("[Monado3D] ExitingPlayMode: killing poll + switching focus");
+                try { Monado3DNative.monado3d_stop_polling(); }
+                catch (System.Exception) { }
 
-                var bindingFlags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
-
-                // Layer 1: Remove delegate from onBeforeRender.
-                // Remove multiple times to handle duplicate registrations from domain reload
-                // (Unity re-registers at lines 780-781 of OpenXRLoader.cs during domain reload).
-                var method = typeof(OpenXRLoaderBase).GetMethod("ProcessOpenXRMessageLoop", bindingFlags);
-                if (method != null)
+                // Also focus Scene View so Game View stops its RenderToHMDOnly repaint cycle.
+                var sceneView = UnityEditor.SceneView.lastActiveSceneView;
+                if (sceneView != null)
                 {
-                    var callback = (UnityEngine.Events.UnityAction)
-                        System.Delegate.CreateDelegate(typeof(UnityEngine.Events.UnityAction), loader, method);
-                    for (int i = 0; i < 5; i++)
-                        Application.onBeforeRender -= callback;
-                    Debug.Log("[Monado3D] Removed ProcessOpenXRMessageLoop from onBeforeRender");
+                    sceneView.Focus();
+                    Debug.Log("[Monado3D] Focused Scene View");
                 }
-
-                // Layer 2: Force currentOpenXRState to XrExiting.
-                // ProcessOpenXRMessageLoop checks this state — XrExiting enters the throttle path
-                // instead of calling Internal_PumpMessageLoop immediately.
-                var stateField = typeof(OpenXRLoaderBase).GetField("currentOpenXRState", bindingFlags);
-                if (stateField != null)
-                {
-                    var nativeEventType = typeof(OpenXRFeature).GetNestedType("NativeEvent",
-                        System.Reflection.BindingFlags.NonPublic);
-                    if (nativeEventType != null)
-                    {
-                        var xrExiting = System.Enum.Parse(nativeEventType, "XrExiting");
-                        stateField.SetValue(loader, xrExiting);
-                        Debug.Log("[Monado3D] Set currentOpenXRState to XrExiting");
-                    }
-                }
-
-                // Layer 3: Set lastPollCheckTime to MaxValue.
-                // The throttle condition is: if (time - lastPollCheckTime < k_IdlePollingWaitTimeInSeconds) return;
-                // With MaxValue, (time - MaxValue) is hugely negative, always < threshold → always returns.
-                var pollField = typeof(OpenXRLoaderBase).GetField("lastPollCheckTime", bindingFlags);
-                if (pollField != null)
-                {
-                    pollField.SetValue(loader, double.MaxValue);
-                    Debug.Log("[Monado3D] Set lastPollCheckTime to MaxValue");
-                }
-            }
-            catch (System.Exception e)
-            {
-                Debug.LogWarning($"[Monado3D] Failed to unhook message loop: {e.Message}");
             }
         }
+#endif
 
         // ====================================================================
         // Validation
@@ -310,6 +281,8 @@ namespace Monado.Display3D
                 tunables.virtualDisplayHeight,
                 tunables.invConvergenceDistance,
                 tunables.fovOverride,
+                tunables.nearZ,
+                tunables.farZ,
                 tunables.cameraCentricMode ? 1 : 0);
         }
 
