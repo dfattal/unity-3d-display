@@ -170,5 +170,55 @@ namespace DisplayXR
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void displayxr_standalone_get_shared_texture(
             out IntPtr nativePtr, out uint width, out uint height, out int ready);
+
+        // ====================================================================
+        // Standalone frame loop (split: poll → begin → render → submit)
+        // ====================================================================
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void displayxr_standalone_poll_events();
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int displayxr_standalone_begin_frame(out int shouldRender);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int displayxr_standalone_submit_frame(IntPtr leftTex, IntPtr rightTex);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void displayxr_standalone_end_frame_empty();
+
+        // ====================================================================
+        // Standalone stereo views (Kooima projection via display3d library)
+        // ====================================================================
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void displayxr_standalone_compute_stereo_views(
+            float nearZ, float farZ,
+            [MarshalAs(UnmanagedType.LPArray, SizeConst = 16)] float[] leftView,
+            [MarshalAs(UnmanagedType.LPArray, SizeConst = 16)] float[] leftProj,
+            [MarshalAs(UnmanagedType.LPArray, SizeConst = 16)] float[] rightView,
+            [MarshalAs(UnmanagedType.LPArray, SizeConst = 16)] float[] rightProj,
+            out int valid);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void displayxr_standalone_get_swapchain_size(
+            out uint width, out uint height);
+
+        // ====================================================================
+        // Standalone tunables + display pose
+        // ====================================================================
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void displayxr_standalone_set_tunables(
+            float ipdFactor, float parallaxFactor, float perspectiveFactor,
+            float virtualDisplayHeight, float invConvergenceDistance, float fovOverride,
+            float nearZ, float farZ, int cameraCentric);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void displayxr_standalone_set_display_pose(
+            float posX, float posY, float posZ,
+            float oriX, float oriY, float oriZ, float oriW,
+            float scaleX, float scaleY, float scaleZ,
+            int enabled);
     }
 }

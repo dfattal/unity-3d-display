@@ -10,6 +10,7 @@
 #include "displayxr_standalone.h"
 #include "displayxr_extensions.h"
 #include "displayxr_shared_state.h"
+#include "display3d_view.h"
 
 #include <openxr/openxr.h>
 
@@ -64,6 +65,7 @@ typedef XrResult (*PFN_xrNegotiateLoaderRuntimeInterface)(
 // ============================================================================
 
 #define XR_TYPE_GRAPHICS_BINDING_METAL_KHR ((XrStructureType)1000029000)
+#define XR_TYPE_SWAPCHAIN_IMAGE_METAL_KHR  ((XrStructureType)1000029001)
 #define XR_TYPE_GRAPHICS_REQUIREMENTS_METAL_KHR ((XrStructureType)1000029002)
 #define XR_KHR_METAL_ENABLE_EXTENSION_NAME "XR_KHR_metal_enable"
 
@@ -79,6 +81,12 @@ typedef struct XrGraphicsRequirementsMetalKHR {
 	void *metalDevice;
 } XrGraphicsRequirementsMetalKHR;
 
+typedef struct XrSwapchainImageMetalKHR {
+	XrStructureType type;
+	void *next;
+	void *texture; // id<MTLTexture>
+} XrSwapchainImageMetalKHR;
+
 typedef XrResult (XRAPI_PTR *PFN_xrGetMetalGraphicsRequirementsKHR)(
     XrInstance instance, XrSystemId systemId,
     XrGraphicsRequirementsMetalKHR *graphicsRequirements);
@@ -87,6 +95,16 @@ typedef XrResult (XRAPI_PTR *PFN_xrGetMetalGraphicsRequirementsKHR)(
 // ============================================================================
 // Standalone session state
 // ============================================================================
+
+#define SA_MAX_SWAPCHAIN_IMAGES 4
+
+typedef struct SASwapchain {
+	XrSwapchain handle;
+	XrSwapchainImageMetalKHR images[SA_MAX_SWAPCHAIN_IMAGES];
+	uint32_t image_count;
+	uint32_t width;
+	uint32_t height;
+} SASwapchain;
 
 typedef struct StandaloneState {
 	void *runtime_lib;
@@ -107,9 +125,23 @@ typedef struct StandaloneState {
 	float right_eye[3];
 	int is_tracked;
 
+	// Tunables + display pose (set from C#)
+	Display3DTunables tunables;
+	int tunables_set;
+	XrPosef display_pose;
+	int display_pose_set;
+
 	uint32_t tex_width;
 	uint32_t tex_height;
 	volatile int tex_ready;
+
+	// Swapchains (one per eye)
+	SASwapchain swapchains[2];
+	int swapchains_created;
+
+	// Frame state (stored between begin_frame and submit/end)
+	XrTime predicted_display_time;
+	int frame_begun;
 
 	PFN_xrDestroyInstance pfn_destroy_instance;
 	PFN_xrGetSystem pfn_get_system;
@@ -126,6 +158,13 @@ typedef struct StandaloneState {
 	PFN_xrEndFrame pfn_end_frame;
 	PFN_xrPollEvent pfn_poll_event;
 	PFN_xrLocateViews pfn_locate_views;
+	PFN_xrEnumerateSwapchainFormats pfn_enumerate_swapchain_formats;
+	PFN_xrCreateSwapchain pfn_create_swapchain;
+	PFN_xrDestroySwapchain pfn_destroy_swapchain;
+	PFN_xrEnumerateSwapchainImages pfn_enumerate_swapchain_images;
+	PFN_xrAcquireSwapchainImage pfn_acquire_swapchain_image;
+	PFN_xrWaitSwapchainImage pfn_wait_swapchain_image;
+	PFN_xrReleaseSwapchainImage pfn_release_swapchain_image;
 } StandaloneState;
 
 static StandaloneState s_sa = {};
@@ -227,12 +266,116 @@ resolve_functions(void)
 	SA_RESOLVE_FN(xrEndFrame, pfn_end_frame, PFN_xrEndFrame);
 	SA_RESOLVE_FN(xrPollEvent, pfn_poll_event, PFN_xrPollEvent);
 	SA_RESOLVE_FN(xrLocateViews, pfn_locate_views, PFN_xrLocateViews);
+	SA_RESOLVE_FN(xrEnumerateSwapchainFormats, pfn_enumerate_swapchain_formats, PFN_xrEnumerateSwapchainFormats);
+	SA_RESOLVE_FN(xrCreateSwapchain, pfn_create_swapchain, PFN_xrCreateSwapchain);
+	SA_RESOLVE_FN(xrDestroySwapchain, pfn_destroy_swapchain, PFN_xrDestroySwapchain);
+	SA_RESOLVE_FN(xrEnumerateSwapchainImages, pfn_enumerate_swapchain_images, PFN_xrEnumerateSwapchainImages);
+	SA_RESOLVE_FN(xrAcquireSwapchainImage, pfn_acquire_swapchain_image, PFN_xrAcquireSwapchainImage);
+	SA_RESOLVE_FN(xrWaitSwapchainImage, pfn_wait_swapchain_image, PFN_xrWaitSwapchainImage);
+	SA_RESOLVE_FN(xrReleaseSwapchainImage, pfn_release_swapchain_image, PFN_xrReleaseSwapchainImage);
 	return 1;
 }
 
 
 // ============================================================================
-// Public API
+// Swapchain management
+// ============================================================================
+
+static int
+create_swapchains(void)
+{
+	if (s_sa.swapchains_created) return 1;
+	if (!s_sa.display_info.is_valid) return 0;
+
+	uint32_t w = s_sa.display_info.display_pixel_width;
+	uint32_t h = s_sa.display_info.display_pixel_height;
+
+	// Enumerate supported formats and pick one
+	uint32_t fmt_count = 0;
+	s_sa.pfn_enumerate_swapchain_formats(s_sa.session, 0, &fmt_count, NULL);
+	if (fmt_count == 0) {
+		fprintf(stderr, "[DisplayXR-SA] No swapchain formats available\n");
+		return 0;
+	}
+
+	int64_t formats[32];
+	if (fmt_count > 32) fmt_count = 32;
+	s_sa.pfn_enumerate_swapchain_formats(s_sa.session, fmt_count, &fmt_count, formats);
+
+	// Prefer BGRA8Unorm (Metal=80), fallback to RGBA8Unorm (Metal=70), else first
+	int64_t format = formats[0];
+	for (uint32_t i = 0; i < fmt_count; i++) {
+		fprintf(stderr, "[DisplayXR-SA] Supported format[%u]: %lld\n", i, formats[i]);
+		if (formats[i] == 80) { format = 80; break; } // MTLPixelFormatBGRA8Unorm
+		if (formats[i] == 70) { format = 70; }         // MTLPixelFormatRGBA8Unorm
+	}
+	fprintf(stderr, "[DisplayXR-SA] Selected swapchain format: %lld\n", format);
+
+	for (int eye = 0; eye < 2; eye++) {
+		XrSwapchainCreateInfo sc_ci = {XR_TYPE_SWAPCHAIN_CREATE_INFO};
+		sc_ci.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT |
+		                   XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT |
+		                   XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
+		sc_ci.format = format;
+		sc_ci.sampleCount = 1;
+		sc_ci.width = w;
+		sc_ci.height = h;
+		sc_ci.faceCount = 1;
+		sc_ci.arraySize = 1;
+		sc_ci.mipCount = 1;
+
+		XrResult result = s_sa.pfn_create_swapchain(
+			s_sa.session, &sc_ci, &s_sa.swapchains[eye].handle);
+		if (XR_FAILED(result)) {
+			fprintf(stderr, "[DisplayXR-SA] xrCreateSwapchain[%d] failed: %d\n", eye, result);
+			return 0;
+		}
+
+		s_sa.swapchains[eye].width = w;
+		s_sa.swapchains[eye].height = h;
+
+		// Enumerate images
+		uint32_t count = 0;
+		s_sa.pfn_enumerate_swapchain_images(s_sa.swapchains[eye].handle, 0, &count, NULL);
+		if (count > SA_MAX_SWAPCHAIN_IMAGES) count = SA_MAX_SWAPCHAIN_IMAGES;
+		s_sa.swapchains[eye].image_count = count;
+
+		for (uint32_t i = 0; i < count; i++) {
+			s_sa.swapchains[eye].images[i].type = XR_TYPE_SWAPCHAIN_IMAGE_METAL_KHR;
+			s_sa.swapchains[eye].images[i].next = NULL;
+		}
+
+		result = s_sa.pfn_enumerate_swapchain_images(
+			s_sa.swapchains[eye].handle, count, &count,
+			(XrSwapchainImageBaseHeader *)s_sa.swapchains[eye].images);
+		if (XR_FAILED(result)) {
+			fprintf(stderr, "[DisplayXR-SA] xrEnumerateSwapchainImages[%d] failed: %d\n", eye, result);
+			return 0;
+		}
+
+		fprintf(stderr, "[DisplayXR-SA] Swapchain[%d]: %ux%u, %u images\n",
+		        eye, w, h, count);
+	}
+
+	s_sa.swapchains_created = 1;
+	return 1;
+}
+
+static void
+destroy_swapchains(void)
+{
+	for (int eye = 0; eye < 2; eye++) {
+		if (s_sa.swapchains[eye].handle != XR_NULL_HANDLE && s_sa.pfn_destroy_swapchain) {
+			s_sa.pfn_destroy_swapchain(s_sa.swapchains[eye].handle);
+			s_sa.swapchains[eye].handle = XR_NULL_HANDLE;
+		}
+	}
+	s_sa.swapchains_created = 0;
+}
+
+
+// ============================================================================
+// Public API: Session lifecycle
 // ============================================================================
 
 int
@@ -478,6 +621,11 @@ displayxr_standalone_start(const char *runtime_json_path)
 		s_sa.local_space = XR_NULL_HANDLE;
 	}
 
+	// --- Step 10: Create swapchains ---
+	if (!create_swapchains()) {
+		fprintf(stderr, "[DisplayXR-SA] Warning: swapchain creation deferred to session ready\n");
+	}
+
 	s_sa.running = 1;
 	fprintf(stderr, "[DisplayXR-SA] Standalone session started successfully\n");
 	return 1;
@@ -490,6 +638,8 @@ displayxr_standalone_stop(void)
 	fprintf(stderr, "[DisplayXR-SA] Stopping standalone session\n");
 	s_sa.running = 0;
 	s_sa.session_ready = 0;
+
+	destroy_swapchains();
 
 	if (s_sa.local_space != XR_NULL_HANDLE && s_sa.pfn_destroy_space) {
 		s_sa.pfn_destroy_space(s_sa.local_space);
@@ -555,12 +705,15 @@ displayxr_standalone_is_running(void)
 }
 
 
+// ============================================================================
+// Public API: Frame loop
+// ============================================================================
+
 void
-displayxr_standalone_poll(void)
+displayxr_standalone_poll_events(void)
 {
 	if (!s_sa.running || !s_sa.pfn_poll_event) return;
 
-	// --- Poll events ---
 	XrEventDataBuffer event = {XR_TYPE_EVENT_DATA_BUFFER};
 	while (s_sa.pfn_poll_event(s_sa.instance, &event) == XR_SUCCESS) {
 		if (event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
@@ -578,6 +731,10 @@ displayxr_standalone_poll(void)
 				if (XR_SUCCEEDED(r)) {
 					s_sa.session_ready = 1;
 					fprintf(stderr, "[DisplayXR-SA] Session begun\n");
+					// Create swapchains now if deferred
+					if (!s_sa.swapchains_created) {
+						create_swapchains();
+					}
 				}
 				break;
 			}
@@ -595,18 +752,26 @@ displayxr_standalone_poll(void)
 		}
 		event = {XR_TYPE_EVENT_DATA_BUFFER};
 	}
+}
 
-	// --- Frame loop (only when session is ready) ---
-	if (!s_sa.session_ready) return;
+
+int
+displayxr_standalone_begin_frame(int *should_render)
+{
+	*should_render = 0;
+	if (!s_sa.running || !s_sa.session_ready) return 0;
 
 	XrFrameState frame_state = {XR_TYPE_FRAME_STATE};
 	XrResult result = s_sa.pfn_wait_frame(s_sa.session, NULL, &frame_state);
-	if (XR_FAILED(result)) return;
+	if (XR_FAILED(result)) return 0;
 
 	result = s_sa.pfn_begin_frame(s_sa.session, NULL);
-	if (XR_FAILED(result)) return;
+	if (XR_FAILED(result)) return 0;
 
-	// --- Locate views (eye tracking) ---
+	s_sa.predicted_display_time = frame_state.predictedDisplayTime;
+	s_sa.frame_begun = 1;
+
+	// Locate views (eye tracking)
 	if (s_sa.local_space != XR_NULL_HANDLE && s_sa.pfn_locate_views) {
 		XrViewLocateInfo locate_info = {XR_TYPE_VIEW_LOCATE_INFO};
 		locate_info.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
@@ -631,14 +796,247 @@ displayxr_standalone_poll(void)
 		}
 	}
 
-	// --- End frame (submit empty — keeps session alive for compositing) ---
+	*should_render = frame_state.shouldRender ? 1 : 0;
+	return 1;
+}
+
+
+int
+displayxr_standalone_submit_frame(void *left_tex, void *right_tex)
+{
+	if (!s_sa.frame_begun || !s_sa.swapchains_created) {
+		displayxr_standalone_end_frame_empty();
+		return 0;
+	}
+	s_sa.frame_begun = 0;
+
+#if defined(__APPLE__)
+	// For each eye: acquire → blit → release
+	uint32_t indices[2] = {0, 0};
+	void *eye_textures[2] = {left_tex, right_tex};
+
+	for (int eye = 0; eye < 2; eye++) {
+		XrSwapchainImageAcquireInfo acq_info = {XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+		XrResult r = s_sa.pfn_acquire_swapchain_image(
+			s_sa.swapchains[eye].handle, &acq_info, &indices[eye]);
+		if (XR_FAILED(r)) {
+			fprintf(stderr, "[DisplayXR-SA] Acquire swapchain[%d] failed: %d\n", eye, r);
+			displayxr_standalone_end_frame_empty();
+			return 0;
+		}
+
+		XrSwapchainImageWaitInfo wait_info = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+		wait_info.timeout = 1000000000; // 1 second
+		r = s_sa.pfn_wait_swapchain_image(s_sa.swapchains[eye].handle, &wait_info);
+		if (XR_FAILED(r)) {
+			fprintf(stderr, "[DisplayXR-SA] Wait swapchain[%d] failed: %d\n", eye, r);
+		}
+
+		// Blit Unity RenderTexture → swapchain image
+		void *dst = s_sa.swapchains[eye].images[indices[eye]].texture;
+		if (eye_textures[eye] && dst) {
+			displayxr_sa_metal_blit(eye_textures[eye], dst);
+		}
+
+		XrSwapchainImageReleaseInfo rel_info = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+		s_sa.pfn_release_swapchain_image(s_sa.swapchains[eye].handle, &rel_info);
+	}
+
+	// Build projection views
+	XrCompositionLayerProjectionView proj_views[2] = {};
+	for (int eye = 0; eye < 2; eye++) {
+		proj_views[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+		proj_views[eye].pose.position.x = s_sa.left_eye[0]; // Simplified — runtime uses these
+		proj_views[eye].pose.position.y = s_sa.left_eye[1];
+		proj_views[eye].pose.position.z = s_sa.left_eye[2];
+		proj_views[eye].pose.orientation = {0, 0, 0, 1};
+		proj_views[eye].fov.angleLeft = -0.5f;
+		proj_views[eye].fov.angleRight = 0.5f;
+		proj_views[eye].fov.angleUp = 0.3f;
+		proj_views[eye].fov.angleDown = -0.3f;
+		proj_views[eye].subImage.swapchain = s_sa.swapchains[eye].handle;
+		proj_views[eye].subImage.imageRect.offset = {0, 0};
+		proj_views[eye].subImage.imageRect.extent.width = (int32_t)s_sa.swapchains[eye].width;
+		proj_views[eye].subImage.imageRect.extent.height = (int32_t)s_sa.swapchains[eye].height;
+		proj_views[eye].subImage.imageArrayIndex = 0;
+	}
+	// Fix right eye position
+	proj_views[1].pose.position.x = s_sa.right_eye[0];
+	proj_views[1].pose.position.y = s_sa.right_eye[1];
+	proj_views[1].pose.position.z = s_sa.right_eye[2];
+
+	XrCompositionLayerProjection proj_layer = {XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+	proj_layer.space = s_sa.local_space;
+	proj_layer.viewCount = 2;
+	proj_layer.views = proj_views;
+
+	const XrCompositionLayerBaseHeader *layers[] = {
+		(const XrCompositionLayerBaseHeader *)&proj_layer
+	};
+
 	XrFrameEndInfo end_info = {XR_TYPE_FRAME_END_INFO};
-	end_info.displayTime = frame_state.predictedDisplayTime;
+	end_info.displayTime = s_sa.predicted_display_time;
+	end_info.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+	end_info.layerCount = 1;
+	end_info.layers = layers;
+
+	s_sa.pfn_end_frame(s_sa.session, &end_info);
+	return 1;
+#else
+	displayxr_standalone_end_frame_empty();
+	return 0;
+#endif
+}
+
+
+void
+displayxr_standalone_end_frame_empty(void)
+{
+	if (!s_sa.frame_begun) return;
+	s_sa.frame_begun = 0;
+
+	XrFrameEndInfo end_info = {XR_TYPE_FRAME_END_INFO};
+	end_info.displayTime = s_sa.predicted_display_time;
 	end_info.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
 	end_info.layerCount = 0;
 	end_info.layers = NULL;
 
 	s_sa.pfn_end_frame(s_sa.session, &end_info);
+}
+
+
+// ============================================================================
+// Public API: Stereo view computation
+// ============================================================================
+
+void
+displayxr_standalone_compute_stereo_views(float near_z, float far_z,
+                                           float *left_view, float *left_proj,
+                                           float *right_view, float *right_proj,
+                                           int *valid)
+{
+	*valid = 0;
+	if (!s_sa.display_info.is_valid || !s_sa.is_tracked) {
+		static int s_skip_log = 0;
+		if (s_skip_log++ % 300 == 0)
+			fprintf(stderr, "[DisplayXR-SA] compute_stereo_views skipped: display_valid=%d tracked=%d\n",
+				s_sa.display_info.is_valid, s_sa.is_tracked);
+		return;
+	}
+
+	XrVector3f raw_left = {s_sa.left_eye[0], s_sa.left_eye[1], s_sa.left_eye[2]};
+	XrVector3f raw_right = {s_sa.right_eye[0], s_sa.right_eye[1], s_sa.right_eye[2]};
+	XrVector3f nominal = {
+		s_sa.display_info.nominal_viewer_x,
+		s_sa.display_info.nominal_viewer_y,
+		s_sa.display_info.nominal_viewer_z
+	};
+
+	Display3DScreen screen = {
+		s_sa.display_info.display_width_meters,
+		s_sa.display_info.display_height_meters
+	};
+
+	// Use stored tunables (from C# DisplayXRDisplay/Camera) or defaults
+	Display3DTunables tunables = s_sa.tunables_set
+		? s_sa.tunables
+		: display3d_default_tunables();
+
+	// Use stored display pose (from parent camera transform) or identity
+	XrPosef *pose_ptr = s_sa.display_pose_set ? &s_sa.display_pose : NULL;
+
+	Display3DStereoView out_left, out_right;
+	display3d_compute_stereo_views(
+		&raw_left, &raw_right, &nominal, &screen, &tunables,
+		pose_ptr, near_z, far_z, &out_left, &out_right);
+
+	memcpy(left_view, out_left.view_matrix, 16 * sizeof(float));
+	memcpy(left_proj, out_left.projection_matrix, 16 * sizeof(float));
+	memcpy(right_view, out_right.view_matrix, 16 * sizeof(float));
+	memcpy(right_proj, out_right.projection_matrix, 16 * sizeof(float));
+	*valid = 1;
+
+	static int s_log_count = 0;
+	if (s_log_count++ % 300 == 0) {
+		fprintf(stderr, "[DisplayXR-SA] eye_L=(%.3f,%.3f,%.3f) eye_R=(%.3f,%.3f,%.3f) nominal=(%.3f,%.3f,%.3f)\n",
+			raw_left.x, raw_left.y, raw_left.z,
+			raw_right.x, raw_right.y, raw_right.z,
+			nominal.x, nominal.y, nominal.z);
+		fprintf(stderr, "[DisplayXR-SA] screen=(%.3f x %.3f)m near=%.3f far=%.1f\n",
+			screen.width_m, screen.height_m, near_z, far_z);
+		fprintf(stderr, "[DisplayXR-SA] L_view: [%.3f %.3f %.3f %.3f / %.3f %.3f %.3f %.3f / %.3f %.3f %.3f %.3f / %.3f %.3f %.3f %.3f]\n",
+			left_view[0], left_view[4], left_view[8], left_view[12],
+			left_view[1], left_view[5], left_view[9], left_view[13],
+			left_view[2], left_view[6], left_view[10], left_view[14],
+			left_view[3], left_view[7], left_view[11], left_view[15]);
+		fprintf(stderr, "[DisplayXR-SA] L_proj: [%.3f %.3f %.3f %.3f / %.3f %.3f %.3f %.3f / %.3f %.3f %.3f %.3f / %.3f %.3f %.3f %.3f]\n",
+			left_proj[0], left_proj[4], left_proj[8], left_proj[12],
+			left_proj[1], left_proj[5], left_proj[9], left_proj[13],
+			left_proj[2], left_proj[6], left_proj[10], left_proj[14],
+			left_proj[3], left_proj[7], left_proj[11], left_proj[15]);
+	}
+}
+
+
+// ============================================================================
+// Public API: Tunables + display pose
+// ============================================================================
+
+void
+displayxr_standalone_set_tunables(
+	float ipd_factor, float parallax_factor, float perspective_factor,
+	float virtual_display_height, float inv_convergence_distance, float fov_override,
+	float near_z, float far_z, int camera_centric)
+{
+	s_sa.tunables.ipd_factor = ipd_factor;
+	s_sa.tunables.parallax_factor = parallax_factor;
+	s_sa.tunables.perspective_factor = perspective_factor;
+	s_sa.tunables.virtual_display_height = virtual_display_height;
+	s_sa.tunables_set = 1;
+	// near_z, far_z, inv_convergence_distance, fov_override, camera_centric
+	// are not in Display3DTunables — they're passed to compute_stereo_views directly.
+	// Store them for potential future use but currently near/far come from the C# call.
+	(void)inv_convergence_distance;
+	(void)fov_override;
+	(void)near_z;
+	(void)far_z;
+	(void)camera_centric;
+}
+
+void
+displayxr_standalone_set_display_pose(
+	float pos_x, float pos_y, float pos_z,
+	float ori_x, float ori_y, float ori_z, float ori_w,
+	float scale_x, float scale_y, float scale_z,
+	int enabled)
+{
+	if (enabled) {
+		s_sa.display_pose.position = (XrVector3f){pos_x, pos_y, pos_z};
+		s_sa.display_pose.orientation = (XrQuaternionf){ori_x, ori_y, ori_z, ori_w};
+		s_sa.display_pose_set = 1;
+		// scale is folded into virtual_display_height by C# side (like the hook chain)
+		(void)scale_x;
+		(void)scale_y;
+		(void)scale_z;
+	} else {
+		s_sa.display_pose_set = 0;
+	}
+}
+
+
+// ============================================================================
+// Public API: Queries
+// ============================================================================
+
+// Keep old poll() as a convenience wrapper for backwards compat
+void
+displayxr_standalone_poll(void)
+{
+	displayxr_standalone_poll_events();
+	int should_render = 0;
+	if (displayxr_standalone_begin_frame(&should_render)) {
+		displayxr_standalone_end_frame_empty();
+	}
 }
 
 
@@ -691,4 +1089,20 @@ displayxr_standalone_get_shared_texture(void **native_ptr, uint32_t *width,
 	*width = s_sa.tex_width;
 	*height = s_sa.tex_height;
 	*ready = s_sa.tex_ready;
+}
+
+
+void
+displayxr_standalone_get_swapchain_size(uint32_t *width, uint32_t *height)
+{
+	if (s_sa.swapchains_created) {
+		*width = s_sa.swapchains[0].width;
+		*height = s_sa.swapchains[0].height;
+	} else if (s_sa.display_info.is_valid) {
+		*width = s_sa.display_info.display_pixel_width;
+		*height = s_sa.display_info.display_pixel_height;
+	} else {
+		*width = 0;
+		*height = 0;
+	}
 }

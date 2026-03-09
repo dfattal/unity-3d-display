@@ -21,6 +21,10 @@ extern "C" {
 #define DISPLAYXR_EXPORT
 #endif
 
+// ============================================================================
+// Session lifecycle
+// ============================================================================
+
 /// Start a standalone OpenXR session for editor preview.
 /// Loads the runtime from the JSON manifest, creates instance/session,
 /// and begins compositing into a shared IOSurface.
@@ -35,9 +39,71 @@ DISPLAYXR_EXPORT void displayxr_standalone_stop(void);
 /// Whether the standalone session is currently running.
 DISPLAYXR_EXPORT int displayxr_standalone_is_running(void);
 
-/// Poll events and update eye tracking. Call from EditorApplication.update.
-/// Also drives frame submission to keep the session alive.
-DISPLAYXR_EXPORT void displayxr_standalone_poll(void);
+// ============================================================================
+// Frame loop (called each EditorApplication.update tick)
+//
+// Flow: poll_events → begin_frame → [C# renders cameras] → submit_frame
+// ============================================================================
+
+/// Poll OpenXR events (session state changes, etc). Does NOT drive frames.
+DISPLAYXR_EXPORT void displayxr_standalone_poll_events(void);
+
+/// Begin a new frame: xrWaitFrame + xrBeginFrame + xrLocateViews.
+/// @param should_render Set to 1 if the app should render, 0 if not.
+/// @return 1 on success, 0 on failure or session not ready.
+DISPLAYXR_EXPORT int displayxr_standalone_begin_frame(int *should_render);
+
+/// Submit a rendered frame with stereo projection layers.
+/// Acquires swapchain images, blits from the provided textures, releases, and
+/// calls xrEndFrame with projection layers.
+/// @param left_tex  Native texture pointer (id<MTLTexture>) for left eye.
+/// @param right_tex Native texture pointer (id<MTLTexture>) for right eye.
+/// @return 1 on success, 0 on failure.
+DISPLAYXR_EXPORT int displayxr_standalone_submit_frame(void *left_tex, void *right_tex);
+
+/// End the current frame with no layers (keeps session alive when not rendering).
+DISPLAYXR_EXPORT void displayxr_standalone_end_frame_empty(void);
+
+// ============================================================================
+// Stereo view computation (Kooima projection via display3d library)
+// ============================================================================
+
+/// Compute display-centric Kooima stereo view and projection matrices
+/// from the current eye tracking data and display geometry.
+/// Matrices are column-major, OpenXR/OpenGL convention.
+/// @param near_z  Near clip plane distance (meters).
+/// @param far_z   Far clip plane distance (meters).
+/// @param left_view   Output float[16] left view matrix.
+/// @param left_proj   Output float[16] left projection matrix.
+/// @param right_view  Output float[16] right view matrix.
+/// @param right_proj  Output float[16] right projection matrix.
+/// @param valid       Set to 1 if matrices are valid, 0 if not.
+DISPLAYXR_EXPORT void displayxr_standalone_compute_stereo_views(
+    float near_z, float far_z,
+    float *left_view, float *left_proj,
+    float *right_view, float *right_proj,
+    int *valid);
+
+// ============================================================================
+// Tunables + display pose (mirror of hook chain's set_tunables/set_scene_transform)
+// ============================================================================
+
+/// Set stereo tunables for the standalone session.
+DISPLAYXR_EXPORT void displayxr_standalone_set_tunables(
+    float ipd_factor, float parallax_factor, float perspective_factor,
+    float virtual_display_height, float inv_convergence_distance, float fov_override,
+    float near_z, float far_z, int camera_centric);
+
+/// Set display pose (parent camera transform) for the standalone session.
+DISPLAYXR_EXPORT void displayxr_standalone_set_display_pose(
+    float pos_x, float pos_y, float pos_z,
+    float ori_x, float ori_y, float ori_z, float ori_w,
+    float scale_x, float scale_y, float scale_z,
+    int enabled);
+
+// ============================================================================
+// Queries
+// ============================================================================
 
 /// Get display info from the standalone session.
 DISPLAYXR_EXPORT void displayxr_standalone_get_display_info(
@@ -56,6 +122,10 @@ DISPLAYXR_EXPORT void displayxr_standalone_get_eye_positions(
 /// Get the shared texture info from the standalone session.
 DISPLAYXR_EXPORT void displayxr_standalone_get_shared_texture(
     void **native_ptr, uint32_t *width, uint32_t *height, int *ready);
+
+/// Get per-eye swapchain dimensions (for creating matching RenderTextures in C#).
+DISPLAYXR_EXPORT void displayxr_standalone_get_swapchain_size(
+    uint32_t *width, uint32_t *height);
 
 #ifdef __cplusplus
 }
