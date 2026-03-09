@@ -135,5 +135,40 @@ namespace DisplayXR
         /// </summary>
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void displayxr_stop_polling();
+
+        // ====================================================================
+        // Standalone preview session (bypasses Unity's OpenXR loader)
+        // ====================================================================
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int displayxr_standalone_start(
+            [MarshalAs(UnmanagedType.LPStr)] string runtimeJsonPath);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void displayxr_standalone_stop();
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int displayxr_standalone_is_running();
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void displayxr_standalone_poll();
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void displayxr_standalone_get_display_info(
+            out float displayWidthM, out float displayHeightM,
+            out uint pixelWidth, out uint pixelHeight,
+            out float nominalX, out float nominalY, out float nominalZ,
+            out float scaleX, out float scaleY,
+            out int supportsModeSwitch, out int isValid);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void displayxr_standalone_get_eye_positions(
+            out float lx, out float ly, out float lz,
+            out float rx, out float ry, out float rz,
+            out int isTracked);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void displayxr_standalone_get_shared_texture(
+            out IntPtr nativePtr, out uint width, out uint height, out int ready);
     }
 }

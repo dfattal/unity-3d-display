@@ -43,6 +43,7 @@ set(SOURCES
     displayxr_kooima.cpp
     displayxr_shared_state.cpp
     displayxr_readback.cpp
+    displayxr_standalone.cpp
     display3d_view.c
     camera3d_view.c
 )
@@ -53,14 +54,15 @@ set(HEADERS
     displayxr_shared_state.h
     displayxr_readback.h
     displayxr_extensions.h
+    displayxr_standalone.h
     display3d_view.h
     camera3d_view.h
 )
 
-# Apple-only: IOSurface helper (Objective-C)
+# Apple-only: IOSurface helpers (Objective-C)
 if(APPLE)
-    list(APPEND SOURCES displayxr_metal.m)
-    list(APPEND HEADERS displayxr_metal.h)
+    list(APPEND SOURCES displayxr_metal.m displayxr_standalone_metal.m)
+    list(APPEND HEADERS displayxr_metal.h displayxr_standalone_metal.h)
 endif()
 
 # --- Build shared library ---
@@ -98,7 +100,7 @@ if(APPLE)
         ${METAL_FRAMEWORK}
     )
     # Enable ARC for Objective-C files
-    set_source_files_properties(displayxr_metal.m PROPERTIES
+    set_source_files_properties(displayxr_metal.m displayxr_standalone_metal.m PROPERTIES
         COMPILE_FLAGS "-fobjc-arc"
     )
 endif()
