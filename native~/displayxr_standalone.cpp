@@ -402,6 +402,8 @@ displayxr_standalone_start(const char *runtime_json_path)
 
 	fprintf(stderr, "[DisplayXR-SA] Loading runtime library: %s\n", lib_abs);
 
+	XrResult result;
+
 #if defined(_WIN32)
 	// TODO: Windows LoadLibrary path
 	free(lib_abs);
@@ -440,7 +442,7 @@ displayxr_standalone_start(const char *runtime_json_path)
 	runtime_req.structVersion = 1;
 	runtime_req.structSize = sizeof(XrNegotiateRuntimeRequest);
 
-	XrResult result = negotiate(&loader_info, &runtime_req);
+	result = negotiate(&loader_info, &runtime_req);
 	if (XR_FAILED(result) || !runtime_req.getInstanceProcAddr) {
 		fprintf(stderr, "[DisplayXR-SA] Runtime negotiation failed: %d\n", result);
 		dlclose(s_sa.runtime_lib);
@@ -612,8 +614,8 @@ displayxr_standalone_start(const char *runtime_json_path)
 	// --- Step 9: Create LOCAL reference space ---
 	XrReferenceSpaceCreateInfo space_ci = {XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
 	space_ci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
-	space_ci.poseInReferenceSpace.orientation = {0, 0, 0, 1};
-	space_ci.poseInReferenceSpace.position = {0, 0, 0};
+	space_ci.poseInReferenceSpace.orientation = XrQuaternionf{0, 0, 0, 1};
+	space_ci.poseInReferenceSpace.position = XrVector3f{0, 0, 0};
 
 	result = s_sa.pfn_create_reference_space(s_sa.session, &space_ci, &s_sa.local_space);
 	if (XR_FAILED(result)) {
@@ -1011,8 +1013,8 @@ displayxr_standalone_set_display_pose(
 	int enabled)
 {
 	if (enabled) {
-		s_sa.display_pose.position = (XrVector3f){pos_x, pos_y, pos_z};
-		s_sa.display_pose.orientation = (XrQuaternionf){ori_x, ori_y, ori_z, ori_w};
+		s_sa.display_pose.position = XrVector3f{pos_x, pos_y, pos_z};
+		s_sa.display_pose.orientation = XrQuaternionf{ori_x, ori_y, ori_z, ori_w};
 		s_sa.display_pose_set = 1;
 		// scale is folded into virtual_display_height by C# side (like the hook chain)
 		(void)scale_x;
