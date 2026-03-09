@@ -6,6 +6,10 @@ native~/cmake-build-*/
 .DS_Store
 Thumbs.db
 
+# Runtime logs
+displayxr.log
+displayxr.log.meta
+
 # IDE
 .idea/
 .vscode/

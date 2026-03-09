@@ -2,17 +2,25 @@
 # Launch Unity with DisplayXR runtime (simulated display, anaglyph output)
 # Usage: ./launch-unity.sh [project-path]
 #
+# This script is for the standalone-preview-session worktree.
+# Package path in test project points to:
+#   /Users/david.fattal/Documents/GitHub/unity-3d-display-preview-session
+#
 # Logs:
-#   stderr (native plugin [DisplayXR] + runtime) → /tmp/displayxr.log
+#   stderr (native plugin [DisplayXR] + runtime) → displayxr.log (in this directory)
 #   Unity Editor.log → ~/Library/Logs/Unity/Editor.log
 #
 # In a second terminal, run:
-#   tail -f /tmp/displayxr.log
+#   tail -f /Users/david.fattal/Documents/GitHub/unity-3d-display-preview-session/displayxr.log
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT="${1:-/Users/david.fattal/Documents/Unity/DisplayXR-test}"
-LOGFILE="/tmp/displayxr.log"
+LOGFILE="$SCRIPT_DIR/displayxr.log"
 
 : > "$LOGFILE"   # truncate
+
+# Remove stale lock file (left behind if Unity crashed or was killed)
+rm -f "$PROJECT/Temp/UnityLockfile"
 
 XR_RUNTIME_JSON=/Users/david.fattal/Documents/GitHub/openxr-3d-display/_package/DisplayXR-macOS/openxr_displayxr.json \
 SIM_DISPLAY_ENABLE=1 \
