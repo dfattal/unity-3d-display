@@ -29,6 +29,13 @@ void *displayxr_sa_metal_get_texture(void);
 /// Required for XrGraphicsBindingMetalKHR.
 void *displayxr_sa_metal_get_command_queue(void);
 
+/// Blit from a source MTLTexture to a destination MTLTexture using Metal.
+/// Handles format conversion and size mismatch via blit encoder.
+/// @param src_tex Source id<MTLTexture> (from Unity RenderTexture).
+/// @param dst_tex Destination id<MTLTexture> (swapchain image).
+/// @return 1 on success, 0 on failure.
+int displayxr_sa_metal_blit(void *src_tex, void *dst_tex);
+
 #ifdef __cplusplus
 }
 #endif

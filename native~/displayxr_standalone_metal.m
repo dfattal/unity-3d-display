@@ -110,3 +110,38 @@ displayxr_sa_metal_get_command_queue(void)
 	}
 	return (__bridge void *)s_sa_queue;
 }
+
+int
+displayxr_sa_metal_blit(void *src_ptr, void *dst_ptr)
+{
+	if (!src_ptr || !dst_ptr || !s_sa_queue) return 0;
+
+	id<MTLTexture> src = (__bridge id<MTLTexture>)src_ptr;
+	id<MTLTexture> dst = (__bridge id<MTLTexture>)dst_ptr;
+
+	id<MTLCommandBuffer> cmd = [s_sa_queue commandBuffer];
+	if (!cmd) return 0;
+
+	id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
+	if (!blit) return 0;
+
+	// Copy the overlapping region (handles size mismatch)
+	NSUInteger w = MIN(src.width, dst.width);
+	NSUInteger h = MIN(src.height, dst.height);
+
+	[blit copyFromTexture:src
+	          sourceSlice:0
+	          sourceLevel:0
+	         sourceOrigin:MTLOriginMake(0, 0, 0)
+	           sourceSize:MTLSizeMake(w, h, 1)
+	            toTexture:dst
+	     destinationSlice:0
+	     destinationLevel:0
+	    destinationOrigin:MTLOriginMake(0, 0, 0)];
+
+	[blit endEncoding];
+	[cmd commit];
+	[cmd waitUntilCompleted];
+
+	return 1;
+}
