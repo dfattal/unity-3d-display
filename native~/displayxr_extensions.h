@@ -14,7 +14,7 @@ extern "C" {
 
 // --- XR_EXT_display_info ---
 #define XR_EXT_DISPLAY_INFO_EXTENSION_NAME "XR_EXT_display_info"
-#define XR_EXT_DISPLAY_INFO_SPEC_VERSION 5
+#define XR_EXT_DISPLAY_INFO_SPEC_VERSION 8
 
 #define XR_TYPE_DISPLAY_INFO_EXT ((XrStructureType)1000999003)
 
@@ -37,6 +37,24 @@ typedef enum XrDisplayModeEXT {
 } XrDisplayModeEXT;
 
 typedef XrResult(XRAPI_PTR *PFN_xrRequestDisplayModeEXT)(XrSession session, XrDisplayModeEXT displayMode);
+
+// --- Display rendering mode (vendor-specific: SBS, anaglyph, lenticular, etc.) ---
+typedef XrResult(XRAPI_PTR *PFN_xrRequestDisplayRenderingModeEXT)(XrSession session, uint32_t modeIndex);
+
+#define XR_TYPE_DISPLAY_RENDERING_MODE_INFO_EXT ((XrStructureType)1000999008)
+
+typedef struct XrDisplayRenderingModeInfoEXT {
+    XrStructureType type;
+    void *next;
+    uint32_t modeIndex;
+    char modeName[XR_MAX_SYSTEM_NAME_SIZE];
+} XrDisplayRenderingModeInfoEXT;
+
+typedef XrResult(XRAPI_PTR *PFN_xrEnumerateDisplayRenderingModesEXT)(
+    XrSession session,
+    uint32_t modeCapacityInput,
+    uint32_t *modeCountOutput,
+    XrDisplayRenderingModeInfoEXT *modes);
 
 // --- Readback callback (shared by macOS and Win32 bindings) ---
 typedef void (*PFN_xrReadbackCallback)(const uint8_t *pixels, uint32_t width, uint32_t height, void *userdata);

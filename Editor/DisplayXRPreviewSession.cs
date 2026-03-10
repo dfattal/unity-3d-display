@@ -30,6 +30,7 @@ namespace DisplayXR.Editor
         public static bool SharedTextureAvailable { get; private set; }
 
         private static bool s_Polling;
+        private static bool s_Stopping; // Guard against re-entrant ticks during teardown
         private static int s_FrameCount;
 
         // Rendering rig
@@ -93,11 +94,24 @@ namespace DisplayXR.Editor
         /// </summary>
         public static void Stop()
         {
+            if (s_Stopping) return; // Prevent re-entrant teardown
+            s_Stopping = true;
+
             StopPolling();
             DestroyRenderRig();
-            DisplayXRNative.displayxr_standalone_stop();
+
+            try
+            {
+                DisplayXRNative.displayxr_standalone_stop();
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[DisplayXR-SA] Exception during stop: {e.Message}");
+            }
+
             SharedTextureAvailable = false;
             DisplayInfo = default;
+            s_Stopping = false;
             Debug.Log("[DisplayXR-SA] Standalone session stopped");
         }
 
@@ -117,14 +131,23 @@ namespace DisplayXR.Editor
 
         private static void FrameTick()
         {
-            if (!IsRunning)
+            if (s_Stopping || !IsRunning)
             {
                 StopPolling();
                 return;
             }
 
             // 1. Poll OpenXR events (session state changes)
-            DisplayXRNative.displayxr_standalone_poll_events();
+            try
+            {
+                DisplayXRNative.displayxr_standalone_poll_events();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[DisplayXR-SA] poll_events crashed: {e.Message}. Stopping session.");
+                Stop();
+                return;
+            }
 
             // 2. Begin frame (xrWaitFrame + xrBeginFrame)
             int ok = DisplayXRNative.displayxr_standalone_begin_frame(out int shouldRender);
@@ -309,16 +332,24 @@ namespace DisplayXR.Editor
             proj.m12 = -proj.m12;
             proj.m13 = -proj.m13;
 
+            // Reset matrices first so Unity recalculates internal lighting state
+            // from the Transform (shadows, light culling, shader built-ins).
+            cam.ResetWorldToCameraMatrix();
+            cam.ResetProjectionMatrix();
+
+            // Set the camera transform to match the view matrix. Unity's lighting
+            // system reads from the Transform, not from worldToCameraMatrix.
+            Matrix4x4 viewInv = view.inverse;
+            cam.transform.position = new Vector3(viewInv.m03, viewInv.m13, viewInv.m23);
+            Vector3 forward = new Vector3(-viewInv.m02, -viewInv.m12, -viewInv.m22);
+            Vector3 up = new Vector3(viewInv.m01, viewInv.m11, viewInv.m21);
+            cam.transform.rotation = Quaternion.LookRotation(forward, up);
+
+            // Override with exact Kooima matrices for rendering
             cam.worldToCameraMatrix = view;
             cam.projectionMatrix = proj;
             cam.targetTexture = rt;
             cam.Render();
-
-            if (s_RenderLogOnce == 0)
-            {
-                s_RenderLogOnce = 1;
-                Debug.Log($"[DisplayXR-SA] RenderEye ACTIVE (v5-yflip). det(V)={view.determinant:F4} det(P)={proj.determinant:F4}");
-            }
         }
         private static int s_RenderLogOnce;
 
