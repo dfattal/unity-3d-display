@@ -127,6 +127,32 @@ DISPLAYXR_EXPORT void displayxr_standalone_get_shared_texture(
 DISPLAYXR_EXPORT void displayxr_standalone_get_swapchain_size(
     uint32_t *width, uint32_t *height);
 
+// ============================================================================
+// Display mode switching
+// ============================================================================
+
+/// Request 2D or 3D display mode.
+/// @param mode_3d 1 for 3D, 0 for 2D.
+/// @return 1 on success, 0 on failure or not supported.
+DISPLAYXR_EXPORT int displayxr_standalone_request_display_mode(int mode_3d);
+
+/// Request a vendor-specific rendering mode by index.
+/// @param mode_index Mode index from enumeration (0 = standard).
+/// @return 1 on success, 0 on failure or not supported.
+DISPLAYXR_EXPORT int displayxr_standalone_request_rendering_mode(uint32_t mode_index);
+
+/// Enumerate available rendering modes.
+/// Two-call pattern: first call with capacity=0 to get count,
+/// then allocate and call again.
+/// @param capacity   Array capacity (0 for count-only query).
+/// @param count      Output: number of modes available.
+/// @param mode_indices  Output array of mode indices.
+/// @param mode_names    Output array of mode name strings (256 chars each).
+/// @return 1 on success, 0 on failure.
+DISPLAYXR_EXPORT int displayxr_standalone_enumerate_rendering_modes(
+    uint32_t capacity, uint32_t *count,
+    uint32_t *mode_indices, char (*mode_names)[256]);
+
 #ifdef __cplusplus
 }
 #endif

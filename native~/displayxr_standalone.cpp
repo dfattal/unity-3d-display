@@ -165,6 +165,12 @@ typedef struct StandaloneState {
 	PFN_xrAcquireSwapchainImage pfn_acquire_swapchain_image;
 	PFN_xrWaitSwapchainImage pfn_wait_swapchain_image;
 	PFN_xrReleaseSwapchainImage pfn_release_swapchain_image;
+
+	// Display mode extensions (optional — resolved after instance creation)
+	PFN_xrRequestDisplayModeEXT pfn_request_display_mode;
+	PFN_xrRequestDisplayRenderingModeEXT pfn_request_rendering_mode;
+	PFN_xrEnumerateDisplayRenderingModesEXT pfn_enumerate_rendering_modes;
+	int has_display_mode_ext;
 } StandaloneState;
 
 static StandaloneState s_sa = {};
@@ -273,6 +279,27 @@ resolve_functions(void)
 	SA_RESOLVE_FN(xrAcquireSwapchainImage, pfn_acquire_swapchain_image, PFN_xrAcquireSwapchainImage);
 	SA_RESOLVE_FN(xrWaitSwapchainImage, pfn_wait_swapchain_image, PFN_xrWaitSwapchainImage);
 	SA_RESOLVE_FN(xrReleaseSwapchainImage, pfn_release_swapchain_image, PFN_xrReleaseSwapchainImage);
+
+	// Optional display mode extensions (don't fail if missing)
+	{
+		PFN_xrVoidFunction fn = NULL;
+		if (XR_SUCCEEDED(s_sa.gipa(s_sa.instance, "xrRequestDisplayModeEXT", &fn)) && fn) {
+			s_sa.pfn_request_display_mode = (PFN_xrRequestDisplayModeEXT)fn;
+			s_sa.has_display_mode_ext = 1;
+			fprintf(stderr, "[DisplayXR-SA] Resolved xrRequestDisplayModeEXT\n");
+		}
+		fn = NULL;
+		if (XR_SUCCEEDED(s_sa.gipa(s_sa.instance, "xrRequestDisplayRenderingModeEXT", &fn)) && fn) {
+			s_sa.pfn_request_rendering_mode = (PFN_xrRequestDisplayRenderingModeEXT)fn;
+			fprintf(stderr, "[DisplayXR-SA] Resolved xrRequestDisplayRenderingModeEXT\n");
+		}
+		fn = NULL;
+		if (XR_SUCCEEDED(s_sa.gipa(s_sa.instance, "xrEnumerateDisplayRenderingModesEXT", &fn)) && fn) {
+			s_sa.pfn_enumerate_rendering_modes = (PFN_xrEnumerateDisplayRenderingModesEXT)fn;
+			fprintf(stderr, "[DisplayXR-SA] Resolved xrEnumerateDisplayRenderingModesEXT\n");
+		}
+	}
+
 	return 1;
 }
 
@@ -1107,4 +1134,76 @@ displayxr_standalone_get_swapchain_size(uint32_t *width, uint32_t *height)
 		*width = 0;
 		*height = 0;
 	}
+}
+
+
+// ============================================================================
+// Public API: Display mode switching
+// ============================================================================
+
+int
+displayxr_standalone_request_display_mode(int mode_3d)
+{
+	if (!s_sa.has_display_mode_ext || !s_sa.pfn_request_display_mode ||
+	    s_sa.session == XR_NULL_HANDLE)
+		return 0;
+
+	XrDisplayModeEXT mode = mode_3d ? XR_DISPLAY_MODE_3D_EXT : XR_DISPLAY_MODE_2D_EXT;
+	XrResult result = s_sa.pfn_request_display_mode(s_sa.session, mode);
+	fprintf(stderr, "[DisplayXR-SA] RequestDisplayMode(%s) → %d\n",
+		mode_3d ? "3D" : "2D", result);
+	return XR_SUCCEEDED(result) ? 1 : 0;
+}
+
+int
+displayxr_standalone_request_rendering_mode(uint32_t mode_index)
+{
+	if (!s_sa.pfn_request_rendering_mode || s_sa.session == XR_NULL_HANDLE)
+		return 0;
+
+	XrResult result = s_sa.pfn_request_rendering_mode(s_sa.session, mode_index);
+	fprintf(stderr, "[DisplayXR-SA] RequestRenderingMode(%u) → %d\n",
+		mode_index, result);
+	return XR_SUCCEEDED(result) ? 1 : 0;
+}
+
+int
+displayxr_standalone_enumerate_rendering_modes(
+	uint32_t capacity, uint32_t *count,
+	uint32_t *mode_indices, char (*mode_names)[256])
+{
+	if (!s_sa.pfn_enumerate_rendering_modes || s_sa.session == XR_NULL_HANDLE) {
+		*count = 0;
+		return 0;
+	}
+
+	// First query count
+	uint32_t total = 0;
+	XrResult result = s_sa.pfn_enumerate_rendering_modes(s_sa.session, 0, &total, NULL);
+	if (XR_FAILED(result) || total == 0) {
+		*count = 0;
+		return 0;
+	}
+
+	*count = total;
+	if (capacity == 0 || !mode_indices || !mode_names)
+		return 1; // Count-only query
+
+	// Allocate temp buffer and enumerate
+	uint32_t to_fetch = total < capacity ? total : capacity;
+	XrDisplayRenderingModeInfoEXT *modes =
+		(XrDisplayRenderingModeInfoEXT *)calloc(to_fetch, sizeof(XrDisplayRenderingModeInfoEXT));
+	for (uint32_t i = 0; i < to_fetch; i++)
+		modes[i].type = XR_TYPE_DISPLAY_RENDERING_MODE_INFO_EXT;
+
+	result = s_sa.pfn_enumerate_rendering_modes(s_sa.session, to_fetch, &total, modes);
+	if (XR_SUCCEEDED(result)) {
+		for (uint32_t i = 0; i < to_fetch; i++) {
+			mode_indices[i] = modes[i].modeIndex;
+			strncpy(mode_names[i], modes[i].modeName, 255);
+			mode_names[i][255] = '\0';
+		}
+	}
+	free(modes);
+	return XR_SUCCEEDED(result) ? 1 : 0;
 }

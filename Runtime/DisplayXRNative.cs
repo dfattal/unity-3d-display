@@ -220,5 +220,21 @@ namespace DisplayXR
             float oriX, float oriY, float oriZ, float oriW,
             float scaleX, float scaleY, float scaleZ,
             int enabled);
+
+        // ====================================================================
+        // Standalone display mode switching
+        // ====================================================================
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int displayxr_standalone_request_display_mode(int mode3d);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int displayxr_standalone_request_rendering_mode(uint modeIndex);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int displayxr_standalone_enumerate_rendering_modes(
+            uint capacity, out uint count,
+            [MarshalAs(UnmanagedType.LPArray)] uint[] modeIndices,
+            IntPtr modeNames);
     }
 }
