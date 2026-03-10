@@ -945,11 +945,11 @@ displayxr_standalone_compute_stereo_views(float near_z, float far_z,
                                            int *valid)
 {
 	*valid = 0;
-	if (!s_sa.display_info.is_valid || !s_sa.is_tracked) {
+	if (!s_sa.display_info.is_valid) {
 		static int s_skip_log = 0;
 		if (s_skip_log++ % 300 == 0)
-			fprintf(stderr, "[DisplayXR-SA] compute_stereo_views skipped: display_valid=%d tracked=%d\n",
-				s_sa.display_info.is_valid, s_sa.is_tracked);
+			fprintf(stderr, "[DisplayXR-SA] compute_stereo_views skipped: display_valid=%d\n",
+				s_sa.display_info.is_valid);
 		return;
 	}
 
