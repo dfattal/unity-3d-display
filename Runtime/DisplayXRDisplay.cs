@@ -45,11 +45,13 @@ namespace DisplayXR
         {
             m_Camera = GetComponent<Camera>();
             m_Feature = DisplayXRFeature.Instance;
+#if !UNITY_EDITOR
             if (m_Feature == null)
             {
                 Debug.LogWarning("[DisplayXR] DisplayXRFeature not active. " +
                     "Enable it in Project Settings > XR Plug-in Management > OpenXR.");
             }
+#endif
         }
 
         void LateUpdate()

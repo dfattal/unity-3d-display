@@ -21,7 +21,8 @@ namespace DisplayXR.Editor
     [InitializeOnLoad]
     public static class DisplayXRPreviewSession
     {
-        public static bool IsRunning => DisplayXRNative.displayxr_standalone_is_running() != 0;
+        private static bool s_IsRunning;
+        public static bool IsRunning => s_IsRunning;
 
         public static DisplayXRDisplayInfo DisplayInfo { get; private set; }
         public static bool IsEyeTracked { get; private set; }
@@ -46,11 +47,137 @@ namespace DisplayXR.Editor
         private static float s_NearZ = 0.3f;
         private static float s_FarZ = 1000f;
 
+        /// <summary>
+        /// When true, entering play mode auto-starts the preview and suppresses Unity's XR.
+        /// </summary>
+        public static bool PlayModeIntegration { get; set; } = true;
+
+        // SessionState survives domain reload (unlike static fields)
+        private const string kPlayModeStartedKey = "DisplayXR_SA_StartedByPlayMode";
+        private const string kXRWasEnabledKey = "DisplayXR_SA_XRWasEnabled";
+
         static DisplayXRPreviewSession()
         {
             // Clean up standalone session on domain reload (script recompilation)
             AssemblyReloadEvents.beforeAssemblyReload += OnBeforeAssemblyReload;
             EditorApplication.quitting += OnEditorQuitting;
+            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+        }
+
+        private static void OnPlayModeStateChanged(PlayModeStateChange state)
+        {
+            if (!PlayModeIntegration) return;
+
+            switch (state)
+            {
+                case PlayModeStateChange.ExitingEditMode:
+                    // About to enter play mode — disable Unity's XR loader entirely
+                    // so it never creates an OpenXR instance that conflicts with
+                    // our standalone session. This must happen before the XR subsystem
+                    // initializes (which occurs during the edit→play transition).
+                    bool xrWasEnabled = DisableXRLoader();
+                    SessionState.SetBool(kXRWasEnabledKey, xrWasEnabled);
+                    SessionState.SetBool(kPlayModeStartedKey, !IsRunning);
+                    break;
+
+                case PlayModeStateChange.EnteredPlayMode:
+                    // Play mode is now active — start preview if needed and focus window
+                    // (domain reload has wiped static fields, so read from SessionState)
+                    if (SessionState.GetBool(kPlayModeStartedKey, false) && !IsRunning)
+                    {
+                        Start();
+                    }
+                    FocusPreviewWindow();
+                    break;
+
+                case PlayModeStateChange.ExitingPlayMode:
+                    // About to exit — stop preview if we started it
+                    if (SessionState.GetBool(kPlayModeStartedKey, false) && IsRunning)
+                    {
+                        Stop();
+                        SessionState.SetBool(kPlayModeStartedKey, false);
+                    }
+                    break;
+
+                case PlayModeStateChange.EnteredEditMode:
+                    // Back in edit mode — re-enable XR loader and focus scene view
+                    if (SessionState.GetBool(kXRWasEnabledKey, false))
+                    {
+                        EnableXRLoader();
+                        SessionState.SetBool(kXRWasEnabledKey, false);
+                    }
+                    var sceneView = SceneView.lastActiveSceneView;
+                    if (sceneView != null)
+                        sceneView.Focus();
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Disable the OpenXR loader in XR Management so Unity doesn't create
+        /// an XR session during play mode. Returns true if it was enabled.
+        /// </summary>
+        private static bool DisableXRLoader()
+        {
+            var xrSettings = UnityEngine.XR.Management.XRGeneralSettings.Instance;
+            if (xrSettings == null || xrSettings.Manager == null) return false;
+
+            var loaders = xrSettings.Manager.activeLoaders;
+            for (int i = 0; i < loaders.Count; i++)
+            {
+                if (loaders[i].GetType().Name.Contains("OpenXR"))
+                {
+                    Debug.Log("[DisplayXR-SA] Removing OpenXR loader for standalone preview play mode");
+                    xrSettings.Manager.TryRemoveLoader(loaders[i]);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Re-enable the OpenXR loader after play mode ends.
+        /// Finds the OpenXRLoaderBase ScriptableObject and re-adds it.
+        /// </summary>
+        private static void EnableXRLoader()
+        {
+            var xrSettings = UnityEngine.XR.Management.XRGeneralSettings.Instance;
+            if (xrSettings == null || xrSettings.Manager == null) return;
+
+            // Check if already present
+            foreach (var loader in xrSettings.Manager.activeLoaders)
+            {
+                if (loader.GetType().Name.Contains("OpenXR"))
+                    return;
+            }
+
+            // Find the OpenXR loader asset — it still exists as a ScriptableObject
+            var allLoaders = Resources.FindObjectsOfTypeAll<UnityEngine.XR.Management.XRLoader>();
+            foreach (var loader in allLoaders)
+            {
+                if (loader.GetType().Name.Contains("OpenXR"))
+                {
+                    Debug.Log("[DisplayXR-SA] Re-adding OpenXR loader after standalone preview play mode");
+                    xrSettings.Manager.TryAddLoader(loader);
+                    return;
+                }
+            }
+            Debug.LogWarning("[DisplayXR-SA] Could not find OpenXR loader to re-add");
+        }
+
+        private static void FocusPreviewWindow()
+        {
+            // Find and focus the DisplayXR Preview window
+            var windows = Resources.FindObjectsOfTypeAll<DisplayXRPreviewWindow>();
+            if (windows.Length > 0)
+            {
+                windows[0].Focus();
+            }
+            else
+            {
+                // Open the preview window if not already open
+                DisplayXRPreviewWindow.ShowWindow();
+            }
         }
 
         /// <summary>
@@ -78,6 +205,7 @@ namespace DisplayXR.Editor
 
             if (result != 0)
             {
+                s_IsRunning = true;
                 Debug.Log("[DisplayXR-SA] Standalone session started");
                 StartPolling();
                 RefreshDisplayInfo();
@@ -96,6 +224,7 @@ namespace DisplayXR.Editor
         {
             if (s_Stopping) return; // Prevent re-entrant teardown
             s_Stopping = true;
+            s_IsRunning = false; // Immediately prevent any queued FrameTick from calling native
 
             StopPolling();
             DestroyRenderRig();
@@ -256,6 +385,14 @@ namespace DisplayXR.Editor
                 sh = 1080;
             }
 
+            // Find scene camera for cloning settings
+            Camera sceneCam = Camera.main;
+            if (sceneCam == null)
+            {
+                var allCams = Camera.allCameras;
+                if (allCams.Length > 0) sceneCam = allCams[0];
+            }
+
             Debug.Log($"[DisplayXR-SA] Creating render rig: {sw}x{sh} per eye");
 
             // Create RenderTextures matching swapchain resolution
@@ -285,21 +422,19 @@ namespace DisplayXR.Editor
             s_RightCam.enabled = false;
             s_RightCam.targetTexture = s_RightRT;
 
-            // Copy settings from scene camera if available
-            Camera sceneCam = Camera.main;
-            if (sceneCam == null)
-            {
-                var allCams = Camera.allCameras;
-                if (allCams.Length > 0) sceneCam = allCams[0];
-            }
+            // Clone ALL settings from scene camera (rendering path, HDR, skybox, etc.)
             if (sceneCam != null)
             {
-                s_LeftCam.cullingMask = sceneCam.cullingMask;
-                s_LeftCam.clearFlags = sceneCam.clearFlags;
-                s_LeftCam.backgroundColor = sceneCam.backgroundColor;
-                s_RightCam.cullingMask = sceneCam.cullingMask;
-                s_RightCam.clearFlags = sceneCam.clearFlags;
-                s_RightCam.backgroundColor = sceneCam.backgroundColor;
+                s_LeftCam.CopyFrom(sceneCam);
+                s_RightCam.CopyFrom(sceneCam);
+                // Override what we need for manual rendering
+                s_LeftCam.enabled = false;
+                s_RightCam.enabled = false;
+                s_LeftCam.targetTexture = s_LeftRT;
+                s_RightCam.targetTexture = s_RightRT;
+                // Force HDR off — swapchain is BGRA8Unorm (LDR)
+                s_LeftCam.allowHDR = false;
+                s_RightCam.allowHDR = false;
             }
         }
 
