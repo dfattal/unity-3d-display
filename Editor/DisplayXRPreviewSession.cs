@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BSL-1.0
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
@@ -9,6 +10,19 @@ using UnityEngine;
 
 namespace DisplayXR.Editor
 {
+    // ================================================================
+    // Camera discovery types
+    // ================================================================
+
+    public enum CameraCategory { DisplayRig, CameraRig, RegularCamera }
+
+    public struct CameraEntry
+    {
+        public Camera camera;
+        public CameraCategory category;
+        public string displayName;
+    }
+
     /// <summary>
     /// Manages a standalone OpenXR session for the editor preview window.
     /// Completely independent of Unity's XR subsystem — no play mode required.
@@ -29,9 +43,6 @@ namespace DisplayXR.Editor
         public static Vector3 LeftEyePosition { get; private set; }
         public static Vector3 RightEyePosition { get; private set; }
         public static bool SharedTextureAvailable { get; private set; }
-
-        /// <summary>Left eye RenderTexture (before runtime compositing). For debug comparison.</summary>
-        public static RenderTexture LeftEyeRT => s_LeftRT;
 
         private static bool s_Polling;
         private static bool s_Stopping; // Guard against re-entrant ticks during teardown
@@ -54,6 +65,11 @@ namespace DisplayXR.Editor
         /// When true, entering play mode auto-starts the preview and suppresses Unity's XR.
         /// </summary>
         public static bool PlayModeIntegration { get; set; } = true;
+
+        // Camera selection
+        private const string kSelectedCameraIDKey = "DisplayXR_SA_SelectedCameraID";
+        private static Camera s_SelectedSourceCamera;
+        public static Camera SelectedCamera => s_SelectedSourceCamera;
 
         // SessionState survives domain reload (unlike static fields)
         private const string kPlayModeStartedKey = "DisplayXR_SA_StartedByPlayMode";
@@ -359,14 +375,6 @@ namespace DisplayXR.Editor
                 sh = 1080;
             }
 
-            // Find scene camera for cloning settings
-            Camera sceneCam = Camera.main;
-            if (sceneCam == null)
-            {
-                var allCams = Camera.allCameras;
-                if (allCams.Length > 0) sceneCam = allCams[0];
-            }
-
             Debug.Log($"[DisplayXR-SA] Creating render rig: {sw}x{sh} per eye");
 
             // Create RenderTextures matching swapchain resolution
@@ -396,20 +404,8 @@ namespace DisplayXR.Editor
             s_RightCam.enabled = false;
             s_RightCam.targetTexture = s_RightRT;
 
-            // Clone ALL settings from scene camera (rendering path, HDR, skybox, etc.)
-            if (sceneCam != null)
-            {
-                s_LeftCam.CopyFrom(sceneCam);
-                s_RightCam.CopyFrom(sceneCam);
-                // Override what we need for manual rendering
-                s_LeftCam.enabled = false;
-                s_RightCam.enabled = false;
-                s_LeftCam.targetTexture = s_LeftRT;
-                s_RightCam.targetTexture = s_RightRT;
-                // Force HDR off — swapchain is BGRA8Unorm (LDR)
-                s_LeftCam.allowHDR = false;
-                s_RightCam.allowHDR = false;
-            }
+            // Restore camera selection (reads from SessionState) and clone settings
+            RestoreSelection();
         }
 
         private static void DestroyRenderRig()
@@ -472,22 +468,154 @@ namespace DisplayXR.Editor
         }
 
         // ================================================================
+        // Camera discovery + selection
+        // ================================================================
+
+        public static CameraEntry[] DiscoverCameras()
+        {
+            var cameras = UnityEngine.Object.FindObjectsByType<Camera>(FindObjectsSortMode.None);
+            var entries = new List<CameraEntry>();
+
+            foreach (var cam in cameras)
+            {
+                // Skip our own hidden render rig cameras
+                if (cam.gameObject.hideFlags.HasFlag(HideFlags.HideAndDontSave))
+                    continue;
+
+                var entry = new CameraEntry { camera = cam };
+                string name = cam.gameObject.name;
+
+                if (cam.GetComponent<DisplayXRDisplay>() != null)
+                {
+                    entry.category = CameraCategory.DisplayRig;
+                    entry.displayName = $"{name} (Display)";
+                }
+                else if (cam.GetComponent<DisplayXRCamera>() != null)
+                {
+                    entry.category = CameraCategory.CameraRig;
+                    entry.displayName = $"{name} (Camera)";
+                }
+                else
+                {
+                    entry.category = CameraCategory.RegularCamera;
+                    entry.displayName = name;
+                }
+
+                entries.Add(entry);
+            }
+
+            // Sort: DisplayXR rigs first, then regular cameras
+            entries.Sort((a, b) =>
+            {
+                int catCmp = a.category.CompareTo(b.category);
+                if (catCmp != 0) return catCmp;
+                return string.Compare(a.displayName, b.displayName, StringComparison.Ordinal);
+            });
+
+            return entries.ToArray();
+        }
+
+        public static void SelectCamera(Camera cam)
+        {
+            s_SelectedSourceCamera = cam;
+            if (cam != null)
+                SessionState.SetInt(kSelectedCameraIDKey, cam.GetInstanceID());
+            else
+                SessionState.EraseInt(kSelectedCameraIDKey);
+
+            if (IsRunning)
+                ApplyCameraSelection();
+        }
+
+        public static void RestoreSelection()
+        {
+            int savedID = SessionState.GetInt(kSelectedCameraIDKey, 0);
+            if (savedID != 0)
+            {
+                var obj = EditorUtility.EntityIdToObject(savedID) as Camera;
+                if (obj != null)
+                {
+                    s_SelectedSourceCamera = obj;
+                    ApplyCameraSelection();
+                    return;
+                }
+            }
+
+            // Fallback: first DisplayXR rig, then Camera.main, then any camera
+            var entries = DiscoverCameras();
+            if (entries.Length > 0)
+            {
+                // Prefer a DisplayXR rig (already sorted first)
+                s_SelectedSourceCamera = entries[0].camera;
+            }
+            else
+            {
+                s_SelectedSourceCamera = Camera.main;
+                if (s_SelectedSourceCamera == null)
+                {
+                    var allCams = Camera.allCameras;
+                    if (allCams.Length > 0) s_SelectedSourceCamera = allCams[0];
+                }
+            }
+
+            if (s_SelectedSourceCamera != null)
+            {
+                SessionState.SetInt(kSelectedCameraIDKey, s_SelectedSourceCamera.GetInstanceID());
+                ApplyCameraSelection();
+            }
+        }
+
+        private static void ApplyCameraSelection()
+        {
+            if (s_SelectedSourceCamera == null || s_LeftCam == null) return;
+            CloneSourceCameraSettings(s_SelectedSourceCamera);
+        }
+
+        private static void CloneSourceCameraSettings(Camera source)
+        {
+            s_LeftCam.CopyFrom(source);
+            s_RightCam.CopyFrom(source);
+            // Re-apply overrides for manual rendering
+            s_LeftCam.enabled = false;
+            s_RightCam.enabled = false;
+            s_LeftCam.targetTexture = s_LeftRT;
+            s_RightCam.targetTexture = s_RightRT;
+            s_LeftCam.allowHDR = false;
+            s_RightCam.allowHDR = false;
+        }
+
+        public static CameraCategory GetSelectedCameraCategory()
+        {
+            if (s_SelectedSourceCamera == null) return CameraCategory.RegularCamera;
+            if (s_SelectedSourceCamera.GetComponent<DisplayXRDisplay>() != null)
+                return CameraCategory.DisplayRig;
+            if (s_SelectedSourceCamera.GetComponent<DisplayXRCamera>() != null)
+                return CameraCategory.CameraRig;
+            return CameraCategory.RegularCamera;
+        }
+
+        // ================================================================
         // Rig parameter sync (tunables + display pose from scene component)
         // ================================================================
 
         private static void PushRigParameters()
         {
-            // Find DisplayXRDisplay or DisplayXRCamera in the scene
-            var displayRig = UnityEngine.Object.FindFirstObjectByType<DisplayXRDisplay>();
+            // Ensure we have a selected camera
+            if (s_SelectedSourceCamera == null)
+                RestoreSelection();
+
+            Camera cam = s_SelectedSourceCamera;
+            if (cam == null) return;
+
+            var displayRig = cam.GetComponent<DisplayXRDisplay>();
             if (displayRig != null)
             {
                 float vdh = displayRig.virtualDisplayHeight;
                 if (vdh <= 0f && DisplayInfo.isValid)
                     vdh = DisplayInfo.displayHeightMeters;
 
-                Camera rigCam = displayRig.GetComponent<Camera>();
-                s_NearZ = rigCam != null ? rigCam.nearClipPlane : 0.3f;
-                s_FarZ = rigCam != null ? rigCam.farClipPlane : 1000f;
+                s_NearZ = cam.nearClipPlane;
+                s_FarZ = cam.farClipPlane;
 
                 DisplayXRNative.displayxr_standalone_set_tunables(
                     displayRig.ipdFactor,
@@ -508,15 +636,12 @@ namespace DisplayXR.Editor
                 return;
             }
 
-            var cameraRig = UnityEngine.Object.FindFirstObjectByType<DisplayXRCamera>();
+            var cameraRig = cam.GetComponent<DisplayXRCamera>();
             if (cameraRig != null)
             {
-                Camera rigCam = cameraRig.GetComponent<Camera>();
-                s_NearZ = rigCam != null ? rigCam.nearClipPlane : 0.3f;
-                s_FarZ = rigCam != null ? rigCam.farClipPlane : 1000f;
-                float halfTanVfov = rigCam != null
-                    ? Mathf.Tan(rigCam.fieldOfView * 0.5f * Mathf.Deg2Rad)
-                    : 0f;
+                s_NearZ = cam.nearClipPlane;
+                s_FarZ = cam.farClipPlane;
+                float halfTanVfov = Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
 
                 DisplayXRNative.displayxr_standalone_set_tunables(
                     cameraRig.ipdFactor,
@@ -537,7 +662,27 @@ namespace DisplayXR.Editor
                 return;
             }
 
-            // No rig component found — use defaults (identity pose, default tunables)
+            // Regular camera — camera-centric defaults (2D-equivalent)
+            s_NearZ = cam.nearClipPlane;
+            s_FarZ = cam.farClipPlane;
+            float defaultHalfTanVfov = Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
+
+            DisplayXRNative.displayxr_standalone_set_tunables(
+                1.0f, // ipdFactor
+                1.0f, // parallaxFactor
+                1.0f, // perspectiveFactor
+                0f,   // virtualDisplayHeight
+                0f,   // invConvergenceDistance (infinite convergence → parallel)
+                defaultHalfTanVfov,
+                s_NearZ, s_FarZ,
+                1);   // cameraCentric = true
+
+            Transform ct = cam.transform;
+            DisplayXRNative.displayxr_standalone_set_display_pose(
+                ct.position.x, ct.position.y, ct.position.z,
+                ct.rotation.x, ct.rotation.y, ct.rotation.z, ct.rotation.w,
+                1f, 1f, 1f,
+                1);
         }
 
         // ================================================================
