@@ -139,6 +139,7 @@ namespace DisplayXR
                 else
                     Debug.Log("[DisplayXR] Shared texture not available, using CPU readback");
             }
+
         }
 
         /// <inheritdoc />
@@ -446,5 +447,6 @@ namespace DisplayXR
             if (!m_HooksInstalled) return false;
             return DisplayXRNative.displayxr_request_display_mode(mode3d ? 1 : 0) != 0;
         }
+
     }
 }

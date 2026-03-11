@@ -26,6 +26,11 @@ void *displayxr_metal_get_iosurface(void);
 /// This is the pointer Unity's CreateExternalTexture needs.
 void *displayxr_metal_get_texture(void);
 
+/// Get the app's main window NSView (for passing to the cocoa window binding).
+/// Tries mainWindow, keyWindow, then first visible window.
+/// @return NSView* cast to void*, or NULL if no window found.
+void *displayxr_get_app_main_view(void);
+
 #ifdef __cplusplus
 }
 #endif
