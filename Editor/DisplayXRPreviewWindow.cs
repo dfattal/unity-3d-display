@@ -17,23 +17,22 @@ namespace DisplayXR.Editor
     {
         private enum PreviewSource
         {
+            DirectRT,
             SharedTexture,
             SideBySide,
             RuntimeReadback,
         }
 
-        [SerializeField] private PreviewSource m_Source = PreviewSource.SharedTexture;
+        [SerializeField] private PreviewSource m_Source = PreviewSource.DirectRT;
         [SerializeField] private bool m_AutoRefresh = true;
 
         private Texture2D m_SharedTexture;
         private IntPtr m_SharedNativePtr;
         private DisplayXRPreview m_CachedPreview;
 
-        // Display mode state
-        private bool m_DisplayMode3D = true;
+        // Rendering mode state (mode 0=2D, 1=3D default, 2+=display-specific)
         private string[] m_RenderingModeNames;
-        private uint[] m_RenderingModeIndices;
-        private int m_CurrentRenderingMode = -1;
+        private int m_CurrentRenderingMode = 1; // default to 3D (mode 1)
 
         [MenuItem("Window/DisplayXR/Preview Window")]
         public static void ShowWindow()
@@ -54,8 +53,7 @@ namespace DisplayXR.Editor
             EditorApplication.update -= OnEditorUpdate;
             CleanupSharedTexture();
             m_RenderingModeNames = null;
-            m_RenderingModeIndices = null;
-            m_CurrentRenderingMode = -1;
+            m_CurrentRenderingMode = 1;
         }
 
         private void OnEditorUpdate()
@@ -139,8 +137,8 @@ namespace DisplayXR.Editor
                         previewRect.width, h);
                 }
 
-                // IOSurface/Metal textures are Y-flipped relative to Unity's UV convention
-                if (m_Source == PreviewSource.SharedTexture)
+                // Metal textures (IOSurface and RenderTexture) are Y-flipped
+                if (m_Source == PreviewSource.SharedTexture || m_Source == PreviewSource.DirectRT)
                     GUI.DrawTextureWithTexCoords(drawRect, tex, new Rect(0, 1, 1, -1));
                 else
                     GUI.DrawTexture(drawRect, tex, ScaleMode.ScaleToFit);
@@ -196,18 +194,25 @@ namespace DisplayXR.Editor
 
             if (hasInfo)
             {
+                // Enumerate modes once session is running and display info is available
+                if (DisplayXRPreviewSession.IsRunning)
+                    EnumerateRenderingModesIfNeeded();
+
                 EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
-                string modeStr = m_DisplayMode3D ? "3D" : "2D";
-                string renderStr = "";
-                if (m_CurrentRenderingMode >= 0 && m_RenderingModeNames != null &&
-                    m_CurrentRenderingMode < m_RenderingModeNames.Length)
-                    renderStr = $"  Mode: {m_RenderingModeNames[m_CurrentRenderingMode]}";
+                string modeName = (m_RenderingModeNames != null &&
+                    m_CurrentRenderingMode >= 0 && m_CurrentRenderingMode < m_RenderingModeNames.Length)
+                    ? m_RenderingModeNames[m_CurrentRenderingMode]
+                    : (m_CurrentRenderingMode <= 0 ? "2D" : "3D");
+                int modeCount = m_RenderingModeNames != null ? m_RenderingModeNames.Length : 0;
                 GUILayout.Label($"Display: {info.displayPixelWidth}x{info.displayPixelHeight}  " +
                     $"{info.displayWidthMeters * 100:F1}x{info.displayHeightMeters * 100:F1}cm  " +
                     $"Tracked: {(tracked ? "Yes" : "No")}  " +
-                    $"{modeStr}{renderStr}",
+                    $"Mode: {modeName}",
                     EditorStyles.miniLabel);
-                GUILayout.Label("V=2D/3D  1/2/3=mode", EditorStyles.miniLabel);
+                string hint = modeCount > 1
+                    ? $"Display modes [0-{modeCount - 1}] | V to Cycle"
+                    : "V to Cycle";
+                GUILayout.Label(hint, EditorStyles.miniLabel);
                 EditorGUILayout.EndHorizontal();
             }
         }
@@ -219,35 +224,45 @@ namespace DisplayXR.Editor
             Event e = Event.current;
             if (e.type != EventType.KeyDown || e.isKey == false) return;
 
+            int modeIdx = -1;
+
             switch (e.keyCode)
             {
                 case KeyCode.V:
-                    m_DisplayMode3D = !m_DisplayMode3D;
-                    DisplayXRNative.displayxr_standalone_request_display_mode(m_DisplayMode3D ? 1 : 0);
-                    Debug.Log($"[DisplayXR] Display mode → {(m_DisplayMode3D ? "3D" : "2D")}");
-                    e.Use();
-                    break;
-                case KeyCode.Alpha1:
-                case KeyCode.Alpha2:
-                case KeyCode.Alpha3:
-                    int modeIdx = e.keyCode - KeyCode.Alpha1;
+                    // Cycle through all rendering modes
                     EnumerateRenderingModesIfNeeded();
-                    if (m_RenderingModeIndices != null && modeIdx < m_RenderingModeIndices.Length)
-                    {
-                        DisplayXRNative.displayxr_standalone_request_rendering_mode(m_RenderingModeIndices[modeIdx]);
-                        m_CurrentRenderingMode = modeIdx;
-                        string name = (m_RenderingModeNames != null && modeIdx < m_RenderingModeNames.Length)
-                            ? m_RenderingModeNames[modeIdx] : $"mode {modeIdx}";
-                        Debug.Log($"[DisplayXR] Rendering mode → {name}");
-                    }
-                    else
-                    {
-                        DisplayXRNative.displayxr_standalone_request_rendering_mode((uint)modeIdx);
-                        m_CurrentRenderingMode = modeIdx;
-                        Debug.Log($"[DisplayXR] Rendering mode → index {modeIdx}");
-                    }
-                    e.Use();
+                    int count = (m_RenderingModeNames != null && m_RenderingModeNames.Length > 0)
+                        ? m_RenderingModeNames.Length : 2;
+                    modeIdx = (m_CurrentRenderingMode + 1) % count;
                     break;
+                case KeyCode.Alpha0: modeIdx = 0; break;
+                case KeyCode.Alpha1: modeIdx = 1; break;
+                case KeyCode.Alpha2: modeIdx = 2; break;
+                case KeyCode.Alpha3: modeIdx = 3; break;
+                case KeyCode.Alpha4: modeIdx = 4; break;
+                case KeyCode.Alpha5: modeIdx = 5; break;
+                case KeyCode.Alpha6: modeIdx = 6; break;
+                case KeyCode.Alpha7: modeIdx = 7; break;
+                case KeyCode.Alpha8: modeIdx = 8; break;
+            }
+
+            if (modeIdx >= 0)
+            {
+                EnumerateRenderingModesIfNeeded();
+                int maxMode = m_RenderingModeNames != null ? m_RenderingModeNames.Length : 0;
+                if (modeIdx < maxMode)
+                {
+                    DisplayXRNative.displayxr_standalone_request_rendering_mode((uint)modeIdx);
+                    m_CurrentRenderingMode = modeIdx;
+                    Debug.Log($"[DisplayXR] Rendering mode → {m_RenderingModeNames[modeIdx]}");
+                }
+                else
+                {
+                    DisplayXRNative.displayxr_standalone_request_rendering_mode((uint)modeIdx);
+                    m_CurrentRenderingMode = modeIdx;
+                    Debug.Log($"[DisplayXR] Rendering mode → index {modeIdx}");
+                }
+                e.Use();
             }
         }
 
@@ -259,7 +274,7 @@ namespace DisplayXR.Editor
                 0, out uint count, null, IntPtr.Zero);
             if (count == 0) return;
 
-            m_RenderingModeIndices = new uint[count];
+            uint[] indices = new uint[count];
             m_RenderingModeNames = new string[count];
 
             // Allocate unmanaged buffer for mode names (256 bytes each)
@@ -267,7 +282,7 @@ namespace DisplayXR.Editor
             try
             {
                 DisplayXRNative.displayxr_standalone_enumerate_rendering_modes(
-                    count, out uint fetched, m_RenderingModeIndices, namesPtr);
+                    count, out uint fetched, indices, namesPtr);
                 for (int i = 0; i < (int)fetched; i++)
                 {
                     IntPtr namePtr = new IntPtr(namesPtr.ToInt64() + i * 256);
@@ -283,6 +298,13 @@ namespace DisplayXR.Editor
 
         private Texture GetPreviewTexture()
         {
+            // Priority 0: Direct RenderTexture (bypass runtime compositor — debug)
+            if (m_Source == PreviewSource.DirectRT && DisplayXRPreviewSession.IsRunning
+                && DisplayXRPreviewSession.LeftEyeRT != null)
+            {
+                return DisplayXRPreviewSession.LeftEyeRT;
+            }
+
             // Priority 1: Standalone session shared texture
             if (m_Source == PreviewSource.SharedTexture && DisplayXRPreviewSession.IsRunning
                 && DisplayXRPreviewSession.SharedTextureAvailable)
