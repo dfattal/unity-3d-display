@@ -190,9 +190,9 @@ This takes about 5 minutes and teaches you the setup:
    - A help box explaining camera-centric mode
    - **Connected Display** info (populated when runtime is active)
    - **Stereo Tunables**: IPD Factor, Parallax Factor
-   - **Camera-Centric Parameters**: Convergence Distance (with diopters readout), FOV Override
+   - **Camera-Centric Parameters**: Inv. Convergence Distance (with meters readout)
 
-5. Leave all defaults (IPD Factor = 1.0, Convergence = 0.5 m). The plugin auto-computes FOV from the display geometry.
+5. Leave all defaults (IPD Factor = 1.0, Inv. Convergence Distance = 0). The camera's FOV is inherited from the Camera component automatically.
 
 6. Build some test content at varying depths (the stereo effect depends on depth variation):
 
@@ -214,11 +214,10 @@ This takes about 5 minutes and teaches you the setup:
 
 | Parameter | Try this | Effect |
 |-----------|----------|--------|
-| Convergence Distance | 0.3 m | Screen plane moves closer — more content "pops out" |
-| Convergence Distance | 1.0 m | Screen plane moves farther — most content is in front of screen |
+| Inv. Convergence Distance | 3.0 (= 0.33 m) | Screen plane moves closer — more content "pops out" |
+| Inv. Convergence Distance | 1.0 (= 1.0 m) | Screen plane moves farther — most content is in front of screen |
 | IPD Factor | 0.5 | Reduces stereo intensity (gentler depth) |
 | IPD Factor | 2.0 | Exaggerates stereo (dramatic depth, may cause discomfort) |
-| FOV Override | 60 | Locks FOV regardless of display geometry |
 
 ---
 
@@ -260,9 +259,9 @@ Display-centric mode anchors a virtual display in the scene. The viewer looks "i
 
 | Parameter | Try this | Effect |
 |-----------|----------|--------|
-| Depth Scale | 0.5 | Compresses depth behind the screen (less distortion at edges) |
-| Virtual Display Scale | 2.0 | Virtual display is 2x physical size — scene objects appear smaller |
-| Virtual Display Scale | 0.5 | Half-size — objects appear larger (magnifier effect) |
+| Perspective Factor | 0.5 | Compresses perceived depth (less distortion at edges) |
+| Virtual Display Height | 0.6 m | Larger virtual display — scene objects appear smaller |
+| Virtual Display Height | 0.15 m | Smaller virtual display — objects appear larger (magnifier effect) |
 | Parallax Factor | 0.0 | Disables motion parallax — stereo still works via IPD |
 
 ---
@@ -271,18 +270,19 @@ Display-centric mode anchors a virtual display in the scene. The viewer looks "i
 
 1. Verify the runtime is configured: **Project Settings > XR Plug-in Management > OpenXR > DisplayXR** should show either a connected display or the sim_display info.
 
-2. Open one of the demo scenes and press **Play**.
+2. Open one of the demo scenes.
 
-3. **With sim_display (`SIM_DISPLAY_OUTPUT=sbs`):** You'll see a side-by-side stereo pair in the Game view. The left half is the left eye, right half is the right eye. Cross your eyes or use a stereo viewer to verify depth.
+3. **Open the standalone preview:** **Window > DisplayXR > Preview Window**.
 
-4. **With real hardware:** The runtime handles display output. The Game view may show a single eye or a composited view depending on the runtime configuration.
+4. Click **Start** — the preview creates its own OpenXR session and connects to the DisplayXR runtime. The window shows live composited output via zero-copy GPU texture sharing.
 
-5. **Editor Preview Window** (works without Play Mode):
-   - Open **Window > DisplayXR > Preview Window**
-   - Select **SideBySide** mode for a stereo pair preview
-   - This works without the runtime — useful for checking scene layout
+5. Use the **camera dropdown** to switch between scene cameras. Cameras are categorized by rig type (DisplayRig, CameraRig, Regular Camera). Switching rig types auto-requests the appropriate rendering mode.
 
-6. **Enable Log Eye Tracking** on either component to see per-frame eye positions in the Console:
+6. Press **V** to cycle rendering modes, or **0–8** to select a specific mode. Available modes depend on the connected display hardware (or sim_display configuration).
+
+7. **Play Mode** is still available but the standalone preview is the recommended workflow — it avoids XR session conflicts and doesn't require entering/exiting Play Mode.
+
+8. **Enable Log Eye Tracking** on either component to see per-frame eye positions in the Console:
    ```
    [DisplayXR] Eyes: L=(0.032, 0.001, 0.504), R=(-0.031, 0.001, 0.504), tracked=True
    ```
@@ -424,14 +424,14 @@ If you see `[DisplayXR] Feature not active` or no DisplayXR lines at all, the fe
 ## What to Look For
 
 ### Camera-centric demo
-- **Stereo depth gradient:** The red near cube should appear to float in front of the screen. The green mid cube sits at the screen plane. The blue far cube is behind the screen.
+- **Stereo depth gradient:** In the preview window, the red near cube should appear to float in front of the screen. The green mid cube sits at the screen plane. The blue far cube is behind the screen.
 - **Motion parallax:** When the viewer moves their head (or the sim_display keyboard controls move the simulated eye position), the scene shifts naturally — near objects move more than far objects.
-- **Convergence plane:** Adjusting convergence distance moves where the "screen plane" sits in depth. At 0.3 m everything looks like it pops out; at 1.0 m most content recedes.
+- **Inv. convergence distance:** Adjusting this value moves where the "screen plane" sits in depth. Higher values (e.g. 3.0 = 0.33 m) make content pop out more; lower values (e.g. 1.0 = 1.0 m) push most content behind the screen.
 
 ### Display-centric demo
 - **Crate stability:** As the crate rotates, the 3D effect should remain stable — the crate doesn't wobble or swim. This is because depth is computed relative to the display anchor, not the camera.
 - **Pop-out vs. recede:** The crate sits slightly above the display plane — parts pop out toward the viewer, parts recede behind the glass.
-- **Scale effect:** Changing Virtual Display Scale (scroll wheel) makes the whole scene appear larger or smaller, like zooming a magnifying glass.
+- **Scale effect:** Changing Virtual Display Height makes the whole scene appear larger or smaller, like zooming a magnifying glass. The parent transform's scale also acts as zoom.
 - **A/B comparison:** Press C to switch to the camera-centric camera and compare the same scene from both paradigms.
 
 ---
@@ -440,6 +440,6 @@ If you see `[DisplayXR] Feature not active` or no DisplayXR lines at all, the fe
 
 - **Tune the stereo parameters** — see the [Stereo Tunables Reference](../README.md#stereo-tunables-reference) for what each parameter does physically.
 - **Add a 2D UI overlay** — see [2D UI Overlay](../README.md#2d-ui-overlay) for routing a Canvas to a compositor layer.
-- **Preview without Play Mode** — see [Editor Preview](../README.md#editor-preview) for SBS and readback modes.
+- **Standalone preview** — see [Editor Preview](../README.md#editor-preview-standalone-session) for the full standalone preview workflow with camera selector and rendering modes.
 - **Deploy to end users** — see [Deploying to End Users](../README.md#deploying-to-end-users) for runtime installation on target machines.
 - **Build for both platforms** — the plugin includes both Windows and macOS binaries. Unity selects the correct one per build target.
