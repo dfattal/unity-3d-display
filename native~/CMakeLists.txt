@@ -65,6 +65,12 @@ if(APPLE)
     list(APPEND HEADERS displayxr_metal.h displayxr_standalone_metal.h)
 endif()
 
+# Windows-only: overlay child window
+if(WIN32)
+    list(APPEND SOURCES displayxr_win32.c)
+    list(APPEND HEADERS displayxr_win32.h)
+endif()
+
 # --- Build shared library ---
 # Use MODULE on macOS so BUNDLE property works (creates .bundle directory)
 if(APPLE)
