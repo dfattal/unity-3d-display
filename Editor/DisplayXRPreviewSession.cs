@@ -30,6 +30,9 @@ namespace DisplayXR.Editor
         public static Vector3 RightEyePosition { get; private set; }
         public static bool SharedTextureAvailable { get; private set; }
 
+        /// <summary>Left eye RenderTexture (before runtime compositing). For debug comparison.</summary>
+        public static RenderTexture LeftEyeRT => s_LeftRT;
+
         private static bool s_Polling;
         private static bool s_Stopping; // Guard against re-entrant ticks during teardown
         private static int s_FrameCount;
