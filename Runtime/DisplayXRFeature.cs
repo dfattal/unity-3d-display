@@ -212,21 +212,19 @@ namespace DisplayXR
         {
             if (state == PlayModeStateChange.ExitingPlayMode)
             {
-                // Kill native poll forwarding BEFORE Deinitialize() starts.
-                // This is the primary crash prevention — once set, hooked_xrPollEvent
-                // returns XR_EVENT_UNAVAILABLE without touching the runtime.
-                Debug.Log("[DisplayXR] ExitingPlayMode: killing poll + closing Game Views");
+                Debug.Log("[DisplayXR] ExitingPlayMode: killing poll + closing Game View");
                 try { DisplayXRNative.displayxr_stop_polling(); }
                 catch (System.Exception) { }
 
-                // Close all Game View windows synchronously. Game View's
-                // RenderToHMDOnly repaint cycle calls xrPollEvent through freed
-                // dispatch trampolines during Deinitialize() → SIGSEGV.
-                // Close() destroys the window and cancels all pending repaints.
-                // Unity auto-recreates the Game View on next Play.
+                // Close all Game View windows BEFORE Deinitialize() begins.
+                // Game View's RenderToHMDOnly repaint cycle calls xrPollEvent through
+                // the OpenXR loader. During teardown, this crashes because the runtime's
+                // internal state is partially freed. Closing the window is synchronous
+                // and cancels all pending repaints — no Game View = no crash.
+                // Unity auto-recreates the Game View on the next play session.
                 CloseAllGameViews();
 
-                // Fallback: focus Scene View in case CloseAllGameViews() missed any.
+                // Fallback: focus Scene View in case Close didn't take effect.
                 var sceneView = UnityEditor.SceneView.lastActiveSceneView;
                 if (sceneView != null)
                     sceneView.Focus();
@@ -235,18 +233,29 @@ namespace DisplayXR
 
         private static void CloseAllGameViews()
         {
-            var gameViewType = typeof(UnityEditor.Editor).Assembly.GetType("UnityEditor.GameView");
-            if (gameViewType == null) return;
-
-            var gameViews = UnityEngine.Resources.FindObjectsOfTypeAll(gameViewType);
-            foreach (var gv in gameViews)
+            try
             {
-                var window = gv as EditorWindow;
-                if (window != null)
+                var gameViewType = typeof(UnityEditor.Editor).Assembly.GetType("UnityEditor.GameView");
+                if (gameViewType == null)
                 {
-                    Debug.Log("[DisplayXR] Closing Game View to prevent teardown crash");
-                    window.Close();
+                    Debug.LogWarning("[DisplayXR] Could not find GameView type");
+                    return;
                 }
+
+                var gameViews = Resources.FindObjectsOfTypeAll(gameViewType);
+                foreach (var gv in gameViews)
+                {
+                    var window = gv as EditorWindow;
+                    if (window != null)
+                    {
+                        Debug.Log("[DisplayXR] Closing Game View window");
+                        window.Close();
+                    }
+                }
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning($"[DisplayXR] Failed to close Game View: {e.Message}");
             }
         }
 #endif

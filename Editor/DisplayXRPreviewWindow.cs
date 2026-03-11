@@ -55,8 +55,6 @@ namespace DisplayXR.Editor
                 m_CachedPreview = null;
                 m_ExitingPlayMode = true;
 
-                // Game View closing is handled by DisplayXRFeature.OnPlayModeStateChanged
-                // which is always registered (unlike this window which may not be open).
             }
             else if (state == PlayModeStateChange.EnteredEditMode)
             {

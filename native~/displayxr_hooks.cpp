@@ -20,6 +20,7 @@
 #include <stdio.h>
 #if !defined(_WIN32)
 #include <dlfcn.h>
+#include <unistd.h>
 #endif
 
 // --- Stored real function pointers ---
@@ -48,7 +49,6 @@ static XrSession s_deferred_destroy_session = XR_NULL_HANDLE;
 static PFN_xrDestroySession s_deferred_destroy_session_fn = nullptr;
 static XrInstance s_deferred_destroy_instance = XR_NULL_HANDLE;
 static PFN_xrDestroyInstance s_deferred_destroy_instance_fn = nullptr;
-static int s_runtime_pinned = 0; // Whether we've pinned the runtime via RTLD_NODELETE
 static volatile int s_stop_polling = 0; // Stop forwarding xrPollEvent after EXITING event
 
 
@@ -428,6 +428,15 @@ static XrResult XRAPI_CALL
 hooked_xrDestroySession(XrSession session)
 {
 	fprintf(stderr, "[DisplayXR] xrDestroySession BEGIN session=%p (DEFERRED)\n", (void *)(uintptr_t)session);
+
+	// FIRST: kill poll forwarding immediately. After xrDestroySession returns
+	// XR_SUCCESS, Unity destroys swapchains/spaces/action-sets through the
+	// loader, freeing runtime heap data. If a Game View repaint fires during
+	// that teardown sequence and calls xrPollEvent, the runtime accesses freed
+	// compositor data → SIGSEGV. Setting guards HERE closes the window.
+	__atomic_store_n(&s_stop_polling, 1, __ATOMIC_RELEASE);
+	__atomic_store_n(&s_real_poll_event, (PFN_xrPollEvent)nullptr, __ATOMIC_RELEASE);
+	__atomic_store_n(&s_instance_alive, 0, __ATOMIC_RELEASE);
 	s_session_alive = 0;
 	s_local_space = XR_NULL_HANDLE;
 
@@ -555,32 +564,32 @@ static XrResult XRAPI_CALL
 hooked_xrDestroyInstance(XrInstance instance)
 {
 	fprintf(stderr, "[DisplayXR] xrDestroyInstance BEGIN (DEFERRED)\n");
-	s_instance_alive = 0;
+
+	// FIRST: kill the instance handle and stop flag so hooked_xrPollEvent
+	// rejects calls immediately (Guard 1 + Guard 2 in hooked_xrPollEvent).
+	s_instance = XR_NULL_HANDLE;
+	__atomic_store_n(&s_stop_polling, 1, __ATOMIC_RELEASE);
+	__atomic_store_n(&s_instance_alive, 0, __ATOMIC_RELEASE);
 
 	// Defer the real destroy — Unity's OpenXR loader calls xrPollEvent AFTER
-	// xrDestroyInstance returns, through JIT-generated dispatch trampolines that
-	// reference runtime memory (code pages, dispatch tables, session/compositor
-	// objects). If we destroy now, those trampolines read freed pages → SIGSEGV.
-	//
-	// Instead, mark everything as dead (guards will reject API calls) but keep
-	// the runtime instance alive. The actual destroy happens at the start of
-	// the next instance lifecycle in displayxr_install_hooks().
+	// xrDestroyInstance returns, through dispatch trampolines that reference
+	// runtime memory. If we destroy now, those trampolines read freed pages.
+	// Instead, keep the runtime instance alive; the actual destroy happens
+	// at the start of the next instance lifecycle in displayxr_install_hooks().
 	s_deferred_destroy_instance = instance;
 	s_deferred_destroy_instance_fn = s_real_destroy_instance;
 
-	// Null out function pointers so our guards reject post-destroy calls,
-	// but the runtime's actual objects stay allocated and mapped.
+	// Null out function pointers so our guards reject post-destroy calls.
 	s_real_locate_views = nullptr;
 	s_real_get_system_properties = nullptr;
 	s_real_create_session = nullptr;
 	s_real_destroy_session = nullptr;
 	s_real_end_frame = nullptr;
 	s_real_create_reference_space = nullptr;
-	s_real_poll_event = nullptr;
+	__atomic_store_n(&s_real_poll_event, (PFN_xrPollEvent)nullptr, __ATOMIC_RELEASE);
 	s_real_destroy_instance = nullptr;
 
 	fprintf(stderr, "[DisplayXR] xrDestroyInstance END (deferred, returning XR_SUCCESS)\n");
-	s_instance = XR_NULL_HANDLE;
 	s_session = XR_NULL_HANDLE;
 	s_local_space = XR_NULL_HANDLE;
 	return XR_SUCCESS;
@@ -589,35 +598,48 @@ hooked_xrDestroyInstance(XrInstance instance)
 static XrResult XRAPI_CALL
 hooked_xrPollEvent(XrInstance instance, XrEventDataBuffer *eventData)
 {
-	// Load function pointer into local BEFORE any guards, so the compiler
-	// can't reorder the load past the null check.
-	PFN_xrPollEvent poll_fn = s_real_poll_event;
-
-	// Guard 1: instance dead or function pointer nulled
-	if (!s_instance_alive || poll_fn == nullptr) {
+	// Guard 1: stop-polling flag (atomic acquire)
+	if (__atomic_load_n(&s_stop_polling, __ATOMIC_ACQUIRE)) {
 		return XR_EVENT_UNAVAILABLE;
 	}
 
-	// Guard 2: stop polling after EXITING event
-	if (s_stop_polling) {
+	// Guard 2: reject stale/mismatched instance handles
+	XrInstance cur_inst = s_instance;
+	if (instance != cur_inst || cur_inst == XR_NULL_HANDLE) {
 		return XR_EVENT_UNAVAILABLE;
 	}
 
+	// Guard 3: function pointer nulled
+	PFN_xrPollEvent poll_fn = __atomic_load_n(&s_real_poll_event, __ATOMIC_ACQUIRE);
+	if (poll_fn == nullptr) {
+		return XR_EVENT_UNAVAILABLE;
+	}
+
+	// Guard 4: re-entrancy guard. The runtime's oxr_macos_pump_events() calls
+	// CFRunLoopRunInMode(), which pumps the macOS run loop. This can dispatch
+	// timer callbacks → EditorApplication tick → Game View repaint →
+	// ProcessOpenXRMessageLoop → xrPollEvent → back here. The runtime's
+	// session poll is NOT re-entrant; re-entry corrupts compositor state.
+	static int s_in_poll = 0;
+	if (s_in_poll) {
+		return XR_EVENT_UNAVAILABLE;
+	}
+
+	s_in_poll = 1;
 	XrResult result = poll_fn(instance, eventData);
+	s_in_poll = 0;
 
-	// After EXITING, null out the function pointer to prevent ALL future calls.
-	// This is the nuclear guard: even if s_stop_polling is somehow reset,
-	// the nullptr check in guard 1 will catch it.
+	// After EXITING, set all guards to prevent future calls.
 	if (result == XR_SUCCESS && eventData != nullptr &&
 	    eventData->type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
 		const XrEventDataSessionStateChanged *ssc =
 			(const XrEventDataSessionStateChanged *)eventData;
 		if (ssc->state == XR_SESSION_STATE_EXITING ||
 		    ssc->state == XR_SESSION_STATE_LOSS_PENDING) {
-			fprintf(stderr, "[DisplayXR] xrPollEvent: EXITING detected, nulling poll function\n");
-			s_stop_polling = 1;
-			s_real_poll_event = nullptr; // Nuclear: guard 1 catches all future calls
-			s_instance_alive = 0;        // Belt and suspenders
+			fprintf(stderr, "[DisplayXR] xrPollEvent: EXITING detected, disabling poll\n");
+			__atomic_store_n(&s_stop_polling, 1, __ATOMIC_RELEASE);
+			__atomic_store_n(&s_real_poll_event, (PFN_xrPollEvent)nullptr, __ATOMIC_RELEASE);
+			__atomic_store_n(&s_instance_alive, 0, __ATOMIC_RELEASE);
 		}
 	}
 
@@ -644,25 +666,12 @@ displayxr_hook_xrGetInstanceProcAddr(XrInstance instance, const char *name, PFN_
 		s_instance_alive = 1;
 	}
 
-	// Pin the runtime library in memory so Unity's dlclose doesn't unmap
-	// its code pages. We defer xrDestroySession/xrDestroyInstance to keep
-	// runtime objects alive, but Unity calls Internal_UnloadOpenXRLibrary()
-	// which dlcloses the runtime. RTLD_NODELETE prevents the unmap, so
-	// post-destroy xrPollEvent calls (from editor repaint paths) can still
-	// safely reach the runtime's dispatch stubs.
-#if !defined(_WIN32)
-	if (!s_runtime_pinned && *function != nullptr) {
-		Dl_info dl_info;
-		if (dladdr((void *)*function, &dl_info) && dl_info.dli_fname) {
-			void *handle = dlopen(dl_info.dli_fname, RTLD_LAZY | RTLD_NODELETE);
-			if (handle) {
-				fprintf(stderr, "[DisplayXR] Pinned runtime library: %s\n", dl_info.dli_fname);
-				s_runtime_pinned = 1;
-				dlclose(handle); // Decrement refcount but RTLD_NODELETE keeps it mapped
-			}
-		}
-	}
-#endif
+	// NOTE: We previously pinned the loader library via RTLD_NODELETE to prevent
+	// code pages from being unmapped after Unity's dlclose. However, this prevents
+	// the loader's global state from being reinitialized on the next play session,
+	// causing xrCreateSession to crash on stale loader state. Since our guards
+	// (s_stop_polling, s_real_poll_event=nullptr, s_instance_alive=0) now correctly
+	// prevent post-destroy xrPollEvent calls, pinning is no longer needed.
 
 	// Log function resolution for debugging second-instance issues
 	fprintf(stderr, "[DisplayXR] xrGetInstanceProcAddr: resolving '%s'\n", name);
@@ -687,7 +696,7 @@ displayxr_hook_xrGetInstanceProcAddr(XrInstance instance, const char *name, PFN_
 		s_real_create_reference_space = (PFN_xrCreateReferenceSpace)*function;
 		// Don't intercept — just cache the function pointer
 	} else if (strcmp(name, "xrPollEvent") == 0) {
-		s_real_poll_event = (PFN_xrPollEvent)*function;
+		__atomic_store_n(&s_real_poll_event, (PFN_xrPollEvent)*function, __ATOMIC_RELEASE);
 		*function = (PFN_xrVoidFunction)hooked_xrPollEvent;
 	} else if (strcmp(name, "xrDestroyInstance") == 0) {
 		s_real_destroy_instance = (PFN_xrDestroyInstance)*function;
@@ -730,14 +739,14 @@ displayxr_install_hooks(PFN_xrGetInstanceProcAddr next_gipa)
 	s_real_destroy_session = nullptr;
 	s_real_end_frame = nullptr;
 	s_real_create_reference_space = nullptr;
-	s_real_poll_event = nullptr;
+	__atomic_store_n(&s_real_poll_event, (PFN_xrPollEvent)nullptr, __ATOMIC_RELEASE);
 	s_real_destroy_instance = nullptr;
 	s_instance = XR_NULL_HANDLE;
 	s_session = XR_NULL_HANDLE;
 	s_local_space = XR_NULL_HANDLE;
 	s_session_alive = 0;
-	s_instance_alive = 0;
-	s_stop_polling = 0;
+	__atomic_store_n(&s_instance_alive, 0, __ATOMIC_RELEASE);
+	__atomic_store_n(&s_stop_polling, 0, __ATOMIC_RELEASE);
 
 	return (PFN_xrVoidFunction)displayxr_hook_xrGetInstanceProcAddr;
 }
@@ -750,11 +759,14 @@ displayxr_install_hooks(PFN_xrGetInstanceProcAddr next_gipa)
 void
 displayxr_stop_polling(void)
 {
-	fprintf(stderr, "[DisplayXR] displayxr_stop_polling: killing poll forwarding\n");
-	s_stop_polling = 1;
-	s_real_poll_event = nullptr;
-	s_instance_alive = 0;
+	fprintf(stderr, "[DisplayXR] displayxr_stop_polling called\n");
+	// Order matters: set stop flag FIRST (checked first in hooked_xrPollEvent),
+	// then null the pointer, then kill instance. Acquire/release ensures ordering.
+	__atomic_store_n(&s_stop_polling, 1, __ATOMIC_RELEASE);
+	__atomic_store_n(&s_real_poll_event, (PFN_xrPollEvent)nullptr, __ATOMIC_RELEASE);
+	__atomic_store_n(&s_instance_alive, 0, __ATOMIC_RELEASE);
 	s_session_alive = 0;
+	s_instance = XR_NULL_HANDLE; // Guard 2 in hooked_xrPollEvent: handle mismatch
 }
 
 void
