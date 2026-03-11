@@ -135,7 +135,7 @@ namespace DisplayXR.Editor
                     string assetPath = AssetDatabase.GetAssetPath(loaders[i]);
                     if (!string.IsNullOrEmpty(assetPath))
                         SessionState.SetString(kXRLoaderAssetPathKey, assetPath);
-                    Debug.Log("[DisplayXR-SA] Removing OpenXR loader for standalone preview play mode");
+                    // Silently remove — re-added in EnteredEditMode
                     xrSettings.Manager.TryRemoveLoader(loaders[i]);
                     return true;
                 }
@@ -166,7 +166,7 @@ namespace DisplayXR.Editor
                 var loader = AssetDatabase.LoadAssetAtPath<UnityEngine.XR.Management.XRLoader>(assetPath);
                 if (loader != null)
                 {
-                    Debug.Log("[DisplayXR-SA] Re-adding OpenXR loader after standalone preview play mode");
+                    // Silently re-add
                     xrSettings.Manager.TryAddLoader(loader);
                     SessionState.EraseString(kXRLoaderAssetPathKey);
                     return;
@@ -179,7 +179,7 @@ namespace DisplayXR.Editor
             {
                 if (loader.GetType().Name.Contains("OpenXR"))
                 {
-                    Debug.Log("[DisplayXR-SA] Re-adding OpenXR loader (fallback search)");
+                    // Re-added via fallback search
                     xrSettings.Manager.TryAddLoader(loader);
                     return;
                 }
@@ -209,10 +209,7 @@ namespace DisplayXR.Editor
         public static bool Start()
         {
             if (IsRunning)
-            {
-                Debug.Log("[DisplayXR-SA] Already running");
                 return true;
-            }
 
             string runtimeJson = FindRuntimeJson();
             if (string.IsNullOrEmpty(runtimeJson))
@@ -303,16 +300,10 @@ namespace DisplayXR.Editor
             // 2. Begin frame (xrWaitFrame + xrBeginFrame)
             int ok = DisplayXRNative.displayxr_standalone_begin_frame(out int shouldRender);
             if (ok == 0)
-            {
-                if (s_FrameCount++ % 300 == 0)
-                    Debug.Log($"[DisplayXR-SA] FrameTick: begin_frame returned 0 (not ready)");
                 return;
-            }
 
             if (shouldRender == 0)
             {
-                if (s_FrameCount++ % 300 == 0)
-                    Debug.Log($"[DisplayXR-SA] FrameTick: shouldRender=0, submitting empty frame");
                 DisplayXRNative.displayxr_standalone_end_frame_empty();
                 return;
             }
@@ -328,57 +319,18 @@ namespace DisplayXR.Editor
 
             if (matricesValid != 0 && s_LeftCam != null && s_RightCam != null)
             {
-                if (s_FrameCount++ % 300 == 0)
-                {
-                    // Log raw eye positions from runtime
-                    DisplayXRNative.displayxr_standalone_get_eye_positions(
-                        out float elx, out float ely, out float elz,
-                        out float erx, out float ery, out float erz,
-                        out int trk);
+                s_FrameCount++;
 
-                    // Log the actual camera world position from view matrix inverse
-                    Matrix4x4 v = ColumnMajorToMatrix4x4(s_LeftView);
-                    Matrix4x4 vi = v.inverse;
-                    var camPos = new Vector3(vi.m03, vi.m13, vi.m23);
-
-                    // Extract FOV angles from GL projection matrix:
-                    // P[0]=2n/(r-l), P[5]=2n/(t-b), P[8]=(r+l)/(r-l), P[9]=(t+b)/(t-b)
-                    // tan(left)  = (-1 + P[8]) / P[0]  =>  angle = atan
-                    // tan(right) = ( 1 + P[8]) / P[0]
-                    // tan(down)  = (-1 + P[9]) / P[5]
-                    // tan(up)    = ( 1 + P[9]) / P[5]
-                    float tanL = (-1f + s_LeftProj[8]) / s_LeftProj[0];
-                    float tanR = ( 1f + s_LeftProj[8]) / s_LeftProj[0];
-                    float tanD = (-1f + s_LeftProj[9]) / s_LeftProj[5];
-                    float tanU = ( 1f + s_LeftProj[9]) / s_LeftProj[5];
-                    float fovH = (Mathf.Atan(tanR) - Mathf.Atan(tanL)) * Mathf.Rad2Deg;
-                    float fovV = (Mathf.Atan(tanU) - Mathf.Atan(tanD)) * Mathf.Rad2Deg;
-
-                    Debug.Log($"[DisplayXR-SA] Frame {s_FrameCount}: " +
-                        $"rawEyeL=({elx:F3},{ely:F3},{elz:F3}) " +
-                        $"rawEyeR=({erx:F3},{ery:F3},{erz:F3}) tracked={trk}\n" +
-                        $"  camWorldPos=({camPos.x:F3},{camPos.y:F3},{camPos.z:F3}) " +
-                        $"near={s_NearZ:F3} far={s_FarZ:F1}\n" +
-                        $"  L_FOV: L={Mathf.Atan(tanL)*Mathf.Rad2Deg:F1}° R={Mathf.Atan(tanR)*Mathf.Rad2Deg:F1}° " +
-                        $"D={Mathf.Atan(tanD)*Mathf.Rad2Deg:F1}° U={Mathf.Atan(tanU)*Mathf.Rad2Deg:F1}° " +
-                        $"(H={fovH:F1}° V={fovV:F1}°)");
-                }
-
-                // 4. Render both eyes
                 RenderEye(s_LeftCam, s_LeftRT, s_LeftView, s_LeftProj);
                 RenderEye(s_RightCam, s_RightRT, s_RightView, s_RightProj);
 
-                // 5. Submit to OpenXR swapchain
                 IntPtr leftNative = s_LeftRT.GetNativeTexturePtr();
                 IntPtr rightNative = s_RightRT.GetNativeTexturePtr();
                 DisplayXRNative.displayxr_standalone_submit_frame(leftNative, rightNative);
             }
             else
             {
-                if (s_FrameCount++ % 300 == 0)
-                    Debug.Log($"[DisplayXR-SA] Frame {s_FrameCount}: matrices invalid={matricesValid}, " +
-                        $"leftCam={s_LeftCam != null}, rightCam={s_RightCam != null}");
-                // No valid matrices — submit empty frame
+                s_FrameCount++;
                 DisplayXRNative.displayxr_standalone_end_frame_empty();
             }
 
@@ -508,7 +460,6 @@ namespace DisplayXR.Editor
             cam.targetTexture = rt;
             cam.Render();
         }
-        private static int s_RenderLogOnce;
 
         private static Matrix4x4 ColumnMajorToMatrix4x4(float[] m)
         {
@@ -537,11 +488,6 @@ namespace DisplayXR.Editor
                 Camera rigCam = displayRig.GetComponent<Camera>();
                 s_NearZ = rigCam != null ? rigCam.nearClipPlane : 0.3f;
                 s_FarZ = rigCam != null ? rigCam.farClipPlane : 1000f;
-
-                if (s_FrameCount % 300 == 0)
-                    Debug.Log($"[DisplayXR-SA] Rig: ipd={displayRig.ipdFactor:F2} parallax={displayRig.parallaxFactor:F2} " +
-                        $"persp={displayRig.perspectiveFactor:F2} vdh={vdh:F4} (raw={displayRig.virtualDisplayHeight:F4}) " +
-                        $"near={s_NearZ:F3} far={s_FarZ:F1} pos={displayRig.transform.position}");
 
                 DisplayXRNative.displayxr_standalone_set_tunables(
                     displayRig.ipdFactor,
