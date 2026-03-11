@@ -343,7 +343,6 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 	}
 
 	// Inject window binding into the next chain.
-	// viewHandle=NULL signals offscreen mode (no runtime-owned visible window).
 	{
 #if defined(__APPLE__)
 		// Create shared IOSurface if display info is available but surface wasn't created yet.
@@ -358,6 +357,19 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 				fprintf(stderr, "[DisplayXR] Shared IOSurface created in xrCreateSession: %ux%u\n",
 				        state->display_info.display_pixel_width,
 				        state->display_info.display_pixel_height);
+			}
+		}
+
+		// Auto-detect the app's main window NSView if no handle was set.
+		// C# OnSystemChange runs before the window exists, so we grab it here
+		// at xrCreateSession time when the window is guaranteed to be up.
+		if (state->window_handle == nullptr) {
+			void *view = displayxr_get_app_main_view();
+			if (view != nullptr) {
+				state->window_handle = view;
+				fprintf(stderr, "[DisplayXR] Auto-detected main window NSView: %p\n", view);
+			} else {
+				fprintf(stderr, "[DisplayXR] No main window NSView found — offscreen mode\n");
 			}
 		}
 #endif
@@ -386,10 +398,13 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 			static XrCocoaWindowBindingCreateInfoEXT mac_binding = {};
 			mac_binding.type = XR_TYPE_COCOA_WINDOW_BINDING_CREATE_INFO_EXT;
 			mac_binding.next = nullptr;
-			mac_binding.viewHandle = state->window_handle; // NULL = offscreen
+			mac_binding.viewHandle = state->window_handle;
 			mac_binding.readbackCallback = displayxr_readback_callback;
 			mac_binding.readbackUserdata = nullptr;
 			mac_binding.sharedIOSurface = state->shared_iosurface;
+
+			fprintf(stderr, "[DisplayXR] Injecting cocoa window binding: viewHandle=%p, sharedIOSurface=%p\n",
+			        mac_binding.viewHandle, mac_binding.sharedIOSurface);
 
 			((XrBaseOutStructure *)last_in_chain)->next = (XrBaseOutStructure *)&mac_binding;
 #endif

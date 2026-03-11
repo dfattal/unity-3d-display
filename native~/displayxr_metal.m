@@ -5,6 +5,7 @@
 // Unity's Metal context wraps the IOSurface via CreateExternalTexture on the C# side.
 
 #import <Metal/Metal.h>
+#import <AppKit/AppKit.h>
 #include <IOSurface/IOSurface.h>
 #include <CoreFoundation/CoreFoundation.h>
 
@@ -110,5 +111,32 @@ void *
 displayxr_metal_get_texture(void)
 {
 	return (__bridge void *)s_shared_texture;
+}
+
+void *
+displayxr_get_app_main_view(void)
+{
+	@try {
+		NSWindow *window = [[NSApplication sharedApplication] mainWindow];
+		if (window == nil)
+			window = [[NSApplication sharedApplication] keyWindow];
+		if (window == nil) {
+			// Fallback: grab the first visible window from the app's window list
+			for (NSWindow *w in [[NSApplication sharedApplication] windows]) {
+				if ([w isVisible] && [w contentView] != nil) {
+					window = w;
+					break;
+				}
+			}
+		}
+		if (window == nil)
+			return NULL;
+		NSView *view = [window contentView];
+		return (__bridge void *)view;
+	} @catch (NSException *e) {
+		fprintf(stderr, "[DisplayXR] Exception getting main view: %s\n",
+		        [[e reason] UTF8String]);
+		return NULL;
+	}
 }
 
