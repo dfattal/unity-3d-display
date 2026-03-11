@@ -13,7 +13,7 @@ Unity plugin for rendering on eye-tracked 3D light field displays via the Displa
   - [Display-Centric Mode](#display-centric-mode)
 - [Stereo Tunables Reference](#stereo-tunables-reference)
 - [2D UI Overlay](#2d-ui-overlay)
-- [Editor Preview](#editor-preview)
+- [Editor Preview (Standalone Session)](#editor-preview-standalone-session)
 - [Building Your App](#building-your-app)
   - [Windows Standalone](#windows-standalone)
   - [macOS Standalone](#macOS-standalone)
@@ -34,7 +34,7 @@ The plugin intercepts Unity's OpenXR pipeline at the native layer to provide:
 - **Eye-tracked stereo rendering** — Kooima asymmetric frustum projection from real-time eye positions
 - **Two stereo rig modes** — Camera-centric (add to existing camera) or display-centric (place a virtual display in the scene)
 - **2D UI overlay** — Route any Canvas to a window-space composition layer with stereo disparity
-- **Editor preview** — Side-by-side stereo preview without leaving the editor
+- **Standalone editor preview** — Live composited 3D output in a dedicated editor window, no Play Mode required. Camera selector dropdown, rendering mode switching, and zero-copy GPU texture sharing.
 
 The plugin works by hooking `xrLocateViews` before Unity sees the results, replacing the runtime's FOV data with Kooima-computed asymmetric frustums. Unity then builds correct projection matrices through its normal rendering pipeline — no `Camera.SetStereoProjectionMatrix` hacks required.
 
@@ -140,8 +140,9 @@ Hierarchy:
 |-----------|---------|-------------|
 | IPD Factor | 1.0 | Scales inter-eye distance. <1 = reduced stereo, >1 = exaggerated |
 | Parallax Factor | 1.0 | Scales eye X/Y offset from viewing axis |
-| Convergence Distance | auto | Distance to the virtual screen plane (meters). Auto-set from display info if 0. |
-| Field of View | auto | Computed from convergence + display size. Override with non-zero value (degrees). |
+| Inv. Convergence Distance | 0 | 1/meters. 0 = infinity (parallel projection). Higher values = screen plane closer to camera. The inspector shows the equivalent distance in meters. |
+
+> **Note:** The component inherits the camera's vertical FOV automatically. Change it on the Camera component, not on DisplayXRCamera.
 
 **When to use camera-centric mode:**
 - First-person games and apps
@@ -173,7 +174,7 @@ Hierarchy:
 | IPD Factor | 1.0 | Scales inter-eye distance |
 | Parallax Factor | 1.0 | Scales eye X/Y offset from display center |
 | Perspective Factor | 1.0 | Scales eye Z only (depth intensity without changing baseline) |
-| Scale Factor | 1.0 | Virtual display size relative to physical display (affects Kooima screen extents) |
+| Virtual Display Height | 0 | Virtual display height in meters. 0 = use physical display height. The inspector shows the computed virtual size. The parent transform's scale acts as zoom. |
 
 **When to use display-centric mode:**
 - Digital signage, museum exhibits, kiosks
@@ -207,19 +208,22 @@ Scales the eye's Z position (distance from display) without changing the baselin
 - `<1.0` = eyes appear closer to display (stronger perspective)
 - `>1.0` = eyes appear farther (flatter perspective)
 
-### Scale Factor (display-centric only)
-Scales the virtual display dimensions used in the Kooima projection.
-- `1.0` = virtual display matches physical display size
-- `2.0` = virtual display twice as large (scene appears smaller)
-- `0.5` = virtual display half-size (scene appears larger)
+### Virtual Display Height (display-centric only)
+Sets the virtual display height in meters for the Kooima projection.
+- `0` = use the physical display's actual height (default)
+- `0.3` = 30 cm virtual display (scene objects appear larger — magnifier effect)
+- `0.6` = 60 cm virtual display (scene objects appear smaller)
 
-### Convergence Distance (camera-centric only)
-Distance from the camera to the virtual screen plane, in meters. Objects at this distance appear at the display surface; closer objects pop out, farther objects recede.
-- Default: auto-set from the display's `nominalViewerZ` (~0.5m for typical displays)
-- Increase for deeper scenes, decrease for tabletop/near-field content
+The parent transform's scale acts as zoom: scaling up the DisplayXRDisplay object zooms into the scene.
 
-### Field of View (camera-centric only)
-Vertical FOV override in degrees. When 0, auto-computed from convergence distance and physical display height. Override when you need a specific FOV regardless of display geometry.
+### Inv. Convergence Distance (camera-centric only)
+Inverse convergence distance in 1/meters. Controls where the virtual screen plane sits relative to the camera. Objects at the convergence distance appear at the display surface; closer objects pop out, farther objects recede.
+- `0` = infinity (parallel projection — no convergence)
+- `2.0` = screen plane at 0.5 m from camera
+- `1.0` = screen plane at 1.0 m from camera
+- The inspector shows the equivalent distance in meters or "∞"
+
+> **Note:** Camera-centric FOV is inherited automatically from the Camera component. There is no separate FOV tunable.
 
 ---
 
@@ -244,23 +248,36 @@ The overlay is submitted as `XrCompositionLayerWindowSpaceEXT` and composited by
 
 ---
 
-## Editor Preview
+## Editor Preview (Standalone Session)
 
-### Side-by-Side Preview (no runtime needed)
+The standalone preview is the primary editor workflow for DisplayXR. It creates its own OpenXR session directly against the DisplayXR runtime — no Play Mode needed. This bypasses Unity's XR subsystem entirely, eliminating session conflicts, crashes, and rendering artifacts.
 
-1. **Window > DisplayXR > Preview Window**
-2. Select **SideBySide** mode
-3. The window shows a stereo pair computed from your scene cameras
+### Opening the Preview
 
-This works without the DisplayXR runtime running — useful for authoring and layout.
+**Window > DisplayXR > Preview Window**
 
-### Runtime Readback Preview (actual display processing)
+### Toolbar
 
-1. Add a **DisplayXRPreview** component to the same GameObject as your camera
-2. In the Preview Window, select **RuntimeReadback** mode
-3. The preview shows the actual composited + display-processed output
+| Control | Description |
+|---------|-------------|
+| **Start / Stop** | Connects to the DisplayXR runtime and begins rendering |
+| **Camera dropdown** | Lists all scene cameras, categorized by rig type: DisplayRig (`DisplayXRDisplay`), CameraRig (`DisplayXRCamera`), or Regular Camera. Switching rig types auto-requests the appropriate rendering mode. |
+| **Auto Refresh** | When enabled, continuously repaints the preview |
+| **Runtime status** | Shows "Connected" or "Not Connected" |
 
-Requires DisplayXR runtime running. Use this for final QA verification.
+### Rendering Modes
+
+Modes are dynamically enumerated from the runtime and depend on the connected display hardware. Controls:
+- **V** — cycle through available modes
+- **0–8** — select a specific mode directly
+
+### Output
+
+The preview uses zero-copy GPU texture sharing (IOSurface on macOS, DXGI on Windows) to display exactly what the physical display sees. The footer shows resolution, physical dimensions, eye tracking status, and current rendering mode.
+
+### Play Mode Integration
+
+If you enter Play Mode while the preview is running, the plugin automatically removes Unity's OpenXR loader to prevent session conflicts, then restores it when you exit Play Mode. This means Play Mode runs without XR — useful for testing game logic — while the standalone preview handles all 3D display output.
 
 ---
 
@@ -365,7 +382,8 @@ This lets you develop and test the full stereo pipeline on any machine.
 | Stereo looks wrong | Tunables misconfigured | Reset to defaults (IPD=1, Parallax=1, Scale=1) |
 | `DllNotFoundException: displayxr_unity` | Native plugin not found by Unity | Ensure the plugin binaries are in `Runtime/Plugins/Windows/x64/` or `Runtime/Plugins/macOS/` |
 | HDRP stereo artifacts | Single-pass instanced issue | Verify both eye views have correct FOVs in Frame Debugger |
-| Editor preview blank | No preview component or wrong mode | Add DisplayXRPreview component; use SideBySide mode without runtime |
+| Preview shows "Not Connected" | `XR_RUNTIME_JSON` not set or runtime not running | Set the env var before launching Unity; verify the runtime process is active |
+| Preview shows black after Start | Runtime connected but no output | Check runtime logs; verify sim_display or hardware is configured |
 | `VK_ERROR_EXTENSION_NOT_PRESENT` on macOS | MoltenVK limitation | Known issue — use sim_display for testing |
 
 ### Debug Logging
@@ -401,8 +419,10 @@ Unity Editor / Player
 │  (camera-centric)        (display-centric)               │
 │  Attach to Camera        Place in scene                  │
 │                                                          │
-│  DisplayXRWindowSpaceUI   DisplayXRPreview                 │
-│  (2D overlay)            (editor preview)                │
+│  DisplayXRWindowSpaceUI   DisplayXRPreviewSession           │
+│  (2D overlay)            (standalone editor preview)     │
+│                          DisplayXRPreviewWindow           │
+│                          (editor UI + camera selector)   │
 └──────────────────────────────────────────────────────────┘
         │ P/Invoke (displayxr_unity.dll / .dylib)
         ▼
@@ -449,12 +469,13 @@ Unity builds projection matrices → renders stereo
 | `Runtime/DisplayXRDisplayInfo.cs` | Display properties data struct |
 | `Runtime/DisplayXRTunables.cs` | Tunable parameters struct |
 | `Runtime/DisplayXRWindowSpaceUI.cs` | 2D UI overlay routing |
-| `Runtime/DisplayXRPreview.cs` | Editor preview (SBS + readback) |
+| `Runtime/DisplayXRPreview.cs` | Inline preview textures (SBS, readback, SharedTexture) |
 | `Runtime/DisplayXRNative.cs` | P/Invoke bindings to native plugin |
 | `Runtime/Plugins/Windows/x64/` | Windows native plugin (DLL) |
 | `Runtime/Plugins/macOS/` | macOS native plugin (dylib) |
 | `Editor/DisplayXRDisplayEditor.cs` | Custom inspector for display-centric mode |
 | `Editor/DisplayXRCameraEditor.cs` | Custom inspector for camera-centric mode |
-| `Editor/DisplayXRPreviewWindow.cs` | Editor preview window |
+| `Editor/DisplayXRPreviewSession.cs` | Standalone OpenXR session for editor preview (no Play Mode needed) |
+| `Editor/DisplayXRPreviewWindow.cs` | Editor preview window with camera selector and rendering mode controls |
 | `Editor/DisplayXRSettingsProvider.cs` | Project Settings page |
 | `native~/` | Native C/C++ plugin source + CMakeLists.txt |

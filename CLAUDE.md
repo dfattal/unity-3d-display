@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working with this repository.
 
 ## Project Overview
 
-Unity plugin for eye-tracked 3D light field displays via the **DisplayXR OpenXR runtime**. This is a Unity Package Manager (UPM) package that intercepts Unity's OpenXR pipeline at the native layer to provide Kooima asymmetric frustum projection for stereo rendering.
+Unity plugin for eye-tracked 3D light field displays via the **DisplayXR OpenXR runtime**. This is a Unity Package Manager (UPM) package that intercepts Unity's OpenXR pipeline at the native layer to provide Kooima asymmetric frustum projection for stereo rendering. The primary editor workflow is a **standalone preview window** that creates its own OpenXR session — no Play Mode needed.
 
 The plugin works with the **openxr-3d-display** runtime ([dfattal/openxr-3d-display](https://github.com/dfattal/openxr-3d-display)) but has **no source dependency** on it — native code fetches OpenXR headers independently from Khronos.
 
@@ -51,9 +51,17 @@ cmake --build . --config Release
 
 ### Three Layers
 
-1. **Runtime (C#)** — `DisplayXRFeature.cs` hooks into OpenXR lifecycle; `DisplayXRCamera.cs` and `DisplayXRDisplay.cs` are the two stereo rig modes
-2. **Editor (C#)** — Custom inspectors, preview window, settings page
+1. **Runtime (C#)** — `DisplayXRFeature.cs` hooks into OpenXR lifecycle; `DisplayXRCamera.cs` and `DisplayXRDisplay.cs` are the two stereo rig modes; `DisplayXRPreview.cs` provides inline preview textures (SBS, readback, SharedTexture)
+2. **Editor (C#)** — Custom inspectors, settings page, and the standalone preview system (`DisplayXRPreviewSession.cs` manages an independent OpenXR session; `DisplayXRPreviewWindow.cs` provides the editor UI with camera selector and rendering mode controls)
 3. **Native (C/C++)** — Hook chain on `xrLocateViews`, `xrCreateSession`, `xrGetSystemProperties`, `xrEndFrame`; Kooima projection math; thread-safe shared state
+
+### Key Features
+
+- **Two stereo rig modes**: Camera-centric (`DisplayXRCamera` — inherits camera FOV, inv. convergence distance tunable) and display-centric (`DisplayXRDisplay` — physical display geometry, virtual display height, scale-as-zoom)
+- **Standalone editor preview**: Own OpenXR session bypassing Unity XR. Camera selector dropdown, dynamic rendering mode enumeration, zero-copy SharedTexture output (IOSurface/DXGI). Replaces Play Mode for DisplayXR workflows.
+- **Play Mode conflict prevention**: Preview auto-removes Unity's OpenXR loader on Play entry, restores on exit (saved via SessionState)
+- **2D UI overlay**: Canvas → `XrCompositionLayerWindowSpaceEXT` with stereo disparity
+- **Native Kooima math**: `display3d_view.c` (screen-edge frustum) and `camera3d_view.c` (tangent-space frustum) — pure C, no DisplayXR dependency
 
 ### OpenXR Hook Chain
 
@@ -74,8 +82,9 @@ Extension struct definitions in `native~/displayxr_extensions.h` must match the 
 1. Open any Unity 2022.3+ project
 2. Add this package via Package Manager (local path or git URL)
 3. Enable the feature: Project Settings > XR Plug-in Management > OpenXR > DisplayXR
-4. Set `XR_RUNTIME_JSON` environment variable to point to a DisplayXR runtime build
-5. For testing without hardware: `SIM_DISPLAY_ENABLE=1 SIM_DISPLAY_OUTPUT=sbs`
+4. Set `XR_RUNTIME_JSON` environment variable to point to a DisplayXR runtime build (or use `SIM_DISPLAY_ENABLE=1 SIM_DISPLAY_OUTPUT=sbs` for testing without hardware)
+5. **Open Window > DisplayXR > Preview Window, click Start** — this is the primary workflow
+6. Play Mode still works but the standalone preview is preferred (avoids XR session conflicts)
 
 ### Critical: OpenXR Package Version
 
