@@ -54,6 +54,14 @@ namespace DisplayXR
 #endif
         }
 
+#if UNITY_EDITOR
+        void OnValidate()
+        {
+            if (GetComponent<DisplayXRCamera>() != null)
+                Debug.LogError("[DisplayXR] DisplayXRDisplay and DisplayXRCamera cannot coexist on the same GameObject. Remove one.", this);
+        }
+#endif
+
         void LateUpdate()
         {
             if (m_Feature == null)

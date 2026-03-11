@@ -11,24 +11,20 @@ namespace DisplayXR.Editor
     /// <summary>
     /// Editor window for stereo preview.
     /// Uses the standalone OpenXR session (no play mode required).
-    /// Falls back to play-mode preview sources when available.
+    /// Displays the runtime's shared texture (IOSurface) after compositing.
     /// </summary>
     public class DisplayXRPreviewWindow : EditorWindow
     {
-        private enum PreviewSource
-        {
-            DirectRT,
-            SharedTexture,
-            SideBySide,
-            RuntimeReadback,
-        }
-
-        [SerializeField] private PreviewSource m_Source = PreviewSource.DirectRT;
         [SerializeField] private bool m_AutoRefresh = true;
 
         private Texture2D m_SharedTexture;
         private IntPtr m_SharedNativePtr;
-        private DisplayXRPreview m_CachedPreview;
+
+        // Camera selector
+        private CameraEntry[] m_CameraList;
+        private string[] m_CameraNames;
+        private int m_SelectedCameraIndex;
+        private double m_LastCameraRefreshTime;
 
         // Rendering mode state (mode 0=2D, 1=3D default, 2+=display-specific)
         private string[] m_RenderingModeNames;
@@ -45,23 +41,72 @@ namespace DisplayXR.Editor
         void OnEnable()
         {
             EditorApplication.update += OnEditorUpdate;
+            EditorApplication.hierarchyChanged += OnHierarchyChanged;
             wantsMouseMove = true; // Ensure the window can receive focus
+            RefreshCameraList();
         }
 
         void OnDisable()
         {
             EditorApplication.update -= OnEditorUpdate;
+            EditorApplication.hierarchyChanged -= OnHierarchyChanged;
             CleanupSharedTexture();
             m_RenderingModeNames = null;
             m_CurrentRenderingMode = 1;
+        }
+
+        private void OnHierarchyChanged()
+        {
+            RefreshCameraList();
         }
 
         private void OnEditorUpdate()
         {
             if (m_AutoRefresh && DisplayXRPreviewSession.IsRunning)
                 Repaint();
-            else if (m_AutoRefresh && Application.isPlaying)
-                Repaint();
+
+            // Throttled camera list refresh (1x/second)
+            double now = EditorApplication.timeSinceStartup;
+            if (now - m_LastCameraRefreshTime > 1.0)
+            {
+                m_LastCameraRefreshTime = now;
+                ValidateCameraSelection();
+            }
+        }
+
+        private void RefreshCameraList()
+        {
+            m_CameraList = DisplayXRPreviewSession.DiscoverCameras();
+            m_CameraNames = new string[m_CameraList.Length];
+            for (int i = 0; i < m_CameraList.Length; i++)
+                m_CameraNames[i] = m_CameraList[i].displayName;
+
+            // Sync index to current selection
+            m_SelectedCameraIndex = 0;
+            Camera sel = DisplayXRPreviewSession.SelectedCamera;
+            if (sel != null)
+            {
+                for (int i = 0; i < m_CameraList.Length; i++)
+                {
+                    if (m_CameraList[i].camera == sel)
+                    {
+                        m_SelectedCameraIndex = i;
+                        break;
+                    }
+                }
+            }
+        }
+
+        private void ValidateCameraSelection()
+        {
+            Camera sel = DisplayXRPreviewSession.SelectedCamera;
+            if (sel == null && DisplayXRPreviewSession.IsRunning)
+            {
+                // Selected camera was destroyed — fall back
+                RefreshCameraList();
+                DisplayXRPreviewSession.RestoreSelection();
+                RefreshCameraList(); // re-sync index after restore
+            }
         }
 
         void OnGUI()
@@ -81,11 +126,43 @@ namespace DisplayXR.Editor
             else
             {
                 if (GUILayout.Button("Start Preview", EditorStyles.toolbarButton, GUILayout.Width(90)))
+                {
+                    RefreshCameraList();
                     DisplayXRPreviewSession.Start();
+                    RefreshCameraList(); // re-sync after session starts and restores selection
+                }
             }
 
-            m_Source = (PreviewSource)EditorGUILayout.EnumPopup(m_Source, EditorStyles.toolbarPopup,
-                GUILayout.Width(120));
+            // Camera selector dropdown
+            if (m_CameraNames != null && m_CameraNames.Length > 0)
+            {
+                int newIdx = EditorGUILayout.Popup(m_SelectedCameraIndex, m_CameraNames,
+                    EditorStyles.toolbarPopup, GUILayout.Width(150));
+                if (newIdx != m_SelectedCameraIndex && newIdx >= 0 && newIdx < m_CameraList.Length)
+                {
+                    m_SelectedCameraIndex = newIdx;
+                    var entry = m_CameraList[newIdx];
+                    DisplayXRPreviewSession.SelectCamera(entry.camera);
+                    // Auto-switch rendering mode: regular camera → 2D, rigs → 3D
+                    if (entry.category == CameraCategory.RegularCamera)
+                    {
+                        if (m_CurrentRenderingMode != 0)
+                        {
+                            DisplayXRNative.displayxr_standalone_request_rendering_mode(0);
+                            m_CurrentRenderingMode = 0;
+                        }
+                    }
+                    else
+                    {
+                        if (m_CurrentRenderingMode == 0)
+                        {
+                            DisplayXRNative.displayxr_standalone_request_rendering_mode(1);
+                            m_CurrentRenderingMode = 1;
+                        }
+                    }
+                }
+            }
+
             m_AutoRefresh = GUILayout.Toggle(m_AutoRefresh, "Auto Refresh",
                 EditorStyles.toolbarButton, GUILayout.Width(100));
             GUILayout.FlexibleSpace();
@@ -97,15 +174,7 @@ namespace DisplayXR.Editor
             }
             else
             {
-                // Fall back to checking play-mode feature
-                DisplayXRFeature feature = null;
-                try { feature = Application.isPlaying ? DisplayXRFeature.Instance : null; }
-                catch (Exception) { }
-
-                if (feature != null && feature.DisplayInfo.isValid)
-                    GUILayout.Label("Runtime: Connected (Play)", EditorStyles.toolbarButton);
-                else
-                    GUILayout.Label("Runtime: Not Connected", EditorStyles.toolbarButton);
+                GUILayout.Label("Runtime: Not Connected", EditorStyles.toolbarButton);
             }
             EditorGUILayout.EndHorizontal();
 
@@ -137,32 +206,17 @@ namespace DisplayXR.Editor
                         previewRect.width, h);
                 }
 
-                // Metal textures (IOSurface and RenderTexture) are Y-flipped
-                if (m_Source == PreviewSource.SharedTexture || m_Source == PreviewSource.DirectRT)
-                    GUI.DrawTextureWithTexCoords(drawRect, tex, new Rect(0, 1, 1, -1));
-                else
-                    GUI.DrawTexture(drawRect, tex, ScaleMode.ScaleToFit);
+                // Metal textures (IOSurface) are Y-flipped
+                GUI.DrawTextureWithTexCoords(drawRect, tex, new Rect(0, 1, 1, -1));
 
                 var labelRect = new Rect(drawRect.x + 4, drawRect.y + 4, 200, 20);
                 GUI.Label(labelRect, $"{tex.width}x{tex.height}", EditorStyles.miniLabel);
             }
             else
             {
-                string hint;
-                switch (m_Source)
-                {
-                    case PreviewSource.SharedTexture:
-                        hint = DisplayXRPreviewSession.IsRunning
-                            ? "Waiting for shared texture..."
-                            : "Click 'Start Preview' to begin.";
-                        break;
-                    case PreviewSource.SideBySide:
-                        hint = "Add a DisplayXRPreview component to a camera to see SBS preview.";
-                        break;
-                    default:
-                        hint = "Runtime readback not available.";
-                        break;
-                }
+                string hint = DisplayXRPreviewSession.IsRunning
+                    ? "Waiting for shared texture..."
+                    : "Click 'Start Preview' to begin.";
                 EditorGUI.LabelField(previewRect, hint, EditorStyles.centeredGreyMiniLabel);
             }
 
@@ -177,26 +231,11 @@ namespace DisplayXR.Editor
                 hasInfo = true;
                 tracked = DisplayXRPreviewSession.IsEyeTracked;
             }
-            else
-            {
-                try
-                {
-                    var feature = Application.isPlaying ? DisplayXRFeature.Instance : null;
-                    if (feature != null && feature.DisplayInfo.isValid)
-                    {
-                        info = feature.DisplayInfo;
-                        hasInfo = true;
-                        tracked = feature.IsEyeTracked;
-                    }
-                }
-                catch (Exception) { }
-            }
 
             if (hasInfo)
             {
                 // Enumerate modes once session is running and display info is available
-                if (DisplayXRPreviewSession.IsRunning)
-                    EnumerateRenderingModesIfNeeded();
+                EnumerateRenderingModesIfNeeded();
 
                 EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
                 string modeName = (m_RenderingModeNames != null &&
@@ -209,10 +248,10 @@ namespace DisplayXR.Editor
                     $"Tracked: {(tracked ? "Yes" : "No")}  " +
                     $"Mode: {modeName}",
                     EditorStyles.miniLabel);
-                string hint = modeCount > 1
+                string hintText = modeCount > 1
                     ? $"Display modes [0-{modeCount - 1}] | V to Cycle"
                     : "V to Cycle";
-                GUILayout.Label(hint, EditorStyles.miniLabel);
+                GUILayout.Label(hintText, EditorStyles.miniLabel);
                 EditorGUILayout.EndHorizontal();
             }
         }
@@ -298,53 +337,13 @@ namespace DisplayXR.Editor
 
         private Texture GetPreviewTexture()
         {
-            // Priority 0: Direct RenderTexture (bypass runtime compositor — debug)
-            if (m_Source == PreviewSource.DirectRT && DisplayXRPreviewSession.IsRunning
-                && DisplayXRPreviewSession.LeftEyeRT != null)
-            {
-                return DisplayXRPreviewSession.LeftEyeRT;
-            }
+            if (!DisplayXRPreviewSession.IsRunning || !DisplayXRPreviewSession.SharedTextureAvailable)
+                return null;
 
-            // Priority 1: Standalone session shared texture
-            if (m_Source == PreviewSource.SharedTexture && DisplayXRPreviewSession.IsRunning
-                && DisplayXRPreviewSession.SharedTextureAvailable)
-            {
-                return UpdateStandaloneSharedTexture();
-            }
-
-            // Priority 2: Play-mode preview component (SBS, readback, shared texture via feature)
-            if (Application.isPlaying)
-            {
-                if (m_CachedPreview == null)
-                    m_CachedPreview = FindFirstObjectByType<DisplayXRPreview>();
-                if (m_CachedPreview == null)
-                    return null;
-
-                switch (m_Source)
-                {
-                    case PreviewSource.SharedTexture:
-                        if (m_CachedPreview.mode == DisplayXRPreview.PreviewMode.SharedTexture &&
-                            m_CachedPreview.PreviewTexture != null && m_CachedPreview.SharedTextureAvailable)
-                            return m_CachedPreview.PreviewTexture;
-                        return null;
-                    case PreviewSource.RuntimeReadback:
-                        if (m_CachedPreview.mode == DisplayXRPreview.PreviewMode.Readback &&
-                            m_CachedPreview.PreviewTexture != null && m_CachedPreview.ReadbackAvailable)
-                            return m_CachedPreview.PreviewTexture;
-                        return null;
-                    default:
-                        if (m_CachedPreview.mode == DisplayXRPreview.PreviewMode.SideBySide &&
-                            m_CachedPreview.PreviewTexture != null)
-                            return m_CachedPreview.PreviewTexture;
-                        return null;
-                }
-            }
-
-            m_CachedPreview = null;
-            return null;
+            return UpdateSharedTexture();
         }
 
-        private Texture UpdateStandaloneSharedTexture()
+        private Texture UpdateSharedTexture()
         {
             DisplayXRNative.displayxr_standalone_get_shared_texture(
                 out IntPtr nativePtr, out uint w, out uint h, out int ready);

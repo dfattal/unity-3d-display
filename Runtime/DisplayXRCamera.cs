@@ -41,6 +41,14 @@ namespace DisplayXR
         private float m_CachedCameraFov;
         private Camera m_Camera;
 
+#if UNITY_EDITOR
+        void OnValidate()
+        {
+            if (GetComponent<DisplayXRDisplay>() != null)
+                Debug.LogError("[DisplayXR] DisplayXRCamera and DisplayXRDisplay cannot coexist on the same GameObject. Remove one.", this);
+        }
+#endif
+
         void OnEnable()
         {
             m_Feature = DisplayXRFeature.Instance;
