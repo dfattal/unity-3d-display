@@ -14,6 +14,8 @@
 
 #if defined(__APPLE__)
 #include "displayxr_metal.h"
+#elif defined(_WIN32)
+#include "displayxr_win32.h"
 #endif
 
 #include <string.h>
@@ -374,6 +376,19 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 				fprintf(stderr, "[DisplayXR] No main window NSView found — offscreen mode\n");
 			}
 		}
+#elif defined(_WIN32)
+		// Auto-detect Unity's main HWND and create an overlay child window.
+		// Built apps render to the overlay; the D3D11 compositor creates its
+		// DXGI swap chain on the child HWND, presenting on top of Unity.
+		if (state->window_handle == nullptr) {
+			void *hwnd = displayxr_get_app_main_view();
+			if (hwnd != nullptr) {
+				state->window_handle = hwnd;
+				fprintf(stderr, "[DisplayXR] Auto-detected main window HWND (overlay): %p\n", hwnd);
+			} else {
+				fprintf(stderr, "[DisplayXR] No main window HWND found — compositor will create own window\n");
+			}
+		}
 #endif
 
 		// Walk the chain to find the last item before NULL
@@ -394,6 +409,9 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 			win_binding.readbackCallback = displayxr_readback_callback;
 			win_binding.readbackUserdata = nullptr;
 			win_binding.sharedTextureHandle = state->shared_d3d_handle;
+
+			fprintf(stderr, "[DisplayXR] Injecting win32 window binding: windowHandle=%p, sharedTextureHandle=%p\n",
+			        win_binding.windowHandle, win_binding.sharedTextureHandle);
 
 			((XrBaseOutStructure *)last_in_chain)->next = (XrBaseOutStructure *)&win_binding;
 #elif defined(__APPLE__)
