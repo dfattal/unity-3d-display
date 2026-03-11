@@ -58,6 +58,7 @@ namespace DisplayXR.Editor
         // SessionState survives domain reload (unlike static fields)
         private const string kPlayModeStartedKey = "DisplayXR_SA_StartedByPlayMode";
         private const string kXRWasEnabledKey = "DisplayXR_SA_XRWasEnabled";
+        private const string kXRLoaderAssetPathKey = "DisplayXR_SA_XRLoaderAssetPath";
 
         static DisplayXRPreviewSession()
         {
@@ -130,6 +131,10 @@ namespace DisplayXR.Editor
             {
                 if (loaders[i].GetType().Name.Contains("OpenXR"))
                 {
+                    // Save asset path so we can re-add after domain reload
+                    string assetPath = AssetDatabase.GetAssetPath(loaders[i]);
+                    if (!string.IsNullOrEmpty(assetPath))
+                        SessionState.SetString(kXRLoaderAssetPathKey, assetPath);
                     Debug.Log("[DisplayXR-SA] Removing OpenXR loader for standalone preview play mode");
                     xrSettings.Manager.TryRemoveLoader(loaders[i]);
                     return true;
@@ -154,13 +159,27 @@ namespace DisplayXR.Editor
                     return;
             }
 
-            // Find the OpenXR loader asset — it still exists as a ScriptableObject
+            // Load the OpenXR loader from its saved asset path (survives domain reload)
+            string assetPath = SessionState.GetString(kXRLoaderAssetPathKey, "");
+            if (!string.IsNullOrEmpty(assetPath))
+            {
+                var loader = AssetDatabase.LoadAssetAtPath<UnityEngine.XR.Management.XRLoader>(assetPath);
+                if (loader != null)
+                {
+                    Debug.Log("[DisplayXR-SA] Re-adding OpenXR loader after standalone preview play mode");
+                    xrSettings.Manager.TryAddLoader(loader);
+                    SessionState.EraseString(kXRLoaderAssetPathKey);
+                    return;
+                }
+            }
+
+            // Fallback: search all loaded assets
             var allLoaders = Resources.FindObjectsOfTypeAll<UnityEngine.XR.Management.XRLoader>();
             foreach (var loader in allLoaders)
             {
                 if (loader.GetType().Name.Contains("OpenXR"))
                 {
-                    Debug.Log("[DisplayXR-SA] Re-adding OpenXR loader after standalone preview play mode");
+                    Debug.Log("[DisplayXR-SA] Re-adding OpenXR loader (fallback search)");
                     xrSettings.Manager.TryAddLoader(loader);
                     return;
                 }
