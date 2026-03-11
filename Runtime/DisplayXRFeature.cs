@@ -126,8 +126,10 @@ namespace DisplayXR
             // Query it from the native plugin.
             RefreshDisplayInfo();
 
+#if UNITY_EDITOR
             // Create shared GPU texture now — before xrCreateSession, which
             // injects the IOSurface pointer into the window binding struct.
+            // Only in editor: built apps render directly to the overlay CAMetalLayer.
             if (DisplayInfo.isValid && DisplayInfo.displayPixelWidth > 0 && DisplayInfo.displayPixelHeight > 0)
             {
                 IntPtr ptr = DisplayXRNative.displayxr_create_shared_texture(
@@ -139,6 +141,7 @@ namespace DisplayXR
                 else
                     Debug.Log("[DisplayXR] Shared texture not available, using CPU readback");
             }
+#endif
 
         }
 
@@ -156,6 +159,7 @@ namespace DisplayXR
                 RefreshDisplayInfo();
             }
 
+#if UNITY_EDITOR
             // Check if the native layer already created the shared texture
             if (!SharedTextureAvailable && DisplayInfo.isValid)
             {
@@ -168,6 +172,7 @@ namespace DisplayXR
                 else
                     Debug.Log("[DisplayXR] Shared texture not available, using CPU readback");
             }
+#endif
         }
 
         /// <inheritdoc />

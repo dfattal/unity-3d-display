@@ -282,9 +282,10 @@ hooked_xrGetSystemProperties(XrInstance instance, XrSystemId systemId, XrSystemP
 
 #if defined(__APPLE__)
 			// Create shared IOSurface now — before xrCreateSession reads it.
-			// Unity's OnSystemChange callback is unreliable, so we do this
-			// in the native hook to guarantee correct timing.
-			if (state->shared_iosurface == nullptr &&
+			// Only when window_handle is pre-set (editor preview). Built apps
+			// render directly to the overlay CAMetalLayer, no IOSurface needed.
+			if (state->window_handle != nullptr &&
+			    state->shared_iosurface == nullptr &&
 			    di->displayPixelWidth > 0 && di->displayPixelHeight > 0) {
 				if (displayxr_metal_create_shared_surface(
 				        di->displayPixelWidth, di->displayPixelHeight)) {
@@ -346,9 +347,10 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 	{
 #if defined(__APPLE__)
 		// Create shared IOSurface if display info is available but surface wasn't created yet.
-		// Unity's OnSystemChange is unreliable and xrGetSystemProperties may be called
-		// after xrCreateSession, so we create it here as a last resort.
-		if (state->shared_iosurface == nullptr && state->display_info.is_valid &&
+		// Only when window_handle is pre-set (editor preview). Built apps auto-detect
+		// the window and render directly to the overlay CAMetalLayer.
+		if (state->window_handle != nullptr &&
+		    state->shared_iosurface == nullptr && state->display_info.is_valid &&
 		    state->display_info.display_pixel_width > 0 &&
 		    state->display_info.display_pixel_height > 0) {
 			if (displayxr_metal_create_shared_surface(

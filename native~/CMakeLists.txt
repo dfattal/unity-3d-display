@@ -92,12 +92,14 @@ if(APPLE)
     find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
     find_library(APPKIT_FRAMEWORK AppKit REQUIRED)
     find_library(METAL_FRAMEWORK Metal REQUIRED)
+    find_library(QUARTZCORE_FRAMEWORK QuartzCore REQUIRED)
     target_link_libraries(displayxr_unity PRIVATE
         ${IOSURFACE_FRAMEWORK}
         ${COREFOUNDATION_FRAMEWORK}
         ${FOUNDATION_FRAMEWORK}
         ${APPKIT_FRAMEWORK}
         ${METAL_FRAMEWORK}
+        ${QUARTZCORE_FRAMEWORK}
     )
     # Enable ARC for Objective-C files
     set_source_files_properties(displayxr_metal.m displayxr_standalone_metal.m PROPERTIES
