@@ -110,7 +110,6 @@ namespace DisplayXR.Editor
                 $"{info.displayWidthMeters * 100:F1} x {info.displayHeightMeters * 100:F1} cm");
             EditorGUILayout.LabelField("Nominal Viewer",
                 $"({info.nominalViewerX * 1000:F0}, {info.nominalViewerY * 1000:F0}, {info.nominalViewerZ * 1000:F0}) mm");
-            EditorGUILayout.LabelField("Mode Switch", info.supportsDisplayModeSwitch ? "Supported" : "N/A");
             EditorGUILayout.EndVertical();
         }
     }

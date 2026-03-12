@@ -49,7 +49,6 @@ namespace DisplayXR
             out float nominalZ,
             out float scaleX,
             out float scaleY,
-            out int supportsModeSwitch,
             out int isValid);
 
         /// <summary>
@@ -77,6 +76,13 @@ namespace DisplayXR
         /// </summary>
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void displayxr_set_window_handle(IntPtr handle);
+
+        /// <summary>
+        /// Set editor mode flag. When enabled, native code uses IOSurface/shared texture
+        /// instead of auto-detecting the window and creating an overlay.
+        /// </summary>
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void displayxr_set_editor_mode(int enabled);
 
         /// <summary>
         /// Request 2D or 3D display mode.
@@ -159,7 +165,7 @@ namespace DisplayXR
             out uint pixelWidth, out uint pixelHeight,
             out float nominalX, out float nominalY, out float nominalZ,
             out float scaleX, out float scaleY,
-            out int supportsModeSwitch, out int isValid);
+            out int isValid);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void displayxr_standalone_get_eye_positions(

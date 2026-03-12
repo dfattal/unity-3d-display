@@ -576,7 +576,6 @@ displayxr_standalone_start(const char *runtime_json_path)
 		s_sa.display_info.nominal_viewer_z = display_info_ext.nominalViewerPositionInDisplaySpace.z;
 		s_sa.display_info.recommended_view_scale_x = display_info_ext.recommendedViewScaleX;
 		s_sa.display_info.recommended_view_scale_y = display_info_ext.recommendedViewScaleY;
-		s_sa.display_info.supports_display_mode_switch = display_info_ext.supportsDisplayModeSwitch ? 1 : 0;
 		s_sa.display_info.is_valid = 1;
 
 		fprintf(stderr, "[DisplayXR-SA] Display: %ux%u, %.3fx%.3fm\n",
@@ -1074,7 +1073,7 @@ displayxr_standalone_get_display_info(float *display_width_m, float *display_hei
                                        uint32_t *pixel_width, uint32_t *pixel_height,
                                        float *nominal_x, float *nominal_y, float *nominal_z,
                                        float *scale_x, float *scale_y,
-                                       int *supports_mode_switch, int *is_valid)
+                                       int *is_valid)
 {
 	DisplayXRDisplayInfo *di = &s_sa.display_info;
 	*display_width_m = di->display_width_meters;
@@ -1086,7 +1085,6 @@ displayxr_standalone_get_display_info(float *display_width_m, float *display_hei
 	*nominal_z = di->nominal_viewer_z;
 	*scale_x = di->recommended_view_scale_x;
 	*scale_y = di->recommended_view_scale_y;
-	*supports_mode_switch = di->supports_display_mode_switch;
 	*is_valid = di->is_valid;
 }
 

@@ -38,10 +38,6 @@ namespace DisplayXR
         /// <summary>Recommended view scale Y (fraction of swapchain used).</summary>
         public float recommendedViewScaleY;
 
-        /// <summary>Whether the display supports 2D/3D mode switching.</summary>
-        [MarshalAs(UnmanagedType.U1)]
-        public bool supportsDisplayModeSwitch;
-
         /// <summary>Whether display info was successfully queried.</summary>
         [MarshalAs(UnmanagedType.U1)]
         public bool isValid;

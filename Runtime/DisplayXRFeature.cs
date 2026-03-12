@@ -90,6 +90,10 @@ namespace DisplayXR
             Instance = this;
 
 #if UNITY_EDITOR
+            // Tell native code we're in editor mode — use IOSurface/shared texture
+            // instead of auto-detecting the window and creating an overlay.
+            DisplayXRNative.displayxr_set_editor_mode(1);
+
             // Register to switch focus away from Game View before teardown.
             // Game View's RenderToHMDOnly repaint cycle calls xrPollEvent through
             // freed dispatch trampolines during Deinitialize(), causing SIGSEGV.
@@ -325,7 +329,7 @@ namespace DisplayXR
                 out uint pw, out uint ph,
                 out float nx, out float ny, out float nz,
                 out float sx, out float sy,
-                out int modeSwitch, out int valid);
+                out int valid);
 
             DisplayInfo = new DisplayXRDisplayInfo
             {
@@ -338,7 +342,6 @@ namespace DisplayXR
                 nominalViewerZ = nz,
                 recommendedViewScaleX = sx,
                 recommendedViewScaleY = sy,
-                supportsDisplayModeSwitch = modeSwitch != 0,
                 isValid = valid != 0,
             };
 

@@ -696,7 +696,7 @@ namespace DisplayXR.Editor
                 out uint pw, out uint ph,
                 out float nx, out float ny, out float nz,
                 out float sx, out float sy,
-                out int modeSwitch, out int valid);
+                out int valid);
 
             DisplayInfo = new DisplayXRDisplayInfo
             {
@@ -709,7 +709,6 @@ namespace DisplayXR.Editor
                 nominalViewerZ = nz,
                 recommendedViewScaleX = sx,
                 recommendedViewScaleY = sy,
-                supportsDisplayModeSwitch = modeSwitch != 0,
                 isValid = valid != 0,
             };
         }

@@ -50,7 +50,6 @@ typedef struct DisplayXRDisplayInfo {
     float nominal_viewer_z;
     float recommended_view_scale_x;
     float recommended_view_scale_y;
-    uint8_t supports_display_mode_switch;
     uint8_t is_valid;
 } DisplayXRDisplayInfo;
 
@@ -129,6 +128,9 @@ typedef struct DisplayXRState {
     uint32_t shared_texture_width;
     uint32_t shared_texture_height;
     volatile int shared_texture_ready;
+
+    // Editor mode flag: skip window auto-detection (use IOSurface instead)
+    uint8_t editor_mode;
 
     // Extension support flags
     uint8_t has_display_info_ext;

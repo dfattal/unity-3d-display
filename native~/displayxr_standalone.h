@@ -111,7 +111,7 @@ DISPLAYXR_EXPORT void displayxr_standalone_get_display_info(
     uint32_t *pixel_width, uint32_t *pixel_height,
     float *nominal_x, float *nominal_y, float *nominal_z,
     float *scale_x, float *scale_y,
-    int *supports_mode_switch, int *is_valid);
+    int *is_valid);
 
 /// Get eye positions from the standalone session.
 DISPLAYXR_EXPORT void displayxr_standalone_get_eye_positions(
