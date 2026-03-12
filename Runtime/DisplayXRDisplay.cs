@@ -64,6 +64,9 @@ namespace DisplayXR
 
         void LateUpdate()
         {
+            if (Input.GetKeyDown(KeyCode.Escape))
+                Application.Quit();
+
             if (m_Feature == null)
             {
                 m_Feature = DisplayXRFeature.Instance;
