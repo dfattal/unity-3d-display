@@ -70,14 +70,8 @@ namespace DisplayXR
 
         void LateUpdate()
         {
-#if ENABLE_LEGACY_INPUT_MANAGER
-            if (Input.GetKeyDown(KeyCode.Escape))
-                Application.Quit();
-#elif ENABLE_INPUT_SYSTEM
-            if (UnityEngine.InputSystem.Keyboard.current != null &&
-                UnityEngine.InputSystem.Keyboard.current.escapeKey.wasPressedThisFrame)
-                Application.Quit();
-#endif
+            try { if (Input.GetKeyDown(KeyCode.Escape)) Application.Quit(); }
+            catch (System.InvalidOperationException) { }
 
             if (m_Feature == null)
             {
