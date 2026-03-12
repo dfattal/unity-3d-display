@@ -275,7 +275,6 @@ hooked_xrGetSystemProperties(XrInstance instance, XrSystemId systemId, XrSystemP
 			state->display_info.nominal_viewer_z = di->nominalViewerPositionInDisplaySpace.z;
 			state->display_info.recommended_view_scale_x = di->recommendedViewScaleX;
 			state->display_info.recommended_view_scale_y = di->recommendedViewScaleY;
-			state->display_info.supports_display_mode_switch = di->supportsDisplayModeSwitch ? 1 : 0;
 			state->display_info.is_valid = 1;
 
 			fprintf(stderr, "[DisplayXR] xrGetSystemProperties: display=%ux%u, %.3fx%.3fm\n",
@@ -284,9 +283,9 @@ hooked_xrGetSystemProperties(XrInstance instance, XrSystemId systemId, XrSystemP
 
 #if defined(__APPLE__)
 			// Create shared IOSurface now — before xrCreateSession reads it.
-			// Only when window_handle is pre-set (editor preview). Built apps
+			// Only in editor mode (IOSurface for zero-copy preview). Built apps
 			// render directly to the overlay CAMetalLayer, no IOSurface needed.
-			if (state->window_handle != nullptr &&
+			if (state->editor_mode &&
 			    state->shared_iosurface == nullptr &&
 			    di->displayPixelWidth > 0 && di->displayPixelHeight > 0) {
 				if (displayxr_metal_create_shared_surface(
@@ -297,10 +296,10 @@ hooked_xrGetSystemProperties(XrInstance instance, XrSystemId systemId, XrSystemP
 			}
 #endif
 
-			// Look up display mode function
-			if (di->supportsDisplayModeSwitch && s_next_gipa && s_instance) {
+			// Look up display mode function (always try — deprecated but still supported)
+			if (s_next_gipa && s_instance) {
 				PFN_xrVoidFunction fn = nullptr;
-				if (XR_SUCCEEDED(s_next_gipa(s_instance, "xrRequestDisplayModeEXT", &fn))) {
+				if (XR_SUCCEEDED(s_next_gipa(s_instance, "xrRequestDisplayModeEXT", &fn)) && fn) {
 					state->pfn_request_display_mode = (PFN_xrRequestDisplayModeEXT)fn;
 					state->has_display_mode_ext = 1;
 				}
@@ -349,9 +348,9 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 	{
 #if defined(__APPLE__)
 		// Create shared IOSurface if display info is available but surface wasn't created yet.
-		// Only when window_handle is pre-set (editor preview). Built apps auto-detect
+		// Only in editor mode (IOSurface for zero-copy preview). Built apps auto-detect
 		// the window and render directly to the overlay CAMetalLayer.
-		if (state->window_handle != nullptr &&
+		if (state->editor_mode &&
 		    state->shared_iosurface == nullptr && state->display_info.is_valid &&
 		    state->display_info.display_pixel_width > 0 &&
 		    state->display_info.display_pixel_height > 0) {
@@ -364,23 +363,22 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 			}
 		}
 
-		// Auto-detect the app's main window NSView if no handle was set.
-		// C# OnSystemChange runs before the window exists, so we grab it here
-		// at xrCreateSession time when the window is guaranteed to be up.
-		if (state->window_handle == nullptr) {
+		// Auto-detect the app's main window and create an overlay view/HWND.
+		// Only for built apps (not editor mode) — the editor uses IOSurface
+		// for zero-copy preview and doesn't need window auto-detection.
+		if (state->window_handle == nullptr && !state->editor_mode) {
 			void *view = displayxr_get_app_main_view();
 			if (view != nullptr) {
 				state->window_handle = view;
-				fprintf(stderr, "[DisplayXR] Auto-detected main window NSView: %p\n", view);
+				fprintf(stderr, "[DisplayXR] Auto-detected main window (overlay): %p\n", view);
 			} else {
-				fprintf(stderr, "[DisplayXR] No main window NSView found — offscreen mode\n");
+				fprintf(stderr, "[DisplayXR] No main window found — offscreen mode\n");
 			}
 		}
 #elif defined(_WIN32)
 		// Auto-detect Unity's main HWND and create an overlay child window.
-		// Built apps render to the overlay; the D3D11 compositor creates its
-		// DXGI swap chain on the child HWND, presenting on top of Unity.
-		if (state->window_handle == nullptr) {
+		// Only for built apps — editor uses shared texture mode.
+		if (state->window_handle == nullptr && !state->editor_mode) {
 			void *hwnd = displayxr_get_app_main_view();
 			if (hwnd != nullptr) {
 				state->window_handle = hwnd;
@@ -826,7 +824,6 @@ displayxr_get_display_info(float *display_width_m,
                           float *nominal_z,
                           float *scale_x,
                           float *scale_y,
-                          int *supports_mode_switch,
                           int *is_valid)
 {
 	DisplayXRState *state = displayxr_get_state();
@@ -841,7 +838,6 @@ displayxr_get_display_info(float *display_width_m,
 	*nominal_z = di->nominal_viewer_z;
 	*scale_x = di->recommended_view_scale_x;
 	*scale_y = di->recommended_view_scale_y;
-	*supports_mode_switch = di->supports_display_mode_switch;
 	*is_valid = di->is_valid;
 }
 
@@ -863,6 +859,13 @@ displayxr_set_window_handle(void *handle)
 {
 	DisplayXRState *state = displayxr_get_state();
 	state->window_handle = handle;
+}
+
+void
+displayxr_set_editor_mode(int enabled)
+{
+	DisplayXRState *state = displayxr_get_state();
+	state->editor_mode = (uint8_t)(enabled != 0);
 }
 
 int

@@ -14,7 +14,7 @@ extern "C" {
 
 // --- XR_EXT_display_info ---
 #define XR_EXT_DISPLAY_INFO_EXTENSION_NAME "XR_EXT_display_info"
-#define XR_EXT_DISPLAY_INFO_SPEC_VERSION 8
+#define XR_EXT_DISPLAY_INFO_SPEC_VERSION 10
 
 #define XR_TYPE_DISPLAY_INFO_EXT ((XrStructureType)1000999003)
 
@@ -25,7 +25,6 @@ typedef struct XrDisplayInfoEXT {
     XrVector3f nominalViewerPositionInDisplaySpace;
     float recommendedViewScaleX;
     float recommendedViewScaleY;
-    XrBool32 supportsDisplayModeSwitch;
     uint32_t displayPixelWidth;
     uint32_t displayPixelHeight;
 } XrDisplayInfoEXT;
@@ -48,6 +47,10 @@ typedef struct XrDisplayRenderingModeInfoEXT {
     void *next;
     uint32_t modeIndex;
     char modeName[XR_MAX_SYSTEM_NAME_SIZE];
+    uint32_t viewCount;
+    float viewScaleX;
+    float viewScaleY;
+    XrBool32 hardwareDisplay3D;
 } XrDisplayRenderingModeInfoEXT;
 
 typedef XrResult(XRAPI_PTR *PFN_xrEnumerateDisplayRenderingModesEXT)(

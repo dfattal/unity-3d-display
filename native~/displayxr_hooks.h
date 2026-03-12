@@ -54,7 +54,6 @@ DISPLAYXR_EXPORT void displayxr_get_display_info(float *display_width_m,
                                                float *nominal_z,
                                                float *scale_x,
                                                float *scale_y,
-                                               int *supports_mode_switch,
                                                int *is_valid);
 
 DISPLAYXR_EXPORT void displayxr_get_eye_positions(float *lx,
@@ -78,6 +77,8 @@ DISPLAYXR_EXPORT void displayxr_set_scene_transform(float pos_x,
                                                    int enabled);
 
 DISPLAYXR_EXPORT void displayxr_set_window_handle(void *handle);
+
+DISPLAYXR_EXPORT void displayxr_set_editor_mode(int enabled);
 
 DISPLAYXR_EXPORT int displayxr_request_display_mode(int mode_3d);
 

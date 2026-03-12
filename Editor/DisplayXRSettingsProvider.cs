@@ -138,8 +138,6 @@ namespace DisplayXR.Editor
                     $"{info.nominalViewerZ * 1000:F0}) mm");
                 EditorGUILayout.LabelField("View Scale",
                     $"{info.recommendedViewScaleX:F2} x {info.recommendedViewScaleY:F2}");
-                EditorGUILayout.LabelField("Mode Switch",
-                    info.supportsDisplayModeSwitch ? "Supported" : "Not Available");
                 EditorGUILayout.LabelField("Eye Tracking",
                     feature.IsEyeTracked ? "Active" : "Inactive");
             }
