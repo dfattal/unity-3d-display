@@ -188,6 +188,9 @@ namespace DisplayXR
         internal static extern int displayxr_standalone_begin_frame(out int shouldRender);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int displayxr_standalone_submit_frame_atlas(IntPtr atlasTex);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int displayxr_standalone_submit_frame(IntPtr leftTex, IntPtr rightTex);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
@@ -207,8 +210,24 @@ namespace DisplayXR
             out int valid);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void displayxr_standalone_compute_views(
+            uint viewCount,
+            float nearZ, float farZ,
+            [MarshalAs(UnmanagedType.LPArray)] float[] viewMatrices,
+            [MarshalAs(UnmanagedType.LPArray)] float[] projMatrices,
+            out int valid);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void displayxr_standalone_get_swapchain_size(
             out uint width, out uint height);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void displayxr_standalone_get_current_mode_info(
+            out uint viewCount,
+            out uint tileColumns, out uint tileRows,
+            out uint viewWidthPixels, out uint viewHeightPixels,
+            out float viewScaleX, out float viewScaleY,
+            out int hardwareDisplay3D);
 
         // ====================================================================
         // Standalone tunables + display pose
@@ -241,6 +260,14 @@ namespace DisplayXR
         internal static extern int displayxr_standalone_enumerate_rendering_modes(
             uint capacity, out uint count,
             [MarshalAs(UnmanagedType.LPArray)] uint[] modeIndices,
-            IntPtr modeNames);
+            IntPtr modeNames,
+            [MarshalAs(UnmanagedType.LPArray)] uint[] viewCounts,
+            [MarshalAs(UnmanagedType.LPArray)] uint[] tileColumns,
+            [MarshalAs(UnmanagedType.LPArray)] uint[] tileRows,
+            [MarshalAs(UnmanagedType.LPArray)] uint[] viewWidthPixels,
+            [MarshalAs(UnmanagedType.LPArray)] uint[] viewHeightPixels,
+            [MarshalAs(UnmanagedType.LPArray)] float[] viewScaleX,
+            [MarshalAs(UnmanagedType.LPArray)] float[] viewScaleY,
+            [MarshalAs(UnmanagedType.LPArray)] int[] hardwareDisplay3D);
     }
 }

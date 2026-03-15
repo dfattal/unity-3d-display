@@ -97,6 +97,8 @@ typedef XrResult (XRAPI_PTR *PFN_xrGetMetalGraphicsRequirementsKHR)(
 // ============================================================================
 
 #define SA_MAX_SWAPCHAIN_IMAGES 4
+#define SA_MAX_RENDERING_MODES 16
+#define SA_MAX_VIEWS 32
 
 typedef struct SASwapchain {
 	XrSwapchain handle;
@@ -135,9 +137,18 @@ typedef struct StandaloneState {
 	uint32_t tex_height;
 	volatile int tex_ready;
 
-	// Swapchains (one per eye)
-	SASwapchain swapchains[2];
-	int swapchains_created;
+	// Single atlas swapchain (all views tiled into one texture)
+	SASwapchain atlas;
+	int atlas_created;
+
+	// Rendering mode metadata (from xrEnumerateDisplayRenderingModesEXT)
+	XrDisplayRenderingModeInfoEXT rendering_modes[SA_MAX_RENDERING_MODES];
+	uint32_t rendering_mode_count;
+	uint32_t current_rendering_mode_index;
+
+	// Multi-view eye positions (from xrLocateViews)
+	float eye_positions[SA_MAX_VIEWS][3];
+	uint32_t located_view_count;
 
 	// Frame state (stored between begin_frame and submit/end)
 	XrTime predicted_display_time;
@@ -305,17 +316,112 @@ resolve_functions(void)
 
 
 // ============================================================================
-// Swapchain management
+// Rendering mode helpers
+// ============================================================================
+
+static void
+enumerate_and_store_modes(void)
+{
+	s_sa.rendering_mode_count = 0;
+	if (!s_sa.pfn_enumerate_rendering_modes || s_sa.session == XR_NULL_HANDLE)
+		return;
+
+	uint32_t total = 0;
+	XrResult result = s_sa.pfn_enumerate_rendering_modes(s_sa.session, 0, &total, NULL);
+	if (XR_FAILED(result) || total == 0) return;
+
+	if (total > SA_MAX_RENDERING_MODES) total = SA_MAX_RENDERING_MODES;
+	for (uint32_t i = 0; i < total; i++) {
+		s_sa.rendering_modes[i].type = XR_TYPE_DISPLAY_RENDERING_MODE_INFO_EXT;
+		s_sa.rendering_modes[i].next = NULL;
+	}
+
+	result = s_sa.pfn_enumerate_rendering_modes(s_sa.session, total, &total, s_sa.rendering_modes);
+	if (XR_FAILED(result)) return;
+
+	s_sa.rendering_mode_count = total;
+	for (uint32_t i = 0; i < total; i++) {
+		fprintf(stderr, "[DisplayXR-SA] Mode[%u]: '%s' views=%u tiles=%ux%u viewPx=%ux%u scale=%.2fx%.2f hw3d=%d\n",
+		        s_sa.rendering_modes[i].modeIndex,
+		        s_sa.rendering_modes[i].modeName,
+		        s_sa.rendering_modes[i].viewCount,
+		        s_sa.rendering_modes[i].tileColumns,
+		        s_sa.rendering_modes[i].tileRows,
+		        s_sa.rendering_modes[i].viewWidthPixels,
+		        s_sa.rendering_modes[i].viewHeightPixels,
+		        (double)s_sa.rendering_modes[i].viewScaleX,
+		        (double)s_sa.rendering_modes[i].viewScaleY,
+		        (int)s_sa.rendering_modes[i].hardwareDisplay3D);
+	}
+}
+
+/// Get the current rendering mode info. Returns NULL if no modes enumerated.
+static const XrDisplayRenderingModeInfoEXT *
+get_current_mode(void)
+{
+	for (uint32_t i = 0; i < s_sa.rendering_mode_count; i++) {
+		if (s_sa.rendering_modes[i].modeIndex == s_sa.current_rendering_mode_index)
+			return &s_sa.rendering_modes[i];
+	}
+	return (s_sa.rendering_mode_count > 0) ? &s_sa.rendering_modes[0] : NULL;
+}
+
+/// Get tiling parameters for a rendering mode (or defaults if NULL).
+static void
+get_mode_tiling(const XrDisplayRenderingModeInfoEXT *mode,
+                uint32_t *view_count, uint32_t *tile_cols, uint32_t *tile_rows,
+                uint32_t *view_w, uint32_t *view_h)
+{
+	if (mode && mode->tileColumns > 0 && mode->tileRows > 0) {
+		*view_count = mode->viewCount > 0 ? mode->viewCount : 2;
+		*tile_cols = mode->tileColumns;
+		*tile_rows = mode->tileRows;
+		*view_w = mode->viewWidthPixels > 0
+			? mode->viewWidthPixels
+			: (uint32_t)(mode->viewScaleX * s_sa.display_info.display_pixel_width);
+		*view_h = mode->viewHeightPixels > 0
+			? mode->viewHeightPixels
+			: (uint32_t)(mode->viewScaleY * s_sa.display_info.display_pixel_height);
+	} else {
+		// Fallback: stereo SBS
+		*view_count = 2;
+		*tile_cols = 2;
+		*tile_rows = 1;
+		*view_w = s_sa.display_info.display_pixel_width;
+		*view_h = s_sa.display_info.display_pixel_height;
+	}
+}
+
+
+// ============================================================================
+// Swapchain management (single atlas)
 // ============================================================================
 
 static int
-create_swapchains(void)
+create_atlas_swapchain(void)
 {
-	if (s_sa.swapchains_created) return 1;
+	if (s_sa.atlas_created) return 1;
 	if (!s_sa.display_info.is_valid) return 0;
 
-	uint32_t w = s_sa.display_info.display_pixel_width;
-	uint32_t h = s_sa.display_info.display_pixel_height;
+	// Compute max atlas size across all rendering modes
+	uint32_t atlas_w = 0, atlas_h = 0;
+
+	if (s_sa.rendering_mode_count > 0) {
+		for (uint32_t i = 0; i < s_sa.rendering_mode_count; i++) {
+			uint32_t vc, tc, tr, vw, vh;
+			get_mode_tiling(&s_sa.rendering_modes[i], &vc, &tc, &tr, &vw, &vh);
+			uint32_t mw = tc * vw;
+			uint32_t mh = tr * vh;
+			if (mw > atlas_w) atlas_w = mw;
+			if (mh > atlas_h) atlas_h = mh;
+		}
+	}
+
+	// Fallback: stereo SBS at display resolution
+	if (atlas_w == 0 || atlas_h == 0) {
+		atlas_w = s_sa.display_info.display_pixel_width * 2;
+		atlas_h = s_sa.display_info.display_pixel_height;
+	}
 
 	// Enumerate supported formats and pick one
 	uint32_t fmt_count = 0;
@@ -338,66 +444,62 @@ create_swapchains(void)
 	}
 	fprintf(stderr, "[DisplayXR-SA] Selected swapchain format: %lld\n", format);
 
-	for (int eye = 0; eye < 2; eye++) {
-		XrSwapchainCreateInfo sc_ci = {XR_TYPE_SWAPCHAIN_CREATE_INFO};
-		sc_ci.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT |
-		                   XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT |
-		                   XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
-		sc_ci.format = format;
-		sc_ci.sampleCount = 1;
-		sc_ci.width = w;
-		sc_ci.height = h;
-		sc_ci.faceCount = 1;
-		sc_ci.arraySize = 1;
-		sc_ci.mipCount = 1;
+	XrSwapchainCreateInfo sc_ci = {XR_TYPE_SWAPCHAIN_CREATE_INFO};
+	sc_ci.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT |
+	                   XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT |
+	                   XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
+	sc_ci.format = format;
+	sc_ci.sampleCount = 1;
+	sc_ci.width = atlas_w;
+	sc_ci.height = atlas_h;
+	sc_ci.faceCount = 1;
+	sc_ci.arraySize = 1;
+	sc_ci.mipCount = 1;
 
-		XrResult result = s_sa.pfn_create_swapchain(
-			s_sa.session, &sc_ci, &s_sa.swapchains[eye].handle);
-		if (XR_FAILED(result)) {
-			fprintf(stderr, "[DisplayXR-SA] xrCreateSwapchain[%d] failed: %d\n", eye, result);
-			return 0;
-		}
-
-		s_sa.swapchains[eye].width = w;
-		s_sa.swapchains[eye].height = h;
-
-		// Enumerate images
-		uint32_t count = 0;
-		s_sa.pfn_enumerate_swapchain_images(s_sa.swapchains[eye].handle, 0, &count, NULL);
-		if (count > SA_MAX_SWAPCHAIN_IMAGES) count = SA_MAX_SWAPCHAIN_IMAGES;
-		s_sa.swapchains[eye].image_count = count;
-
-		for (uint32_t i = 0; i < count; i++) {
-			s_sa.swapchains[eye].images[i].type = XR_TYPE_SWAPCHAIN_IMAGE_METAL_KHR;
-			s_sa.swapchains[eye].images[i].next = NULL;
-		}
-
-		result = s_sa.pfn_enumerate_swapchain_images(
-			s_sa.swapchains[eye].handle, count, &count,
-			(XrSwapchainImageBaseHeader *)s_sa.swapchains[eye].images);
-		if (XR_FAILED(result)) {
-			fprintf(stderr, "[DisplayXR-SA] xrEnumerateSwapchainImages[%d] failed: %d\n", eye, result);
-			return 0;
-		}
-
-		fprintf(stderr, "[DisplayXR-SA] Swapchain[%d]: %ux%u, %u images\n",
-		        eye, w, h, count);
+	XrResult result = s_sa.pfn_create_swapchain(
+		s_sa.session, &sc_ci, &s_sa.atlas.handle);
+	if (XR_FAILED(result)) {
+		fprintf(stderr, "[DisplayXR-SA] xrCreateSwapchain (atlas) failed: %d\n", result);
+		return 0;
 	}
 
-	s_sa.swapchains_created = 1;
+	s_sa.atlas.width = atlas_w;
+	s_sa.atlas.height = atlas_h;
+
+	// Enumerate swapchain images
+	uint32_t count = 0;
+	s_sa.pfn_enumerate_swapchain_images(s_sa.atlas.handle, 0, &count, NULL);
+	if (count > SA_MAX_SWAPCHAIN_IMAGES) count = SA_MAX_SWAPCHAIN_IMAGES;
+	s_sa.atlas.image_count = count;
+
+	for (uint32_t i = 0; i < count; i++) {
+		s_sa.atlas.images[i].type = XR_TYPE_SWAPCHAIN_IMAGE_METAL_KHR;
+		s_sa.atlas.images[i].next = NULL;
+	}
+
+	result = s_sa.pfn_enumerate_swapchain_images(
+		s_sa.atlas.handle, count, &count,
+		(XrSwapchainImageBaseHeader *)s_sa.atlas.images);
+	if (XR_FAILED(result)) {
+		fprintf(stderr, "[DisplayXR-SA] xrEnumerateSwapchainImages (atlas) failed: %d\n", result);
+		return 0;
+	}
+
+	fprintf(stderr, "[DisplayXR-SA] Atlas swapchain: %ux%u, %u images\n",
+	        atlas_w, atlas_h, count);
+
+	s_sa.atlas_created = 1;
 	return 1;
 }
 
 static void
-destroy_swapchains(void)
+destroy_atlas_swapchain(void)
 {
-	for (int eye = 0; eye < 2; eye++) {
-		if (s_sa.swapchains[eye].handle != XR_NULL_HANDLE && s_sa.pfn_destroy_swapchain) {
-			s_sa.pfn_destroy_swapchain(s_sa.swapchains[eye].handle);
-			s_sa.swapchains[eye].handle = XR_NULL_HANDLE;
-		}
+	if (s_sa.atlas.handle != XR_NULL_HANDLE && s_sa.pfn_destroy_swapchain) {
+		s_sa.pfn_destroy_swapchain(s_sa.atlas.handle);
+		s_sa.atlas.handle = XR_NULL_HANDLE;
 	}
-	s_sa.swapchains_created = 0;
+	s_sa.atlas_created = 0;
 }
 
 
@@ -649,9 +751,18 @@ displayxr_standalone_start(const char *runtime_json_path)
 		s_sa.local_space = XR_NULL_HANDLE;
 	}
 
-	// --- Step 10: Create swapchains ---
-	if (!create_swapchains()) {
-		fprintf(stderr, "[DisplayXR-SA] Warning: swapchain creation deferred to session ready\n");
+	// --- Step 10: Enumerate rendering modes (need session) ---
+	enumerate_and_store_modes();
+
+	// Default to first 3D mode (index 1) if available
+	if (s_sa.rendering_mode_count > 1)
+		s_sa.current_rendering_mode_index = s_sa.rendering_modes[1].modeIndex;
+	else if (s_sa.rendering_mode_count > 0)
+		s_sa.current_rendering_mode_index = s_sa.rendering_modes[0].modeIndex;
+
+	// --- Step 11: Create atlas swapchain ---
+	if (!create_atlas_swapchain()) {
+		fprintf(stderr, "[DisplayXR-SA] Warning: atlas swapchain creation deferred to session ready\n");
 	}
 
 	s_sa.running = 1;
@@ -667,7 +778,7 @@ displayxr_standalone_stop(void)
 	s_sa.running = 0;
 	s_sa.session_ready = 0;
 
-	destroy_swapchains();
+	destroy_atlas_swapchain();
 
 	if (s_sa.local_space != XR_NULL_HANDLE && s_sa.pfn_destroy_space) {
 		s_sa.pfn_destroy_space(s_sa.local_space);
@@ -759,9 +870,11 @@ displayxr_standalone_poll_events(void)
 				if (XR_SUCCEEDED(r)) {
 					s_sa.session_ready = 1;
 					fprintf(stderr, "[DisplayXR-SA] Session begun\n");
-					// Create swapchains now if deferred
-					if (!s_sa.swapchains_created) {
-						create_swapchains();
+					// Create atlas swapchain now if deferred
+					if (!s_sa.atlas_created) {
+						if (s_sa.rendering_mode_count == 0)
+							enumerate_and_store_modes();
+						create_atlas_swapchain();
 					}
 				}
 				break;
@@ -799,26 +912,45 @@ displayxr_standalone_begin_frame(int *should_render)
 	s_sa.predicted_display_time = frame_state.predictedDisplayTime;
 	s_sa.frame_begun = 1;
 
-	// Locate views (eye tracking)
+	// Locate views (eye tracking — supports N views for multiview modes)
 	if (s_sa.local_space != XR_NULL_HANDLE && s_sa.pfn_locate_views) {
 		XrViewLocateInfo locate_info = {XR_TYPE_VIEW_LOCATE_INFO};
 		locate_info.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
 		locate_info.displayTime = frame_state.predictedDisplayTime;
 		locate_info.space = s_sa.local_space;
 
-		XrView views[2] = {{XR_TYPE_VIEW}, {XR_TYPE_VIEW}};
+		XrView views[SA_MAX_VIEWS];
+		for (int i = 0; i < SA_MAX_VIEWS; i++)
+			views[i] = {XR_TYPE_VIEW};
 		XrViewState view_state = {XR_TYPE_VIEW_STATE};
 		uint32_t view_count = 0;
 
 		result = s_sa.pfn_locate_views(s_sa.session, &locate_info,
-		                               &view_state, 2, &view_count, views);
-		if (XR_SUCCEEDED(result) && view_count >= 2) {
+		                               &view_state, SA_MAX_VIEWS, &view_count, views);
+		if (XR_SUCCEEDED(result) && view_count >= 1) {
+			if (view_count > SA_MAX_VIEWS) view_count = SA_MAX_VIEWS;
+			s_sa.located_view_count = view_count;
+
+			for (uint32_t i = 0; i < view_count; i++) {
+				s_sa.eye_positions[i][0] = views[i].pose.position.x;
+				s_sa.eye_positions[i][1] = views[i].pose.position.y;
+				s_sa.eye_positions[i][2] = views[i].pose.position.z;
+			}
+
+			// Backward compat: populate left/right eye from first 2 views
 			s_sa.left_eye[0] = views[0].pose.position.x;
 			s_sa.left_eye[1] = views[0].pose.position.y;
 			s_sa.left_eye[2] = views[0].pose.position.z;
-			s_sa.right_eye[0] = views[1].pose.position.x;
-			s_sa.right_eye[1] = views[1].pose.position.y;
-			s_sa.right_eye[2] = views[1].pose.position.z;
+			if (view_count >= 2) {
+				s_sa.right_eye[0] = views[1].pose.position.x;
+				s_sa.right_eye[1] = views[1].pose.position.y;
+				s_sa.right_eye[2] = views[1].pose.position.z;
+			} else {
+				s_sa.right_eye[0] = views[0].pose.position.x;
+				s_sa.right_eye[1] = views[0].pose.position.y;
+				s_sa.right_eye[2] = views[0].pose.position.z;
+			}
+
 			s_sa.is_tracked = (view_state.viewStateFlags &
 			                   XR_VIEW_STATE_POSITION_TRACKED_BIT) != 0;
 		}
@@ -830,72 +962,79 @@ displayxr_standalone_begin_frame(int *should_render)
 
 
 int
-displayxr_standalone_submit_frame(void *left_tex, void *right_tex)
+displayxr_standalone_submit_frame_atlas(void *atlas_tex)
 {
-	if (!s_sa.frame_begun || !s_sa.swapchains_created) {
+	if (!s_sa.frame_begun || !s_sa.atlas_created) {
 		displayxr_standalone_end_frame_empty();
 		return 0;
 	}
 	s_sa.frame_begun = 0;
 
 #if defined(__APPLE__)
-	// For each eye: acquire → blit → release
-	uint32_t indices[2] = {0, 0};
-	void *eye_textures[2] = {left_tex, right_tex};
-
-	for (int eye = 0; eye < 2; eye++) {
-		XrSwapchainImageAcquireInfo acq_info = {XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-		XrResult r = s_sa.pfn_acquire_swapchain_image(
-			s_sa.swapchains[eye].handle, &acq_info, &indices[eye]);
-		if (XR_FAILED(r)) {
-			fprintf(stderr, "[DisplayXR-SA] Acquire swapchain[%d] failed: %d\n", eye, r);
-			displayxr_standalone_end_frame_empty();
-			return 0;
-		}
-
-		XrSwapchainImageWaitInfo wait_info = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
-		wait_info.timeout = 1000000000; // 1 second
-		r = s_sa.pfn_wait_swapchain_image(s_sa.swapchains[eye].handle, &wait_info);
-		if (XR_FAILED(r)) {
-			fprintf(stderr, "[DisplayXR-SA] Wait swapchain[%d] failed: %d\n", eye, r);
-		}
-
-		// Blit Unity RenderTexture → swapchain image
-		void *dst = s_sa.swapchains[eye].images[indices[eye]].texture;
-		if (eye_textures[eye] && dst) {
-			displayxr_sa_metal_blit(eye_textures[eye], dst);
-		}
-
-		XrSwapchainImageReleaseInfo rel_info = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-		s_sa.pfn_release_swapchain_image(s_sa.swapchains[eye].handle, &rel_info);
+	// Acquire the single atlas swapchain image
+	uint32_t index = 0;
+	XrSwapchainImageAcquireInfo acq_info = {XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+	XrResult r = s_sa.pfn_acquire_swapchain_image(s_sa.atlas.handle, &acq_info, &index);
+	if (XR_FAILED(r)) {
+		fprintf(stderr, "[DisplayXR-SA] Acquire atlas swapchain failed: %d\n", r);
+		displayxr_standalone_end_frame_empty();
+		return 0;
 	}
 
-	// Build projection views
-	XrCompositionLayerProjectionView proj_views[2] = {};
-	for (int eye = 0; eye < 2; eye++) {
+	XrSwapchainImageWaitInfo wait_info = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+	wait_info.timeout = 1000000000; // 1 second
+	r = s_sa.pfn_wait_swapchain_image(s_sa.atlas.handle, &wait_info);
+	if (XR_FAILED(r)) {
+		fprintf(stderr, "[DisplayXR-SA] Wait atlas swapchain failed: %d\n", r);
+	}
+
+	// Blit Unity atlas RenderTexture → swapchain image (single blit)
+	void *dst = s_sa.atlas.images[index].texture;
+	if (atlas_tex && dst) {
+		displayxr_sa_metal_blit(atlas_tex, dst);
+	}
+
+	XrSwapchainImageReleaseInfo rel_info = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+	s_sa.pfn_release_swapchain_image(s_sa.atlas.handle, &rel_info);
+
+	// Get current mode tiling parameters
+	const XrDisplayRenderingModeInfoEXT *mode = get_current_mode();
+	uint32_t eye_count, tile_cols, tile_rows, view_w, view_h;
+	get_mode_tiling(mode, &eye_count, &tile_cols, &tile_rows, &view_w, &view_h);
+
+	// Build N projection views with tiled viewports
+	XrCompositionLayerProjectionView proj_views[SA_MAX_VIEWS] = {};
+	uint32_t n_views = eye_count;
+	if (n_views > s_sa.located_view_count && s_sa.located_view_count > 0)
+		n_views = s_sa.located_view_count;
+	if (n_views > SA_MAX_VIEWS) n_views = SA_MAX_VIEWS;
+
+	for (uint32_t eye = 0; eye < n_views; eye++) {
+		uint32_t tileX = eye % tile_cols;
+		uint32_t tileY = eye / tile_cols;
+
 		proj_views[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
-		proj_views[eye].pose.position.x = s_sa.left_eye[0]; // Simplified — runtime uses these
-		proj_views[eye].pose.position.y = s_sa.left_eye[1];
-		proj_views[eye].pose.position.z = s_sa.left_eye[2];
+		proj_views[eye].pose.position.x = s_sa.eye_positions[eye][0];
+		proj_views[eye].pose.position.y = s_sa.eye_positions[eye][1];
+		proj_views[eye].pose.position.z = s_sa.eye_positions[eye][2];
 		proj_views[eye].pose.orientation = {0, 0, 0, 1};
 		proj_views[eye].fov.angleLeft = -0.5f;
 		proj_views[eye].fov.angleRight = 0.5f;
 		proj_views[eye].fov.angleUp = 0.3f;
 		proj_views[eye].fov.angleDown = -0.3f;
-		proj_views[eye].subImage.swapchain = s_sa.swapchains[eye].handle;
-		proj_views[eye].subImage.imageRect.offset = {0, 0};
-		proj_views[eye].subImage.imageRect.extent.width = (int32_t)s_sa.swapchains[eye].width;
-		proj_views[eye].subImage.imageRect.extent.height = (int32_t)s_sa.swapchains[eye].height;
+		proj_views[eye].subImage.swapchain = s_sa.atlas.handle;
+		proj_views[eye].subImage.imageRect.offset = {
+			(int32_t)(tileX * view_w), (int32_t)(tileY * view_h)
+		};
+		proj_views[eye].subImage.imageRect.extent = {
+			(int32_t)view_w, (int32_t)view_h
+		};
 		proj_views[eye].subImage.imageArrayIndex = 0;
 	}
-	// Fix right eye position
-	proj_views[1].pose.position.x = s_sa.right_eye[0];
-	proj_views[1].pose.position.y = s_sa.right_eye[1];
-	proj_views[1].pose.position.z = s_sa.right_eye[2];
 
 	XrCompositionLayerProjection proj_layer = {XR_TYPE_COMPOSITION_LAYER_PROJECTION};
 	proj_layer.space = s_sa.local_space;
-	proj_layer.viewCount = 2;
+	proj_layer.viewCount = n_views;
 	proj_layer.views = proj_views;
 
 	const XrCompositionLayerBaseHeader *layers[] = {
@@ -914,6 +1053,19 @@ displayxr_standalone_submit_frame(void *left_tex, void *right_tex)
 	displayxr_standalone_end_frame_empty();
 	return 0;
 #endif
+}
+
+
+int
+displayxr_standalone_submit_frame(void *left_tex, void *right_tex)
+{
+	// Backward compatibility wrapper — not used by atlas pipeline
+	(void)left_tex;
+	(void)right_tex;
+	if (s_sa.frame_begun) {
+		displayxr_standalone_end_frame_empty();
+	}
+	return 0;
 }
 
 
@@ -1003,6 +1155,103 @@ displayxr_standalone_compute_stereo_views(float near_z, float far_z,
 			left_proj[2], left_proj[6], left_proj[10], left_proj[14],
 			left_proj[3], left_proj[7], left_proj[11], left_proj[15]);
 	}
+}
+
+
+// ============================================================================
+// Public API: Multiview compute (N views)
+// ============================================================================
+
+void
+displayxr_standalone_compute_views(
+	uint32_t view_count,
+	float near_z, float far_z,
+	float *view_matrices,
+	float *proj_matrices,
+	int *valid)
+{
+	*valid = 0;
+	if (!s_sa.display_info.is_valid || view_count == 0) return;
+
+	Display3DScreen screen = {
+		s_sa.display_info.display_width_meters,
+		s_sa.display_info.display_height_meters
+	};
+
+	Display3DTunables tunables = s_sa.tunables_set
+		? s_sa.tunables
+		: display3d_default_tunables();
+
+	XrPosef *pose_ptr = s_sa.display_pose_set ? &s_sa.display_pose : NULL;
+
+	XrVector3f nominal = {
+		s_sa.display_info.nominal_viewer_x,
+		s_sa.display_info.nominal_viewer_y,
+		s_sa.display_info.nominal_viewer_z
+	};
+
+	// Process views in pairs using display3d_compute_stereo_views
+	uint32_t n = view_count;
+	if (n > s_sa.located_view_count && s_sa.located_view_count > 0)
+		n = s_sa.located_view_count;
+
+	for (uint32_t i = 0; i < n; i += 2) {
+		uint32_t li = i;
+		uint32_t ri = (i + 1 < n) ? i + 1 : i; // duplicate last if odd
+
+		XrVector3f raw_left = {
+			s_sa.eye_positions[li][0],
+			s_sa.eye_positions[li][1],
+			s_sa.eye_positions[li][2]
+		};
+		XrVector3f raw_right = {
+			s_sa.eye_positions[ri][0],
+			s_sa.eye_positions[ri][1],
+			s_sa.eye_positions[ri][2]
+		};
+
+		Display3DStereoView out_left, out_right;
+		display3d_compute_stereo_views(
+			&raw_left, &raw_right, &nominal, &screen, &tunables,
+			pose_ptr, near_z, far_z, &out_left, &out_right);
+
+		memcpy(&view_matrices[li * 16], out_left.view_matrix, 16 * sizeof(float));
+		memcpy(&proj_matrices[li * 16], out_left.projection_matrix, 16 * sizeof(float));
+
+		if (ri != li) {
+			memcpy(&view_matrices[ri * 16], out_right.view_matrix, 16 * sizeof(float));
+			memcpy(&proj_matrices[ri * 16], out_right.projection_matrix, 16 * sizeof(float));
+		}
+	}
+
+	*valid = 1;
+}
+
+
+// ============================================================================
+// Public API: Current mode info
+// ============================================================================
+
+void
+displayxr_standalone_get_current_mode_info(
+	uint32_t *view_count,
+	uint32_t *tile_columns, uint32_t *tile_rows,
+	uint32_t *view_width_pixels, uint32_t *view_height_pixels,
+	float *view_scale_x, float *view_scale_y,
+	int *hardware_display_3d)
+{
+	const XrDisplayRenderingModeInfoEXT *mode = get_current_mode();
+	uint32_t vc, tc, tr, vw, vh;
+	get_mode_tiling(mode, &vc, &tc, &tr, &vw, &vh);
+
+	*view_count = vc;
+	*tile_columns = tc;
+	*tile_rows = tr;
+	*view_width_pixels = vw;
+	*view_height_pixels = vh;
+	*view_scale_x = mode ? mode->viewScaleX : 1.0f;
+	*view_scale_y = mode ? mode->viewScaleY : 1.0f;
+	*hardware_display_3d = mode ? (int)mode->hardwareDisplay3D : 0;
 }
 
 
@@ -1122,11 +1371,12 @@ displayxr_standalone_get_shared_texture(void **native_ptr, uint32_t *width,
 void
 displayxr_standalone_get_swapchain_size(uint32_t *width, uint32_t *height)
 {
-	if (s_sa.swapchains_created) {
-		*width = s_sa.swapchains[0].width;
-		*height = s_sa.swapchains[0].height;
+	if (s_sa.atlas_created) {
+		*width = s_sa.atlas.width;
+		*height = s_sa.atlas.height;
 	} else if (s_sa.display_info.is_valid) {
-		*width = s_sa.display_info.display_pixel_width;
+		// Estimate atlas size from display info
+		*width = s_sa.display_info.display_pixel_width * 2;
 		*height = s_sa.display_info.display_pixel_height;
 	} else {
 		*width = 0;
@@ -1162,23 +1412,36 @@ displayxr_standalone_request_rendering_mode(uint32_t mode_index)
 	XrResult result = s_sa.pfn_request_rendering_mode(s_sa.session, mode_index);
 	fprintf(stderr, "[DisplayXR-SA] RequestRenderingMode(%u) → %d\n",
 		mode_index, result);
-	return XR_SUCCEEDED(result) ? 1 : 0;
+	if (XR_SUCCEEDED(result)) {
+		s_sa.current_rendering_mode_index = mode_index;
+		return 1;
+	}
+	return 0;
 }
 
 int
 displayxr_standalone_enumerate_rendering_modes(
 	uint32_t capacity, uint32_t *count,
-	uint32_t *mode_indices, char (*mode_names)[256])
+	uint32_t *mode_indices, char (*mode_names)[256],
+	uint32_t *view_counts,
+	uint32_t *tile_columns, uint32_t *tile_rows,
+	uint32_t *view_width_pixels, uint32_t *view_height_pixels,
+	float *view_scale_x, float *view_scale_y,
+	int *hardware_display_3d)
 {
-	if (!s_sa.pfn_enumerate_rendering_modes || s_sa.session == XR_NULL_HANDLE) {
-		*count = 0;
-		return 0;
+	// Use cached modes if available, otherwise query runtime
+	uint32_t total = s_sa.rendering_mode_count;
+	if (total == 0) {
+		if (!s_sa.pfn_enumerate_rendering_modes || s_sa.session == XR_NULL_HANDLE) {
+			*count = 0;
+			return 0;
+		}
+		// Re-enumerate
+		enumerate_and_store_modes();
+		total = s_sa.rendering_mode_count;
 	}
 
-	// First query count
-	uint32_t total = 0;
-	XrResult result = s_sa.pfn_enumerate_rendering_modes(s_sa.session, 0, &total, NULL);
-	if (XR_FAILED(result) || total == 0) {
+	if (total == 0) {
 		*count = 0;
 		return 0;
 	}
@@ -1187,21 +1450,21 @@ displayxr_standalone_enumerate_rendering_modes(
 	if (capacity == 0 || !mode_indices || !mode_names)
 		return 1; // Count-only query
 
-	// Allocate temp buffer and enumerate
 	uint32_t to_fetch = total < capacity ? total : capacity;
-	XrDisplayRenderingModeInfoEXT *modes =
-		(XrDisplayRenderingModeInfoEXT *)calloc(to_fetch, sizeof(XrDisplayRenderingModeInfoEXT));
-	for (uint32_t i = 0; i < to_fetch; i++)
-		modes[i].type = XR_TYPE_DISPLAY_RENDERING_MODE_INFO_EXT;
+	for (uint32_t i = 0; i < to_fetch; i++) {
+		mode_indices[i] = s_sa.rendering_modes[i].modeIndex;
+		strncpy(mode_names[i], s_sa.rendering_modes[i].modeName, 255);
+		mode_names[i][255] = '\0';
 
-	result = s_sa.pfn_enumerate_rendering_modes(s_sa.session, to_fetch, &total, modes);
-	if (XR_SUCCEEDED(result)) {
-		for (uint32_t i = 0; i < to_fetch; i++) {
-			mode_indices[i] = modes[i].modeIndex;
-			strncpy(mode_names[i], modes[i].modeName, 255);
-			mode_names[i][255] = '\0';
-		}
+		// Extended fields (NULL-safe — callers may pass NULL for fields they don't need)
+		if (view_counts) view_counts[i] = s_sa.rendering_modes[i].viewCount;
+		if (tile_columns) tile_columns[i] = s_sa.rendering_modes[i].tileColumns;
+		if (tile_rows) tile_rows[i] = s_sa.rendering_modes[i].tileRows;
+		if (view_width_pixels) view_width_pixels[i] = s_sa.rendering_modes[i].viewWidthPixels;
+		if (view_height_pixels) view_height_pixels[i] = s_sa.rendering_modes[i].viewHeightPixels;
+		if (view_scale_x) view_scale_x[i] = s_sa.rendering_modes[i].viewScaleX;
+		if (view_scale_y) view_scale_y[i] = s_sa.rendering_modes[i].viewScaleY;
+		if (hardware_display_3d) hardware_display_3d[i] = (int)s_sa.rendering_modes[i].hardwareDisplay3D;
 	}
-	free(modes);
-	return XR_SUCCEEDED(result) ? 1 : 0;
+	return 1;
 }

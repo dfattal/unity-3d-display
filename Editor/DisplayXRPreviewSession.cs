@@ -49,17 +49,20 @@ namespace DisplayXR.Editor
         private static int s_FrameCount;
 
         // Rendering rig
-        private static RenderTexture s_LeftRT;
-        private static RenderTexture s_RightRT;
-        private static Camera s_LeftCam;
-        private static Camera s_RightCam;
+        private static RenderTexture s_AtlasRT;
+        private static Camera[] s_EyeCams;
         private static GameObject s_RigRoot;
-        private static readonly float[] s_LeftView = new float[16];
-        private static readonly float[] s_LeftProj = new float[16];
-        private static readonly float[] s_RightView = new float[16];
-        private static readonly float[] s_RightProj = new float[16];
         private static float s_NearZ = 0.3f;
         private static float s_FarZ = 1000f;
+
+        // Current mode tiling info (cached from native)
+        private static uint s_ViewCount = 2;
+        private static uint s_TileColumns = 2;
+        private static uint s_TileRows = 1;
+        private static uint s_ViewWidth;
+        private static uint s_ViewHeight;
+        private static uint s_AtlasWidth;
+        private static uint s_AtlasHeight;
 
         /// <summary>
         /// When true, entering play mode auto-starts the preview and suppresses Unity's XR.
@@ -327,22 +330,42 @@ namespace DisplayXR.Editor
             // 3. Push tunables + display pose from scene rig component
             PushRigParameters();
 
-            // 4. Compute Kooima stereo view/projection matrices from native
-            DisplayXRNative.displayxr_standalone_compute_stereo_views(
-                s_NearZ, s_FarZ,
-                s_LeftView, s_LeftProj, s_RightView, s_RightProj,
-                out int matricesValid);
+            // 4. Refresh mode info (may have changed via rendering mode switch)
+            RefreshModeInfo();
+            EnsureRigMatchesMode();
 
-            if (matricesValid != 0 && s_LeftCam != null && s_RightCam != null)
+            // 5. Compute Kooima view/projection matrices for N views
+            int nViews = (int)s_ViewCount;
+            float[] viewMats = new float[nViews * 16];
+            float[] projMats = new float[nViews * 16];
+
+            DisplayXRNative.displayxr_standalone_compute_views(
+                (uint)nViews, s_NearZ, s_FarZ,
+                viewMats, projMats, out int matricesValid);
+
+            if (matricesValid != 0 && s_EyeCams != null && s_AtlasRT != null)
             {
                 s_FrameCount++;
 
-                RenderEye(s_LeftCam, s_LeftRT, s_LeftView, s_LeftProj);
-                RenderEye(s_RightCam, s_RightRT, s_RightView, s_RightProj);
+                // Render each eye into its tile within the atlas
+                for (int eye = 0; eye < nViews && eye < s_EyeCams.Length; eye++)
+                {
+                    if (s_EyeCams[eye] == null) continue;
 
-                IntPtr leftNative = s_LeftRT.GetNativeTexturePtr();
-                IntPtr rightNative = s_RightRT.GetNativeTexturePtr();
-                DisplayXRNative.displayxr_standalone_submit_frame(leftNative, rightNative);
+                    uint tileX = (uint)eye % s_TileColumns;
+                    uint tileY = (uint)eye / s_TileColumns;
+                    float[] eyeView = new float[16];
+                    float[] eyeProj = new float[16];
+                    System.Array.Copy(viewMats, eye * 16, eyeView, 0, 16);
+                    System.Array.Copy(projMats, eye * 16, eyeProj, 0, 16);
+
+                    RenderEyeToAtlas(s_EyeCams[eye], s_AtlasRT, eyeView, eyeProj,
+                        (int)(tileX * s_ViewWidth), (int)(tileY * s_ViewHeight),
+                        (int)s_ViewWidth, (int)s_ViewHeight);
+                }
+
+                IntPtr atlasNative = s_AtlasRT.GetNativeTexturePtr();
+                DisplayXRNative.displayxr_standalone_submit_frame_atlas(atlasNative);
             }
             else
             {
@@ -361,48 +384,44 @@ namespace DisplayXR.Editor
 
         private static void CreateRenderRig()
         {
-            // Get swapchain size from runtime (per-eye resolution)
-            DisplayXRNative.displayxr_standalone_get_swapchain_size(out uint sw, out uint sh);
-            if (sw == 0 || sh == 0)
+            // Query current mode tiling info from native
+            RefreshModeInfo();
+
+            // Get atlas swapchain size from runtime
+            DisplayXRNative.displayxr_standalone_get_swapchain_size(out s_AtlasWidth, out s_AtlasHeight);
+            if (s_AtlasWidth == 0 || s_AtlasHeight == 0)
             {
-                // Fallback to display pixel resolution
-                sw = DisplayInfo.displayPixelWidth;
-                sh = DisplayInfo.displayPixelHeight;
+                s_AtlasWidth = DisplayInfo.displayPixelWidth * 2;
+                s_AtlasHeight = DisplayInfo.displayPixelHeight;
             }
-            if (sw == 0 || sh == 0)
+            if (s_AtlasWidth == 0 || s_AtlasHeight == 0)
             {
-                sw = 1920;
-                sh = 1080;
+                s_AtlasWidth = 3840;
+                s_AtlasHeight = 1080;
             }
 
-            Debug.Log($"[DisplayXR-SA] Creating render rig: {sw}x{sh} per eye");
+            Debug.Log($"[DisplayXR-SA] Creating atlas render rig: {s_AtlasWidth}x{s_AtlasHeight} " +
+                $"({s_ViewCount} views, {s_TileColumns}x{s_TileRows} tiles, {s_ViewWidth}x{s_ViewHeight} per view)");
 
-            // Create RenderTextures matching swapchain resolution
-            s_LeftRT = new RenderTexture((int)sw, (int)sh, 24, RenderTextureFormat.ARGB32);
-            s_LeftRT.name = "DisplayXR_SA_Left";
-            s_LeftRT.Create();
+            // Create single atlas RenderTexture
+            s_AtlasRT = new RenderTexture((int)s_AtlasWidth, (int)s_AtlasHeight, 24, RenderTextureFormat.ARGB32);
+            s_AtlasRT.name = "DisplayXR_SA_Atlas";
+            s_AtlasRT.Create();
 
-            s_RightRT = new RenderTexture((int)sw, (int)sh, 24, RenderTextureFormat.ARGB32);
-            s_RightRT.name = "DisplayXR_SA_Right";
-            s_RightRT.Create();
-
-            // Create hidden camera rig (HideFlags prevent it showing in hierarchy)
+            // Create hidden camera rig with N eye cameras
             s_RigRoot = new GameObject("DisplayXR_SA_Rig");
             s_RigRoot.hideFlags = HideFlags.HideAndDontSave;
 
-            var leftGo = new GameObject("LeftEye");
-            leftGo.hideFlags = HideFlags.HideAndDontSave;
-            leftGo.transform.SetParent(s_RigRoot.transform);
-            s_LeftCam = leftGo.AddComponent<Camera>();
-            s_LeftCam.enabled = false; // We render manually via Camera.Render()
-            s_LeftCam.targetTexture = s_LeftRT;
-
-            var rightGo = new GameObject("RightEye");
-            rightGo.hideFlags = HideFlags.HideAndDontSave;
-            rightGo.transform.SetParent(s_RigRoot.transform);
-            s_RightCam = rightGo.AddComponent<Camera>();
-            s_RightCam.enabled = false;
-            s_RightCam.targetTexture = s_RightRT;
+            s_EyeCams = new Camera[s_ViewCount];
+            for (int i = 0; i < (int)s_ViewCount; i++)
+            {
+                var eyeGo = new GameObject($"Eye{i}");
+                eyeGo.hideFlags = HideFlags.HideAndDontSave;
+                eyeGo.transform.SetParent(s_RigRoot.transform);
+                s_EyeCams[i] = eyeGo.AddComponent<Camera>();
+                s_EyeCams[i].enabled = false; // We render manually via Camera.Render()
+                s_EyeCams[i].targetTexture = s_AtlasRT;
+            }
 
             // Restore camera selection (reads from SessionState) and clone settings
             RestoreSelection();
@@ -410,28 +429,28 @@ namespace DisplayXR.Editor
 
         private static void DestroyRenderRig()
         {
-            if (s_LeftCam != null) UnityEngine.Object.DestroyImmediate(s_LeftCam.gameObject);
-            if (s_RightCam != null) UnityEngine.Object.DestroyImmediate(s_RightCam.gameObject);
+            if (s_EyeCams != null)
+            {
+                foreach (var cam in s_EyeCams)
+                    if (cam != null) UnityEngine.Object.DestroyImmediate(cam.gameObject);
+            }
             if (s_RigRoot != null) UnityEngine.Object.DestroyImmediate(s_RigRoot);
-            s_LeftCam = null;
-            s_RightCam = null;
+            s_EyeCams = null;
             s_RigRoot = null;
 
-            if (s_LeftRT != null) { s_LeftRT.Release(); UnityEngine.Object.DestroyImmediate(s_LeftRT); }
-            if (s_RightRT != null) { s_RightRT.Release(); UnityEngine.Object.DestroyImmediate(s_RightRT); }
-            s_LeftRT = null;
-            s_RightRT = null;
+            if (s_AtlasRT != null) { s_AtlasRT.Release(); UnityEngine.Object.DestroyImmediate(s_AtlasRT); }
+            s_AtlasRT = null;
         }
 
-        private static void RenderEye(Camera cam, RenderTexture rt, float[] viewMat, float[] projMat)
+        private static void RenderEyeToAtlas(Camera cam, RenderTexture atlas,
+            float[] viewMat, float[] projMat,
+            int vpX, int vpY, int vpW, int vpH)
         {
             Matrix4x4 view = ColumnMajorToMatrix4x4(viewMat);
             Matrix4x4 proj = ColumnMajorToMatrix4x4(projMat);
 
             // Flip projection Y: Metal RenderTextures are Y-inverted and Unity
             // doesn't auto-correct when projectionMatrix is set manually.
-            // This also flips det(P), making det(V*P) > 0 — matching Unity's
-            // winding convention, so no GL.invertCulling needed.
             proj.m10 = -proj.m10;
             proj.m11 = -proj.m11;
             proj.m12 = -proj.m12;
@@ -453,8 +472,56 @@ namespace DisplayXR.Editor
             // Override with exact Kooima matrices for rendering
             cam.worldToCameraMatrix = view;
             cam.projectionMatrix = proj;
-            cam.targetTexture = rt;
+            cam.targetTexture = atlas;
+            cam.pixelRect = new Rect(vpX, vpY, vpW, vpH);
             cam.Render();
+        }
+
+        private static void RefreshModeInfo()
+        {
+            DisplayXRNative.displayxr_standalone_get_current_mode_info(
+                out uint vc, out uint tc, out uint tr,
+                out uint vw, out uint vh,
+                out float _, out float _2,
+                out int _3);
+
+            if (vc > 0 && tc > 0 && tr > 0 && vw > 0 && vh > 0)
+            {
+                s_ViewCount = vc;
+                s_TileColumns = tc;
+                s_TileRows = tr;
+                s_ViewWidth = vw;
+                s_ViewHeight = vh;
+            }
+        }
+
+        /// <summary>
+        /// Ensure the eye camera array and atlas RT match the current mode.
+        /// Called each frame to handle rendering mode switches.
+        /// </summary>
+        private static void EnsureRigMatchesMode()
+        {
+            if (s_EyeCams == null || s_AtlasRT == null) return;
+
+            // Check if we need more/fewer cameras
+            if (s_EyeCams.Length != (int)s_ViewCount)
+            {
+                // Rebuild cameras
+                foreach (var cam in s_EyeCams)
+                    if (cam != null) UnityEngine.Object.DestroyImmediate(cam.gameObject);
+
+                s_EyeCams = new Camera[s_ViewCount];
+                for (int i = 0; i < (int)s_ViewCount; i++)
+                {
+                    var eyeGo = new GameObject($"Eye{i}");
+                    eyeGo.hideFlags = HideFlags.HideAndDontSave;
+                    eyeGo.transform.SetParent(s_RigRoot.transform);
+                    s_EyeCams[i] = eyeGo.AddComponent<Camera>();
+                    s_EyeCams[i].enabled = false;
+                    s_EyeCams[i].targetTexture = s_AtlasRT;
+                }
+                ApplyCameraSelection();
+            }
         }
 
         private static Matrix4x4 ColumnMajorToMatrix4x4(float[] m)
@@ -567,21 +634,21 @@ namespace DisplayXR.Editor
 
         private static void ApplyCameraSelection()
         {
-            if (s_SelectedSourceCamera == null || s_LeftCam == null) return;
+            if (s_SelectedSourceCamera == null || s_EyeCams == null) return;
             CloneSourceCameraSettings(s_SelectedSourceCamera);
         }
 
         private static void CloneSourceCameraSettings(Camera source)
         {
-            s_LeftCam.CopyFrom(source);
-            s_RightCam.CopyFrom(source);
-            // Re-apply overrides for manual rendering
-            s_LeftCam.enabled = false;
-            s_RightCam.enabled = false;
-            s_LeftCam.targetTexture = s_LeftRT;
-            s_RightCam.targetTexture = s_RightRT;
-            s_LeftCam.allowHDR = false;
-            s_RightCam.allowHDR = false;
+            if (s_EyeCams == null) return;
+            foreach (var cam in s_EyeCams)
+            {
+                if (cam == null) continue;
+                cam.CopyFrom(source);
+                cam.enabled = false;
+                cam.targetTexture = s_AtlasRT;
+                cam.allowHDR = false;
+            }
         }
 
         public static CameraCategory GetSelectedCameraCategory()
