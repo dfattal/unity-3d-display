@@ -52,6 +52,11 @@ namespace DisplayXR.Editor
             EditorApplication.hierarchyChanged -= OnHierarchyChanged;
             CleanupSharedTexture();
             m_RenderingModeNames = null;
+            m_ModeViewCounts = null;
+            m_ModeTileColumns = null;
+            m_ModeTileRows = null;
+            m_ModeViewWidths = null;
+            m_ModeViewHeights = null;
             m_CurrentRenderingMode = 1;
         }
 
@@ -243,10 +248,24 @@ namespace DisplayXR.Editor
                     ? m_RenderingModeNames[m_CurrentRenderingMode]
                     : (m_CurrentRenderingMode <= 0 ? "2D" : "3D");
                 int modeCount = m_RenderingModeNames != null ? m_RenderingModeNames.Length : 0;
+
+                // Build tiling info string for current mode
+                string tileInfo = "";
+                if (m_ModeTileColumns != null && m_CurrentRenderingMode >= 0 &&
+                    m_CurrentRenderingMode < m_ModeTileColumns.Length)
+                {
+                    uint vc = m_ModeViewCounts[m_CurrentRenderingMode];
+                    uint tc = m_ModeTileColumns[m_CurrentRenderingMode];
+                    uint tr = m_ModeTileRows[m_CurrentRenderingMode];
+                    uint vw = m_ModeViewWidths[m_CurrentRenderingMode];
+                    uint vh = m_ModeViewHeights[m_CurrentRenderingMode];
+                    tileInfo = $"  Views: {vc} ({tc}x{tr} tiles, {vw}x{vh}px)";
+                }
+
                 GUILayout.Label($"Display: {info.displayPixelWidth}x{info.displayPixelHeight}  " +
                     $"{info.displayWidthMeters * 100:F1}x{info.displayHeightMeters * 100:F1}cm  " +
                     $"Tracked: {(tracked ? "Yes" : "No")}  " +
-                    $"Mode: {modeName}",
+                    $"Mode: {modeName}{tileInfo}",
                     EditorStyles.miniLabel);
                 string hintText = modeCount > 1
                     ? $"Display modes [0-{modeCount - 1}] | V to Cycle"
@@ -305,23 +324,42 @@ namespace DisplayXR.Editor
             }
         }
 
+        // Rendering mode metadata (parallel arrays from enumerate)
+        private uint[] m_ModeViewCounts;
+        private uint[] m_ModeTileColumns;
+        private uint[] m_ModeTileRows;
+        private uint[] m_ModeViewWidths;
+        private uint[] m_ModeViewHeights;
+
         private void EnumerateRenderingModesIfNeeded()
         {
             if (m_RenderingModeNames != null) return;
 
             DisplayXRNative.displayxr_standalone_enumerate_rendering_modes(
-                0, out uint count, null, IntPtr.Zero);
+                0, out uint count, null, IntPtr.Zero,
+                null, null, null, null, null, null, null, null);
             if (count == 0) return;
 
             uint[] indices = new uint[count];
             m_RenderingModeNames = new string[count];
+            m_ModeViewCounts = new uint[count];
+            m_ModeTileColumns = new uint[count];
+            m_ModeTileRows = new uint[count];
+            m_ModeViewWidths = new uint[count];
+            m_ModeViewHeights = new uint[count];
+            float[] scaleX = new float[count];
+            float[] scaleY = new float[count];
+            int[] hw3d = new int[count];
 
             // Allocate unmanaged buffer for mode names (256 bytes each)
             IntPtr namesPtr = System.Runtime.InteropServices.Marshal.AllocHGlobal((int)(count * 256));
             try
             {
                 DisplayXRNative.displayxr_standalone_enumerate_rendering_modes(
-                    count, out uint fetched, indices, namesPtr);
+                    count, out uint fetched, indices, namesPtr,
+                    m_ModeViewCounts, m_ModeTileColumns, m_ModeTileRows,
+                    m_ModeViewWidths, m_ModeViewHeights,
+                    scaleX, scaleY, hw3d);
                 for (int i = 0; i < (int)fetched; i++)
                 {
                     IntPtr namePtr = new IntPtr(namesPtr.ToInt64() + i * 256);

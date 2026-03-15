@@ -53,12 +53,14 @@ DISPLAYXR_EXPORT void displayxr_standalone_poll_events(void);
 /// @return 1 on success, 0 on failure or session not ready.
 DISPLAYXR_EXPORT int displayxr_standalone_begin_frame(int *should_render);
 
-/// Submit a rendered frame with stereo projection layers.
-/// Acquires swapchain images, blits from the provided textures, releases, and
-/// calls xrEndFrame with projection layers.
-/// @param left_tex  Native texture pointer (id<MTLTexture>) for left eye.
-/// @param right_tex Native texture pointer (id<MTLTexture>) for right eye.
+/// Submit a rendered frame with tiled atlas projection layers.
+/// Acquires the single atlas swapchain image, blits from the provided atlas
+/// texture, releases, and calls xrEndFrame with N tiled projection views.
+/// @param atlas_tex Native texture pointer (id<MTLTexture>) for the tiled atlas.
 /// @return 1 on success, 0 on failure.
+DISPLAYXR_EXPORT int displayxr_standalone_submit_frame_atlas(void *atlas_tex);
+
+/// Legacy submit (backward compatibility — deprecated, submits empty frame).
 DISPLAYXR_EXPORT int displayxr_standalone_submit_frame(void *left_tex, void *right_tex);
 
 /// End the current frame with no layers (keeps session alive when not rendering).
@@ -82,6 +84,20 @@ DISPLAYXR_EXPORT void displayxr_standalone_compute_stereo_views(
     float near_z, float far_z,
     float *left_view, float *left_proj,
     float *right_view, float *right_proj,
+    int *valid);
+
+/// Compute Kooima view and projection matrices for N views.
+/// Views are processed in stereo pairs. Matrices are column-major.
+/// @param view_count  Number of views to compute.
+/// @param near_z      Near clip plane distance (meters).
+/// @param far_z       Far clip plane distance (meters).
+/// @param view_matrices  Output float[view_count * 16] view matrices.
+/// @param proj_matrices  Output float[view_count * 16] projection matrices.
+/// @param valid          Set to 1 if matrices are valid, 0 if not.
+DISPLAYXR_EXPORT void displayxr_standalone_compute_views(
+    uint32_t view_count,
+    float near_z, float far_z,
+    float *view_matrices, float *proj_matrices,
     int *valid);
 
 // ============================================================================
@@ -123,9 +139,17 @@ DISPLAYXR_EXPORT void displayxr_standalone_get_eye_positions(
 DISPLAYXR_EXPORT void displayxr_standalone_get_shared_texture(
     void **native_ptr, uint32_t *width, uint32_t *height, int *ready);
 
-/// Get per-eye swapchain dimensions (for creating matching RenderTextures in C#).
+/// Get atlas swapchain dimensions (for creating matching RenderTextures in C#).
 DISPLAYXR_EXPORT void displayxr_standalone_get_swapchain_size(
     uint32_t *width, uint32_t *height);
+
+/// Get current rendering mode tiling info.
+DISPLAYXR_EXPORT void displayxr_standalone_get_current_mode_info(
+    uint32_t *view_count,
+    uint32_t *tile_columns, uint32_t *tile_rows,
+    uint32_t *view_width_pixels, uint32_t *view_height_pixels,
+    float *view_scale_x, float *view_scale_y,
+    int *hardware_display_3d);
 
 // ============================================================================
 // Display mode switching
@@ -141,17 +165,30 @@ DISPLAYXR_EXPORT int displayxr_standalone_request_display_mode(int mode_3d);
 /// @return 1 on success, 0 on failure or not supported.
 DISPLAYXR_EXPORT int displayxr_standalone_request_rendering_mode(uint32_t mode_index);
 
-/// Enumerate available rendering modes.
+/// Enumerate available rendering modes with full metadata.
 /// Two-call pattern: first call with capacity=0 to get count,
-/// then allocate and call again.
-/// @param capacity   Array capacity (0 for count-only query).
-/// @param count      Output: number of modes available.
-/// @param mode_indices  Output array of mode indices.
-/// @param mode_names    Output array of mode name strings (256 chars each).
+/// then allocate and call again. Extended arrays are optional (may be NULL).
+/// @param capacity            Array capacity (0 for count-only query).
+/// @param count               Output: number of modes available.
+/// @param mode_indices        Output array of mode indices.
+/// @param mode_names          Output array of mode name strings (256 chars each).
+/// @param view_counts         Output array of view counts per mode (optional).
+/// @param tile_columns        Output array of tile column counts (optional).
+/// @param tile_rows           Output array of tile row counts (optional).
+/// @param view_width_pixels   Output array of per-view pixel widths (optional).
+/// @param view_height_pixels  Output array of per-view pixel heights (optional).
+/// @param view_scale_x        Output array of horizontal view scales (optional).
+/// @param view_scale_y        Output array of vertical view scales (optional).
+/// @param hardware_display_3d Output array of hardware 3D flags (optional).
 /// @return 1 on success, 0 on failure.
 DISPLAYXR_EXPORT int displayxr_standalone_enumerate_rendering_modes(
     uint32_t capacity, uint32_t *count,
-    uint32_t *mode_indices, char (*mode_names)[256]);
+    uint32_t *mode_indices, char (*mode_names)[256],
+    uint32_t *view_counts,
+    uint32_t *tile_columns, uint32_t *tile_rows,
+    uint32_t *view_width_pixels, uint32_t *view_height_pixels,
+    float *view_scale_x, float *view_scale_y,
+    int *hardware_display_3d);
 
 #ifdef __cplusplus
 }
