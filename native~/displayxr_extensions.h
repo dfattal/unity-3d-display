@@ -98,7 +98,7 @@ typedef struct XrCompositionLayerWindowSpaceEXT {
 #define XR_EXT_COCOA_WINDOW_BINDING_EXTENSION_NAME "XR_EXT_cocoa_window_binding"
 #define XR_EXT_COCOA_WINDOW_BINDING_SPEC_VERSION 3
 
-#define XR_TYPE_COCOA_WINDOW_BINDING_CREATE_INFO_EXT ((XrStructureType)1000999003)
+#define XR_TYPE_COCOA_WINDOW_BINDING_CREATE_INFO_EXT ((XrStructureType)1000999004)
 
 typedef struct XrCocoaWindowBindingCreateInfoEXT {
     XrStructureType type;
