@@ -46,6 +46,8 @@ namespace DisplayXR.Editor
 
         private static bool s_Polling;
         private static bool s_Stopping; // Guard against re-entrant ticks during teardown
+        private static bool s_InPollEvents; // True while inside displayxr_standalone_poll_events
+        private static bool s_DeferredStop; // Deferred stop when called re-entrantly from poll_events
         private static int s_FrameCount;
 
         // Rendering rig
@@ -262,8 +264,24 @@ namespace DisplayXR.Editor
         public static void Stop()
         {
             if (s_Stopping) return; // Prevent re-entrant teardown
+
+            // If we're inside poll_events, the native session is still on the call stack.
+            // Destroying it now would cause a use-after-free crash when poll_events returns.
+            // Defer the actual teardown until poll_events finishes.
+            if (s_InPollEvents)
+            {
+                s_DeferredStop = true;
+                s_IsRunning = false;
+                return;
+            }
+
+            DoStop();
+        }
+
+        private static void DoStop()
+        {
             s_Stopping = true;
-            s_IsRunning = false; // Immediately prevent any queued FrameTick from calling native
+            s_IsRunning = false;
 
             StopPolling();
             DestroyRenderRig();
@@ -279,6 +297,7 @@ namespace DisplayXR.Editor
 
             SharedTextureAvailable = false;
             DisplayInfo = default;
+            s_DeferredStop = false;
             s_Stopping = false;
             Debug.Log("[DisplayXR-SA] Standalone session stopped");
         }
@@ -306,14 +325,27 @@ namespace DisplayXR.Editor
             }
 
             // 1. Poll OpenXR events (session state changes)
+            // NOTE: poll_events pumps macOS events, which can trigger Unity UI callbacks
+            // (e.g. play button → ExitPlayMode → Stop). We guard against destroying
+            // the session while it's still on the call stack.
             try
             {
+                s_InPollEvents = true;
                 DisplayXRNative.displayxr_standalone_poll_events();
+                s_InPollEvents = false;
             }
             catch (Exception e)
             {
+                s_InPollEvents = false;
                 Debug.LogError($"[DisplayXR-SA] poll_events crashed: {e.Message}. Stopping session.");
                 Stop();
+                return;
+            }
+
+            // Handle deferred stop (Stop() was called re-entrantly during poll_events)
+            if (s_DeferredStop)
+            {
+                DoStop();
                 return;
             }
 
