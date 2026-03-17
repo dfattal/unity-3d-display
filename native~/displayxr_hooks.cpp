@@ -136,8 +136,8 @@ hooked_xrLocateViews(XrSession session,
 		float min_vp = fminf(vp_w_m, vp_h_m);
 		if (min_vp > 0.0001f) {
 			float vs = min_disp / min_vp;
-			screen.width = vp_w_m * vs;
-			screen.height = vp_h_m * vs;
+			screen.width_m = vp_w_m * vs;
+			screen.height_m = vp_h_m * vs;
 		}
 	}
 
