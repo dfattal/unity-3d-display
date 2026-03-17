@@ -105,6 +105,9 @@ namespace DisplayXR
 
             m_Feature.SetTunables(tunables);
 
+            // Push viewport size so Kooima screen dims match window aspect ratio
+            m_Feature.SetViewportSize(Screen.width, Screen.height);
+
             // Send camera world pose to native
             m_Feature.SetSceneTransform(
                 transform.position,

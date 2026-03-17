@@ -413,6 +413,16 @@ namespace DisplayXR
         }
 
         /// <summary>
+        /// Set the viewport (window) size so native Kooima screen dimensions are adjusted
+        /// to match the window aspect ratio. Prevents scene stretching on window resize.
+        /// </summary>
+        public void SetViewportSize(int width, int height)
+        {
+            if (!m_HooksInstalled) return;
+            DisplayXRNative.displayxr_set_viewport_size((uint)width, (uint)height);
+        }
+
+        /// <summary>
         /// Set the scene transform applied to raw eye positions before Kooima computation.
         /// This is the "parent camera pose" from the Unity scene hierarchy.
         /// Chain: raw eyes -> scene transform -> tunables -> Kooima.

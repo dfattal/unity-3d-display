@@ -119,7 +119,27 @@ hooked_xrLocateViews(XrSession session,
 	XrVector3f raw_left = views[0].pose.position;
 	XrVector3f raw_right = views[1].pose.position;
 	XrVector3f nominal = {di->nominal_viewer_x, di->nominal_viewer_y, di->nominal_viewer_z};
+
+	// Adjust Kooima screen dimensions to match the viewport (window) aspect ratio.
+	// Without this, resizing the window stretches the scene because the Kooima frustum
+	// always uses the physical display's aspect ratio. The test app does the same
+	// adjustment: converts window pixels to meters, then normalizes so the min
+	// dimension matches the display's min dimension.
 	Display3DScreen screen = {di->display_width_meters, di->display_height_meters};
+	if (state->viewport_width > 0 && state->viewport_height > 0 &&
+	    di->display_pixel_width > 0 && di->display_pixel_height > 0) {
+		float px_size_x = di->display_width_meters / (float)di->display_pixel_width;
+		float px_size_y = di->display_height_meters / (float)di->display_pixel_height;
+		float vp_w_m = (float)state->viewport_width * px_size_x;
+		float vp_h_m = (float)state->viewport_height * px_size_y;
+		float min_disp = fminf(di->display_width_meters, di->display_height_meters);
+		float min_vp = fminf(vp_w_m, vp_h_m);
+		if (min_vp > 0.0001f) {
+			float vs = min_disp / min_vp;
+			screen.width = vp_w_m * vs;
+			screen.height = vp_h_m * vs;
+		}
+	}
 
 	// Build pose from scene transform (Unity camera/display world pose).
 	// Convert Unity coords (left-hand, +Z forward) to OpenXR (right-hand, -Z forward):
@@ -866,6 +886,14 @@ displayxr_set_editor_mode(int enabled)
 {
 	DisplayXRState *state = displayxr_get_state();
 	state->editor_mode = (uint8_t)(enabled != 0);
+}
+
+void
+displayxr_set_viewport_size(uint32_t width, uint32_t height)
+{
+	DisplayXRState *state = displayxr_get_state();
+	state->viewport_width = width;
+	state->viewport_height = height;
 }
 
 int

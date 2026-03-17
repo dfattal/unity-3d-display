@@ -80,6 +80,8 @@ DISPLAYXR_EXPORT void displayxr_set_window_handle(void *handle);
 
 DISPLAYXR_EXPORT void displayxr_set_editor_mode(int enabled);
 
+DISPLAYXR_EXPORT void displayxr_set_viewport_size(uint32_t width, uint32_t height);
+
 DISPLAYXR_EXPORT int displayxr_request_display_mode(int mode_3d);
 
 DISPLAYXR_EXPORT void displayxr_get_stereo_matrices(float *left_view,
