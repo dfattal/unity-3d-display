@@ -60,12 +60,28 @@ namespace DisplayXR
             // Guard against XR having already overridden the FOV to near-zero
             if (m_CachedCameraFov < 1.0f)
                 m_CachedCameraFov = 60.0f;
+            Camera.onPreRender += OnCameraPreRender;
         }
 
         void OnDisable()
         {
             Debug.Log("[DisplayXR] DisplayXRCamera.OnDisable");
+            Camera.onPreRender -= OnCameraPreRender;
             m_Feature = null;
+        }
+
+        void OnCameraPreRender(Camera cam)
+        {
+            if (cam != m_Camera || m_Feature == null) return;
+
+            if (!m_Feature.GetStereoMatrices(out Matrix4x4 leftView, out Matrix4x4 leftProj,
+                                              out Matrix4x4 rightView, out Matrix4x4 rightProj))
+                return;
+
+            cam.SetStereoViewMatrix(Camera.StereoscopicEye.Left, leftView);
+            cam.SetStereoViewMatrix(Camera.StereoscopicEye.Right, rightView);
+            cam.SetStereoProjectionMatrix(Camera.StereoscopicEye.Left, leftProj);
+            cam.SetStereoProjectionMatrix(Camera.StereoscopicEye.Right, rightProj);
         }
 
         void LateUpdate()

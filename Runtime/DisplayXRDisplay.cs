@@ -45,6 +45,7 @@ namespace DisplayXR
         {
             m_Camera = GetComponent<Camera>();
             m_Feature = DisplayXRFeature.Instance;
+            Camera.onPreRender += OnCameraPreRender;
 #if !UNITY_EDITOR
             if (m_Feature == null)
             {
@@ -52,6 +53,31 @@ namespace DisplayXR
                     "Enable it in Project Settings > XR Plug-in Management > OpenXR.");
             }
 #endif
+        }
+
+        void OnDisable()
+        {
+            Camera.onPreRender -= OnCameraPreRender;
+        }
+
+        void OnCameraPreRender(Camera cam)
+        {
+            if (cam != m_Camera || m_Feature == null) return;
+
+            if (!m_Feature.GetStereoMatrices(out Matrix4x4 leftView, out Matrix4x4 leftProj,
+                                              out Matrix4x4 rightView, out Matrix4x4 rightProj))
+                return;
+
+            // Flip projection Y for platforms where Unity expects it (Metal RenderTexture,
+            // etc.). This matches the standalone preview's RenderEyeToAtlas approach.
+            // In XR mode, SetStereoProjectionMatrix handles the flip internally on most
+            // platforms, so we only flip when rendering to a RenderTexture on Metal.
+            // For now, pass through unflipped — Unity's XR pipeline handles GL/clip convention.
+
+            cam.SetStereoViewMatrix(Camera.StereoscopicEye.Left, leftView);
+            cam.SetStereoViewMatrix(Camera.StereoscopicEye.Right, rightView);
+            cam.SetStereoProjectionMatrix(Camera.StereoscopicEye.Left, leftProj);
+            cam.SetStereoProjectionMatrix(Camera.StereoscopicEye.Right, rightProj);
         }
 
 #if UNITY_EDITOR

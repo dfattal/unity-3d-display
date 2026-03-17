@@ -197,6 +197,15 @@ hooked_xrLocateViews(XrSession session,
 		views[0].pose.orientation = scene_pose.orientation;
 		views[1].pose.orientation = scene_pose.orientation;
 
+		// Store Kooima matrices for C# stereo override
+		DisplayXRStereoMatrices mats = {};
+		memcpy(mats.left_view, cam_left.view_matrix, sizeof(float) * 16);
+		memcpy(mats.left_projection, cam_left.projection_matrix, sizeof(float) * 16);
+		memcpy(mats.right_view, cam_right.view_matrix, sizeof(float) * 16);
+		memcpy(mats.right_projection, cam_right.projection_matrix, sizeof(float) * 16);
+		mats.valid = 1;
+		displayxr_state_set_stereo_matrices(&mats);
+
 		if (s_cam_log % 60 == 1) {
 			fprintf(stderr, "[DisplayXR] OUTPUT L: eye_world=(%.3f,%.3f,%.3f) "
 			        "fov=(L=%.1f R=%.1f U=%.1f D=%.1f)\n",
@@ -237,6 +246,15 @@ hooked_xrLocateViews(XrSession session,
 		views[1].pose.position = disp_right.eye_world;
 		views[0].pose.orientation = scene_pose.orientation;
 		views[1].pose.orientation = scene_pose.orientation;
+
+		// Store Kooima matrices for C# stereo override
+		DisplayXRStereoMatrices mats = {};
+		memcpy(mats.left_view, disp_left.view_matrix, sizeof(float) * 16);
+		memcpy(mats.left_projection, disp_left.projection_matrix, sizeof(float) * 16);
+		memcpy(mats.right_view, disp_right.view_matrix, sizeof(float) * 16);
+		memcpy(mats.right_projection, disp_right.projection_matrix, sizeof(float) * 16);
+		mats.valid = 1;
+		displayxr_state_set_stereo_matrices(&mats);
 	}
 
 	// Debug: log every 60 frames (AFTER writeback so we see final values)
