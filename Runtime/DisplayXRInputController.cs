@@ -20,7 +20,7 @@ namespace DisplayXR
     {
         [Header("Movement")]
         [Tooltip("Movement speed in meters per second.")]
-        public float moveSpeed = 0.1f;
+        public float moveSpeed = 1.0f;
 
         [Tooltip("Mouse rotation sensitivity (radians per pixel).")]
         public float rotationSensitivity = 0.005f;
@@ -58,12 +58,17 @@ namespace DisplayXR
             m_InitialScale = transform.localScale;
         }
 
+        // Rendering mode cycling
+        private int m_CurrentRenderingMode = 1;
+
         void Update()
         {
             HandleMouseRotation();
             HandleKeyboardMovement();
             HandleScrollZoom();
             HandleReset();
+            HandleQuit();
+            HandleModeCycle();
         }
 
         private void HandleMouseRotation()
@@ -95,8 +100,8 @@ namespace DisplayXR
         private void HandleKeyboardMovement()
         {
             Vector3 move = Vector3.zero;
-            if (GetKey(KeyCode.W)) move += transform.forward;
-            if (GetKey(KeyCode.S)) move -= transform.forward;
+            if (GetKey(KeyCode.W)) move -= transform.forward;
+            if (GetKey(KeyCode.S)) move += transform.forward;
             if (GetKey(KeyCode.D)) move += transform.right;
             if (GetKey(KeyCode.A)) move -= transform.right;
             if (GetKey(KeyCode.E)) move += transform.up;
@@ -131,6 +136,22 @@ namespace DisplayXR
             }
         }
 
+        private void HandleQuit()
+        {
+            if (GetKeyDown(KeyCode.Escape))
+                Application.Quit();
+        }
+
+        private void HandleModeCycle()
+        {
+            if (!GetKeyDown(KeyCode.V)) return;
+
+            // Toggle 2D/3D via the non-standalone API (works in built apps)
+            m_CurrentRenderingMode = m_CurrentRenderingMode == 0 ? 1 : 0;
+            DisplayXRNative.displayxr_request_display_mode(m_CurrentRenderingMode);
+            Debug.Log($"[DisplayXR] Display mode → {(m_CurrentRenderingMode == 0 ? "2D" : "3D")}");
+        }
+
         // --- Input abstraction (Input System vs Legacy) ---
 
 #if HAS_INPUT_SYSTEM
@@ -162,6 +183,8 @@ namespace DisplayXR
                 case KeyCode.Q: return Key.Q;
                 case KeyCode.E: return Key.E;
                 case KeyCode.Space: return Key.Space;
+                case KeyCode.Escape: return Key.Escape;
+                case KeyCode.V: return Key.V;
                 default: return Key.None;
             }
         }

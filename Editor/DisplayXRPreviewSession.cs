@@ -104,13 +104,14 @@ namespace DisplayXR.Editor
                     break;
 
                 case PlayModeStateChange.EnteredPlayMode:
-                    // Play mode is now active — start preview if needed and focus window
+                    // Play mode is now active — start preview if needed
                     // (domain reload has wiped static fields, so read from SessionState)
                     if (SessionState.GetBool(kPlayModeStartedKey, false) && !IsRunning)
                     {
                         Start();
                     }
-                    FocusPreviewWindow();
+                    // Don't focus the preview window — let Game View keep focus
+                    // so DisplayXRGameViewOverlay can receive input
                     break;
 
                 case PlayModeStateChange.ExitingPlayMode:
@@ -672,6 +673,16 @@ namespace DisplayXR.Editor
                 RestoreSelection();
 
             Camera cam = s_SelectedSourceCamera;
+
+            // In play mode, the Game View overlay may override the source camera
+            // based on which Display is selected in the Game View toolbar
+            if (Application.isPlaying)
+            {
+                var overrideCam = DisplayXRGameViewOverlay.ActiveCamera;
+                if (overrideCam != null)
+                    cam = overrideCam;
+            }
+
             if (cam == null) return;
 
             var displayRig = cam.GetComponent<DisplayXRDisplay>();

@@ -86,8 +86,6 @@ namespace DisplayXR
 
         void LateUpdate()
         {
-            try { if (Input.GetKeyDown(KeyCode.Escape)) Application.Quit(); }
-            catch (System.InvalidOperationException) { }
 
             if (m_Feature == null)
             {
