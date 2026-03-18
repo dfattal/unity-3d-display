@@ -110,8 +110,8 @@ namespace DisplayXR
             Vector3 up = ori * Vector3.up;
 
             Vector3 move = Vector3.zero;
-            if (GetKey(KeyCode.W)) move -= fwd;
-            if (GetKey(KeyCode.S)) move += fwd;
+            if (GetKey(KeyCode.W)) move += fwd;
+            if (GetKey(KeyCode.S)) move -= fwd;
             if (GetKey(KeyCode.D)) move += rt;
             if (GetKey(KeyCode.A)) move -= rt;
             if (GetKey(KeyCode.E)) move += up;
