@@ -482,6 +482,16 @@ namespace DisplayXR.Editor
             Matrix4x4 view = ColumnMajorToMatrix4x4(viewMat);
             Matrix4x4 proj = ColumnMajorToMatrix4x4(projMat);
 
+            // Convert view matrix from OpenXR convention (right-hand, -Z forward) to
+            // Unity world convention (left-hand, +Z forward) by negating column 2.
+            // Without this, the camera ends up on the wrong side of the display:
+            // at +Z looking toward -Z instead of at -Z looking toward +Z.
+            // This causes incorrect lighting (back-lit instead of front-lit).
+            view.m02 = -view.m02;
+            view.m12 = -view.m12;
+            view.m22 = -view.m22;
+            view.m32 = -view.m32;
+
             // Flip projection Y: Metal RenderTextures are Y-inverted and Unity
             // doesn't auto-correct when projectionMatrix is set manually.
             proj.m10 = -proj.m10;
