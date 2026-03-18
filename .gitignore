@@ -1,5 +1,6 @@
 # Native build artifacts
 native~/build/
+native~/build-*/
 native~/cmake-build-*/
 
 # OS files
@@ -9,6 +10,8 @@ Thumbs.db
 # Runtime logs
 displayxr.log
 displayxr.log.meta
+displayxr-app.log
+displayxr-app.log.meta
 
 # IDE
 .idea/
