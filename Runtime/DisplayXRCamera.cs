@@ -78,10 +78,25 @@ namespace DisplayXR
                                               out Matrix4x4 rightView, out Matrix4x4 rightProj))
                 return;
 
+            // Convert view matrices from OpenXR convention (right-hand, -Z forward) to
+            // Unity world convention (left-hand, +Z forward) by negating column 2.
+            leftView = FlipViewZ(leftView);
+            rightView = FlipViewZ(rightView);
+
             cam.SetStereoViewMatrix(Camera.StereoscopicEye.Left, leftView);
             cam.SetStereoViewMatrix(Camera.StereoscopicEye.Right, rightView);
             cam.SetStereoProjectionMatrix(Camera.StereoscopicEye.Left, leftProj);
             cam.SetStereoProjectionMatrix(Camera.StereoscopicEye.Right, rightProj);
+        }
+
+        /// <summary>Negate column 2 (Z) of a view matrix to convert OpenXR → Unity world handedness.</summary>
+        static Matrix4x4 FlipViewZ(Matrix4x4 m)
+        {
+            m.m02 = -m.m02;
+            m.m12 = -m.m12;
+            m.m22 = -m.m22;
+            m.m32 = -m.m32;
+            return m;
         }
 
         void LateUpdate()

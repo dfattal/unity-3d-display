@@ -99,13 +99,23 @@ namespace DisplayXR
 
         private void HandleKeyboardMovement()
         {
+            // Compute direction vectors from stored yaw/pitch, NOT from transform.
+            // In XR mode, Unity's XR subsystem overwrites the camera transform each
+            // frame with the tracked eye pose — reading transform.forward/right/up
+            // gives the XR-modified orientation, not the controller's intended one.
+            // This matches the reference test app (input_handler.cpp:UpdateCameraMovement).
+            Quaternion ori = Quaternion.Euler(m_Pitch * Mathf.Rad2Deg, m_Yaw * Mathf.Rad2Deg, 0f);
+            Vector3 fwd = ori * Vector3.forward;
+            Vector3 rt = ori * Vector3.right;
+            Vector3 up = ori * Vector3.up;
+
             Vector3 move = Vector3.zero;
-            if (GetKey(KeyCode.W)) move -= transform.forward;
-            if (GetKey(KeyCode.S)) move += transform.forward;
-            if (GetKey(KeyCode.D)) move += transform.right;
-            if (GetKey(KeyCode.A)) move -= transform.right;
-            if (GetKey(KeyCode.E)) move += transform.up;
-            if (GetKey(KeyCode.Q)) move -= transform.up;
+            if (GetKey(KeyCode.W)) move -= fwd;
+            if (GetKey(KeyCode.S)) move += fwd;
+            if (GetKey(KeyCode.D)) move += rt;
+            if (GetKey(KeyCode.A)) move -= rt;
+            if (GetKey(KeyCode.E)) move += up;
+            if (GetKey(KeyCode.Q)) move -= up;
 
             if (move.sqrMagnitude > 0f)
                 transform.position += move.normalized * moveSpeed * Time.deltaTime;

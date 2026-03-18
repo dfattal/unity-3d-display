@@ -68,16 +68,26 @@ namespace DisplayXR
                                               out Matrix4x4 rightView, out Matrix4x4 rightProj))
                 return;
 
-            // Flip projection Y for platforms where Unity expects it (Metal RenderTexture,
-            // etc.). This matches the standalone preview's RenderEyeToAtlas approach.
-            // In XR mode, SetStereoProjectionMatrix handles the flip internally on most
-            // platforms, so we only flip when rendering to a RenderTexture on Metal.
-            // For now, pass through unflipped — Unity's XR pipeline handles GL/clip convention.
+            // Convert view matrices from OpenXR convention (right-hand, -Z forward) to
+            // Unity world convention (left-hand, +Z forward) by negating column 2.
+            // Without this, Unity objects at +Z end up behind the camera → black screen.
+            leftView = FlipViewZ(leftView);
+            rightView = FlipViewZ(rightView);
 
             cam.SetStereoViewMatrix(Camera.StereoscopicEye.Left, leftView);
             cam.SetStereoViewMatrix(Camera.StereoscopicEye.Right, rightView);
             cam.SetStereoProjectionMatrix(Camera.StereoscopicEye.Left, leftProj);
             cam.SetStereoProjectionMatrix(Camera.StereoscopicEye.Right, rightProj);
+        }
+
+        /// <summary>Negate column 2 (Z) of a view matrix to convert OpenXR → Unity world handedness.</summary>
+        static Matrix4x4 FlipViewZ(Matrix4x4 m)
+        {
+            m.m02 = -m.m02;
+            m.m12 = -m.m12;
+            m.m22 = -m.m22;
+            m.m32 = -m.m32;
+            return m;
         }
 
 #if UNITY_EDITOR
