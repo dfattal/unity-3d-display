@@ -68,6 +68,7 @@ namespace DisplayXR
             HandleScrollZoom();
             HandleReset();
             HandleQuit();
+            HandleFullscreen();
             HandleModeCycle();
         }
 
@@ -152,6 +153,12 @@ namespace DisplayXR
                 Application.Quit();
         }
 
+        private void HandleFullscreen()
+        {
+            if (GetKeyDown(KeyCode.F11))
+                Screen.fullScreen = !Screen.fullScreen;
+        }
+
         private void HandleModeCycle()
         {
             if (!GetKeyDown(KeyCode.V)) return;
@@ -195,6 +202,7 @@ namespace DisplayXR
                 case KeyCode.Space: return Key.Space;
                 case KeyCode.Escape: return Key.Escape;
                 case KeyCode.V: return Key.V;
+                case KeyCode.F11: return Key.F11;
                 default: return Key.None;
             }
         }

@@ -86,6 +86,8 @@ namespace DisplayXR
                 UpdateActiveCamera();
                 HandleModeKeys();
             }
+
+            HandleFullscreen();
         }
 
         void OnGUI()
@@ -279,6 +281,12 @@ namespace DisplayXR
             m_SharedNativePtr = IntPtr.Zero;
         }
 
+        private void HandleFullscreen()
+        {
+            if (GetKeyDown(KeyCode.F11))
+                Screen.fullScreen = !Screen.fullScreen;
+        }
+
         // ================================================================
         // Rendering mode hotkeys (V / 0-8)
         // ================================================================
@@ -386,6 +394,7 @@ namespace DisplayXR
                 case KeyCode.Alpha6: return Key.Digit6;
                 case KeyCode.Alpha7: return Key.Digit7;
                 case KeyCode.Alpha8: return Key.Digit8;
+                case KeyCode.F11: return Key.F11;
                 default: return Key.None;
             }
         }

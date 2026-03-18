@@ -13,6 +13,7 @@
 #endif
 #include <windows.h>
 #include <stdio.h>
+#include "displayxr_hooks.h"
 
 static HWND s_overlay_hwnd = NULL;
 static WNDPROC s_original_wndproc = NULL;
@@ -39,6 +40,8 @@ parent_subclass_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		int w = LOWORD(lParam);
 		int h = HIWORD(lParam);
 		SetWindowPos(s_overlay_hwnd, HWND_TOP, 0, 0, w, h, SWP_NOZORDER);
+		if (w > 0 && h > 0)
+			displayxr_set_viewport_size((uint32_t)w, (uint32_t)h);
 	}
 	return CallWindowProcW(s_original_wndproc, hwnd, msg, wParam, lParam);
 }
