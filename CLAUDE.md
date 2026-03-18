@@ -41,11 +41,20 @@ Copy built binary to `Runtime/Plugins/Windows/x64/` or `Runtime/Plugins/macOS/`.
 ### Cross-compiling for Windows on macOS
 
 ```bash
-cd native~
-mkdir build-win && cd build-win
-cmake .. -DCMAKE_TOOLCHAIN_FILE=../toolchain-mingw.cmake -DCMAKE_BUILD_TYPE=Release
-cmake --build . --config Release
+native~/build-win.sh
 ```
+
+This uses the MinGW toolchain (`toolchain-mingw.cmake`) to cross-compile and outputs `displayxr_unity.dll` directly to `Runtime/Plugins/Windows/x64/`.
+
+The macOS build script is similar:
+
+```bash
+native~/build-mac.sh
+```
+
+This builds a Universal binary (x86_64 + arm64) and outputs `displayxr_unity.bundle` to `Runtime/Plugins/macOS/`.
+
+**Claude Code: Always run both `native~/build-mac.sh` and `native~/build-win.sh` after modifying any file in `native~/`.** This keeps both platform binaries in sync locally.
 
 ## Key Architecture
 

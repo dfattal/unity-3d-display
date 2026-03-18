@@ -517,7 +517,12 @@ namespace DisplayXR.Editor
             cam.projectionMatrix = proj;
             cam.targetTexture = atlas;
             cam.pixelRect = new Rect(vpX, vpY, vpW, vpH);
+
+            // The view matrix Z-flip reverses the determinant, flipping triangle
+            // winding order. Invert culling so front faces render correctly.
+            GL.invertCulling = true;
             cam.Render();
+            GL.invertCulling = false;
         }
 
         private static void RefreshModeInfo()

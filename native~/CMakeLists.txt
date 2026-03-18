@@ -117,7 +117,9 @@ endif()
 if(WIN32)
     set(PLUGIN_OUTPUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Runtime/Plugins/Windows/x64")
     # Set per-config output dirs to prevent MSVC multi-config subdirectories
+    # PREFIX "" prevents MinGW from adding "lib" prefix (Unity expects displayxr_unity.dll)
     set_target_properties(displayxr_unity PROPERTIES
+        PREFIX ""
         RUNTIME_OUTPUT_DIRECTORY "${PLUGIN_OUTPUT_DIR}"
         RUNTIME_OUTPUT_DIRECTORY_RELEASE "${PLUGIN_OUTPUT_DIR}"
         RUNTIME_OUTPUT_DIRECTORY_DEBUG "${PLUGIN_OUTPUT_DIR}"
