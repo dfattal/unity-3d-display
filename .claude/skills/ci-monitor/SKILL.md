@@ -383,7 +383,36 @@ Run: `cd /Users/david.fattal/Documents/GitHub/unity-3d-display && git push origi
 
 ---
 
-## PHASE 4: REPORT SUCCESS
+## PHASE 4: DOWNLOAD ARTIFACTS AND REPORT SUCCESS
+
+### Step 4.1: Download Windows DLL from CI
+The CI builds the Windows DLL with MSVC — this is the canonical binary for the plugin.
+Download it and place it in the correct location:
+
+```bash
+cd /Users/david.fattal/Documents/GitHub/unity-3d-display
+rm -rf /tmp/displayxr-ci-artifacts
+gh run download -R dfattal/unity-3d-display RUN_ID -n displayxr_unity-windows-x64 -D /tmp/displayxr-ci-artifacts
+```
+
+Then copy the DLL to the plugin directory:
+```bash
+cp /tmp/displayxr-ci-artifacts/displayxr_unity.dll Runtime/Plugins/Windows/x64/displayxr_unity.dll
+```
+
+Verify it was placed correctly:
+```bash
+ls -la Runtime/Plugins/Windows/x64/displayxr_unity.dll
+```
+
+Clean up:
+```bash
+rm -rf /tmp/displayxr-ci-artifacts
+```
+
+**IMPORTANT:** Do NOT commit the downloaded DLL — it's a local-only artifact for the user's Unity editor to build Windows apps. The CI workflow handles binary distribution via the `upm` branch and releases.
+
+### Step 4.2: Report
 
 Run: `gh run view -R dfattal/unity-3d-display RUN_ID --json conclusion,databaseId,url,updatedAt`
 
@@ -394,7 +423,8 @@ Build completed successfully!
 - Pushed to: [branch]
 - Build: SUCCEEDED (run #RUN_ID)
 - URL: [workflow URL]
-- Artifacts: displayxr_unity-windows-x64 (DLL), displayxr_unity-macos (bundle)
+- Windows DLL: Downloaded from CI (MSVC) → Runtime/Plugins/Windows/x64/displayxr_unity.dll
+- macOS bundle: Built locally via build-mac.sh (already up to date)
 ```
 
 If there were fix attempts, add:

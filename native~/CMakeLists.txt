@@ -115,9 +115,15 @@ endif()
 
 # --- Install to Unity plugin directories ---
 if(WIN32)
-    set(PLUGIN_OUTPUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Runtime/Plugins/Windows/x64")
-    # Set per-config output dirs to prevent MSVC multi-config subdirectories
-    # PREFIX "" prevents MinGW from adding "lib" prefix (Unity expects displayxr_unity.dll)
+    # MinGW cross-compile: output stays in build dir (compile check only, not shipped)
+    # MSVC (CI): output goes to Unity plugin directory
+    if(MINGW)
+        set(PLUGIN_OUTPUT_DIR "${CMAKE_BINARY_DIR}")
+        target_link_options(displayxr_unity PRIVATE -static-libgcc -static-libstdc++ -static -lpthread)
+    else()
+        set(PLUGIN_OUTPUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Runtime/Plugins/Windows/x64")
+    endif()
+    # PREFIX "" prevents MinGW from adding "lib" prefix
     set_target_properties(displayxr_unity PROPERTIES
         PREFIX ""
         RUNTIME_OUTPUT_DIRECTORY "${PLUGIN_OUTPUT_DIR}"

@@ -38,23 +38,21 @@ Output: `displayxr_unity.dll` (Windows) or `libdisplayxr_unity.dylib` (macOS).
 
 Copy built binary to `Runtime/Plugins/Windows/x64/` or `Runtime/Plugins/macOS/`.
 
-### Cross-compiling for Windows on macOS
+### Local builds
 
-```bash
-native~/build-win.sh
-```
-
-This uses the MinGW toolchain (`toolchain-mingw.cmake`) to cross-compile and outputs `displayxr_unity.dll` directly to `Runtime/Plugins/Windows/x64/`.
-
-The macOS build script is similar:
-
+**macOS (native, produces shipping binary):**
 ```bash
 native~/build-mac.sh
 ```
+Builds Universal binary (x86_64 + arm64) → `Runtime/Plugins/macOS/displayxr_unity.bundle`.
 
-This builds a Universal binary (x86_64 + arm64) and outputs `displayxr_unity.bundle` to `Runtime/Plugins/macOS/`.
+**Windows (MinGW cross-compile, compile check only):**
+```bash
+native~/build-win.sh
+```
+Verifies the code compiles for Windows but the DLL stays in `build-win/` (MinGW ABI, not shipped). The real Windows DLL comes from CI (MSVC-built) and is downloaded automatically by `/ci-monitor` after a successful build.
 
-**Claude Code: Always run both `native~/build-mac.sh` and `native~/build-win.sh` after modifying any file in `native~/`.** This keeps both platform binaries in sync locally.
+**Claude Code: After modifying any file in `native~/`, always run `native~/build-mac.sh` to update the local macOS binary, then run `native~/build-win.sh` as a compile check. Use `/ci-monitor` to commit, push, build via CI, and download the MSVC-built Windows DLL into `Runtime/Plugins/Windows/x64/`.**
 
 ## Key Architecture
 
