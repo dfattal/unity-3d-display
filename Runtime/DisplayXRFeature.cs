@@ -154,16 +154,6 @@ namespace DisplayXR
         {
             Debug.Log("[DisplayXR] OpenXR session created");
 
-#if !UNITY_EDITOR
-            // In built apps, disable Unity's mirror/spectator present to the main window.
-            // The DisplayXR runtime compositor creates its own DXGI swap chain on the window
-            // for weaved 3D output. If Unity also presents to the same window, the two swap
-            // chains conflict and the runtime's weaved output is overwritten → black screen.
-            // This is critical for D3D11 where both share the same device.
-            UnityEngine.XR.XRSettings.gameViewRenderMode = UnityEngine.XR.GameViewRenderMode.None;
-            Debug.Log("[DisplayXR] Disabled mirror present (gameViewRenderMode = None)");
-#endif
-
             // Fallback: Unity's OnSystemChange is unreliable in some versions.
             // By session creation time, xrGetSystemProperties has definitely run
             // and our native hook has cached the display info + created the IOSurface.
