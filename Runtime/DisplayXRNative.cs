@@ -277,5 +277,6 @@ namespace DisplayXR
             [MarshalAs(UnmanagedType.LPArray)] float[] viewScaleX,
             [MarshalAs(UnmanagedType.LPArray)] float[] viewScaleY,
             [MarshalAs(UnmanagedType.LPArray)] int[] hardwareDisplay3D);
+
     }
 }

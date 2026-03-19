@@ -39,12 +39,13 @@ namespace DisplayXR
 
         void Start()
         {
-
-            // Ensure input works even when Game View doesn't have focus
-            // (e.g. when DisplayXR Preview window is focused instead)
             Application.runInBackground = true;
 #if HAS_INPUT_SYSTEM
             InputSystem.settings.backgroundBehavior = InputSettings.BackgroundBehavior.IgnoreFocus;
+#if UNITY_EDITOR
+            InputSystem.settings.editorInputBehaviorInPlayMode =
+                InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
+#endif
 #endif
 
             Vector3 euler = transform.eulerAngles;
@@ -86,7 +87,7 @@ namespace DisplayXR
             {
                 Vector2 pos = GetMousePosition();
                 Vector2 delta = pos - m_LastMousePos;
-                m_Yaw -= delta.x * rotationSensitivity;
+                m_Yaw += delta.x * rotationSensitivity;
                 m_Pitch -= delta.y * rotationSensitivity;
                 m_Pitch = Mathf.Clamp(m_Pitch, -1.4f, 1.4f);
                 m_LastMousePos = pos;
@@ -104,15 +105,14 @@ namespace DisplayXR
             // In XR mode, Unity's XR subsystem overwrites the camera transform each
             // frame with the tracked eye pose — reading transform.forward/right/up
             // gives the XR-modified orientation, not the controller's intended one.
-            // This matches the reference test app (input_handler.cpp:UpdateCameraMovement).
             Quaternion ori = Quaternion.Euler(m_Pitch * Mathf.Rad2Deg, m_Yaw * Mathf.Rad2Deg, 0f);
             Vector3 fwd = ori * Vector3.forward;
             Vector3 rt = ori * Vector3.right;
             Vector3 up = ori * Vector3.up;
 
             Vector3 move = Vector3.zero;
-            if (GetKey(KeyCode.W)) move -= fwd;
-            if (GetKey(KeyCode.S)) move += fwd;
+            if (GetKey(KeyCode.W)) move += fwd;
+            if (GetKey(KeyCode.S)) move -= fwd;
             if (GetKey(KeyCode.D)) move += rt;
             if (GetKey(KeyCode.A)) move -= rt;
             if (GetKey(KeyCode.E)) move += up;
@@ -169,7 +169,7 @@ namespace DisplayXR
             Debug.Log($"[DisplayXR] Display mode → {(m_CurrentRenderingMode == 0 ? "2D" : "3D")}");
         }
 
-        // --- Input abstraction (Input System vs Legacy) ---
+        // --- Input abstraction (keyboard + mouse) ---
 
 #if HAS_INPUT_SYSTEM
         private static bool GetKey(KeyCode k) =>
@@ -199,9 +199,9 @@ namespace DisplayXR
                 case KeyCode.D: return Key.D;
                 case KeyCode.Q: return Key.Q;
                 case KeyCode.E: return Key.E;
+                case KeyCode.V: return Key.V;
                 case KeyCode.Space: return Key.Space;
                 case KeyCode.Escape: return Key.Escape;
-                case KeyCode.V: return Key.V;
                 case KeyCode.F11: return Key.F11;
                 default: return Key.None;
             }

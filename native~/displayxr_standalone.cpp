@@ -1288,8 +1288,11 @@ displayxr_standalone_set_display_pose(
 	int enabled)
 {
 	if (enabled) {
-		s_sa.display_pose.position = XrVector3f{pos_x, pos_y, pos_z};
-		s_sa.display_pose.orientation = XrQuaternionf{ori_x, ori_y, ori_z, ori_w};
+		// Convert Unity coords (left-hand, +Z forward) to OpenXR (right-hand, -Z forward):
+		// negate position Z, negate quaternion X/Y.
+		// Matches hooked_xrLocateViews convention in displayxr_hooks.cpp.
+		s_sa.display_pose.position = XrVector3f{pos_x, pos_y, -pos_z};
+		s_sa.display_pose.orientation = XrQuaternionf{-ori_x, -ori_y, ori_z, ori_w};
 		s_sa.display_pose_set = 1;
 		// scale is folded into virtual_display_height by C# side (like the hook chain)
 		(void)scale_x;
