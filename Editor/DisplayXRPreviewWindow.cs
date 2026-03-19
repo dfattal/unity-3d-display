@@ -30,16 +30,6 @@ namespace DisplayXR.Editor
         private string[] m_RenderingModeNames;
         private int m_CurrentRenderingMode = 1; // default to 3D (mode 1)
 
-        // Navigation input state
-        private const float kMoveSpeed = 0.1f;
-        private const float kRotSensitivity = 0.005f;
-        private const float kZoomSpeed = 0.1f;
-        private bool m_KeyW, m_KeyA, m_KeyS, m_KeyD, m_KeyQ, m_KeyE;
-        private bool m_Dragging;
-        private Vector2 m_LastMousePos;
-        private float m_NavYaw, m_NavPitch;
-        private bool m_NavInitialized;
-        private double m_LastNavTime;
 
         [MenuItem("Window/DisplayXR/Preview Window")]
         public static void ShowWindow()
@@ -127,10 +117,6 @@ namespace DisplayXR.Editor
 
         void OnGUI()
         {
-            // Release IMGUI keyboard focus so toolbar controls don't swallow key events
-            if (Event.current.type == EventType.KeyDown || Event.current.type == EventType.KeyUp)
-                GUIUtility.keyboardControl = 0;
-
             HandleKeyInput();
 
             // Toolbar
