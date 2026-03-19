@@ -366,6 +366,7 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 	}
 
 	// Log the graphics binding type Unity is using
+	bool is_d3d11 = false;
 	{
 		const XrBaseInStructure *item = (const XrBaseInStructure *)createInfo->next;
 		while (item != nullptr) {
@@ -373,6 +374,7 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 				fprintf(stderr, "[DisplayXR] Graphics binding: VULKAN (via MoltenVK on macOS)\n");
 			} else if (item->type == XR_TYPE_GRAPHICS_BINDING_D3D11_KHR) {
 				fprintf(stderr, "[DisplayXR] Graphics binding: D3D11\n");
+				is_d3d11 = true;
 			} else if (item->type == XR_TYPE_GRAPHICS_BINDING_D3D12_KHR) {
 				fprintf(stderr, "[DisplayXR] Graphics binding: D3D12\n");
 			} else {
@@ -416,7 +418,12 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 #elif defined(_WIN32)
 		// Auto-detect Unity's main HWND and create an overlay child window.
 		// Only for built apps — editor uses shared texture mode.
-		if (state->window_handle == nullptr && !state->editor_mode) {
+		// Skip for D3D11: Unity owns the window's DXGI swap chain and always
+		// presents to it, overwriting the runtime's weaved output → black screen.
+		// Let the runtime create its own fullscreen window instead.
+		if (is_d3d11) {
+			fprintf(stderr, "[DisplayXR] D3D11: skipping HWND injection — runtime will create own window\n");
+		} else if (state->window_handle == nullptr && !state->editor_mode) {
 			void *hwnd = displayxr_get_app_main_view();
 			if (hwnd != nullptr) {
 				state->window_handle = hwnd;
