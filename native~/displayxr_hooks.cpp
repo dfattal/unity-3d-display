@@ -906,9 +906,26 @@ displayxr_set_editor_mode(int enabled)
 	state->editor_mode = (uint8_t)(enabled != 0);
 }
 
+// When set, the native WM_SIZE handler is the sole source of viewport
+// dimensions.  C# LateUpdate calls (displayxr_set_viewport_size) become
+// no-ops to avoid overwriting the correct values with stale Screen.width/height
+// that lag one frame behind.
+static int s_native_viewport_active = 0;
+
 void
 displayxr_set_viewport_size(uint32_t width, uint32_t height)
 {
+	if (s_native_viewport_active)
+		return; // WM_SIZE is driving viewport — ignore C# push
+	DisplayXRState *state = displayxr_get_state();
+	state->viewport_width = width;
+	state->viewport_height = height;
+}
+
+void
+displayxr_set_viewport_size_native(uint32_t width, uint32_t height)
+{
+	s_native_viewport_active = 1;
 	DisplayXRState *state = displayxr_get_state();
 	state->viewport_width = width;
 	state->viewport_height = height;
