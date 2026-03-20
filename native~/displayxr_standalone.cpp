@@ -150,6 +150,10 @@ typedef struct StandaloneState {
 	float eye_positions[SA_MAX_VIEWS][3];
 	uint32_t located_view_count;
 
+	// Last computed Kooima views (from compute_views, used by submit_frame_atlas)
+	Display3DView computed_views[SA_MAX_VIEWS];
+	uint32_t computed_view_count;
+
 	// Frame state (stored between begin_frame and submit/end)
 	XrTime predicted_display_time;
 	int frame_begun;
@@ -1002,26 +1006,64 @@ displayxr_standalone_submit_frame_atlas(void *atlas_tex)
 	uint32_t eye_count, tile_cols, tile_rows, view_w, view_h;
 	get_mode_tiling(mode, &eye_count, &tile_cols, &tile_rows, &view_w, &view_h);
 
-	// Build N projection views with tiled viewports
-	XrCompositionLayerProjectionView proj_views[SA_MAX_VIEWS] = {};
-	uint32_t n_views = eye_count;
-	if (n_views > s_sa.located_view_count && s_sa.located_view_count > 0)
-		n_views = s_sa.located_view_count;
+	// Determine whether this is a 3D mode (hw3d) or 2D/mono
+	int display3D = mode ? (int)mode->hardwareDisplay3D : 1;
+	uint32_t n_views = display3D ? eye_count : 1;
 	if (n_views > SA_MAX_VIEWS) n_views = SA_MAX_VIEWS;
 
+	static int s_submit_log = 0;
+	if (s_submit_log++ % 120 == 0)
+		fprintf(stderr, "[DisplayXR-SA] submit_atlas: n_views=%u eye_count=%u display3D=%d "
+		        "tiles=%ux%u view=%ux%u mode_idx=%u located=%u\n",
+		        n_views, eye_count, display3D, tile_cols, tile_rows,
+		        view_w, view_h, s_sa.current_rendering_mode_index, s_sa.located_view_count);
+
+	// Build raw eye positions for submission (same duplication as compute_views)
+	XrVector3f raw_eyes[SA_MAX_VIEWS];
+	for (uint32_t i = 0; i < n_views; i++) {
+		uint32_t src = (i < s_sa.located_view_count) ? i : 0;
+		raw_eyes[i].x = s_sa.eye_positions[src][0];
+		raw_eyes[i].y = s_sa.eye_positions[src][1];
+		raw_eyes[i].z = s_sa.eye_positions[src][2];
+	}
+
+	// For mono mode, average all located eyes to center
+	if (!display3D && s_sa.located_view_count >= 2) {
+		float cx = 0, cy = 0, cz = 0;
+		for (uint32_t i = 0; i < s_sa.located_view_count; i++) {
+			cx += s_sa.eye_positions[i][0];
+			cy += s_sa.eye_positions[i][1];
+			cz += s_sa.eye_positions[i][2];
+		}
+		float inv = 1.0f / (float)s_sa.located_view_count;
+		raw_eyes[0].x = cx * inv;
+		raw_eyes[0].y = cy * inv;
+		raw_eyes[0].z = cz * inv;
+	}
+
+	// Build N projection views with tiled viewports
+	XrCompositionLayerProjectionView proj_views[SA_MAX_VIEWS] = {};
+
 	for (uint32_t eye = 0; eye < n_views; eye++) {
-		uint32_t tileX = eye % tile_cols;
-		uint32_t tileY = eye / tile_cols;
+		uint32_t tileX = display3D ? (eye % tile_cols) : 0;
+		uint32_t tileY = display3D ? (eye / tile_cols) : 0;
 
 		proj_views[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
-		proj_views[eye].pose.position.x = s_sa.eye_positions[eye][0];
-		proj_views[eye].pose.position.y = s_sa.eye_positions[eye][1];
-		proj_views[eye].pose.position.z = s_sa.eye_positions[eye][2];
-		proj_views[eye].pose.orientation = {0, 0, 0, 1};
-		proj_views[eye].fov.angleLeft = -0.5f;
-		proj_views[eye].fov.angleRight = 0.5f;
-		proj_views[eye].fov.angleUp = 0.3f;
-		proj_views[eye].fov.angleDown = -0.3f;
+
+		// Use Kooima-computed FOV + eye_world if available (matches test app)
+		if (eye < s_sa.computed_view_count) {
+			proj_views[eye].fov = s_sa.computed_views[eye].fov;
+			proj_views[eye].pose.position = s_sa.computed_views[eye].eye_world;
+			proj_views[eye].pose.orientation = s_sa.computed_views[eye].orientation;
+		} else {
+			proj_views[eye].pose.position = raw_eyes[eye];
+			proj_views[eye].pose.orientation = {0, 0, 0, 1};
+			proj_views[eye].fov.angleLeft = -0.5f;
+			proj_views[eye].fov.angleRight = 0.5f;
+			proj_views[eye].fov.angleUp = 0.3f;
+			proj_views[eye].fov.angleDown = -0.3f;
+		}
+
 		proj_views[eye].subImage.swapchain = s_sa.atlas.handle;
 		proj_views[eye].subImage.imageRect.offset = {
 			(int32_t)(tileX * view_w), (int32_t)(tileY * view_h)
@@ -1125,15 +1167,16 @@ displayxr_standalone_compute_stereo_views(float near_z, float far_z,
 	// Use stored display pose (from parent camera transform) or identity
 	XrPosef *pose_ptr = s_sa.display_pose_set ? &s_sa.display_pose : NULL;
 
-	Display3DStereoView out_left, out_right;
-	display3d_compute_stereo_views(
-		&raw_left, &raw_right, &nominal, &screen, &tunables,
-		pose_ptr, near_z, far_z, &out_left, &out_right);
+	XrVector3f raw_eyes[2] = {raw_left, raw_right};
+	Display3DView out_views[2];
+	display3d_compute_views(
+		raw_eyes, 2, &nominal, &screen, &tunables,
+		pose_ptr, near_z, far_z, out_views);
 
-	memcpy(left_view, out_left.view_matrix, 16 * sizeof(float));
-	memcpy(left_proj, out_left.projection_matrix, 16 * sizeof(float));
-	memcpy(right_view, out_right.view_matrix, 16 * sizeof(float));
-	memcpy(right_proj, out_right.projection_matrix, 16 * sizeof(float));
+	memcpy(left_view, out_views[0].view_matrix, 16 * sizeof(float));
+	memcpy(left_proj, out_views[0].projection_matrix, 16 * sizeof(float));
+	memcpy(right_view, out_views[1].view_matrix, 16 * sizeof(float));
+	memcpy(right_proj, out_views[1].projection_matrix, 16 * sizeof(float));
 	*valid = 1;
 
 	static int s_log_count = 0;
@@ -1171,7 +1214,14 @@ displayxr_standalone_compute_views(
 	int *valid)
 {
 	*valid = 0;
-	if (!s_sa.display_info.is_valid || view_count == 0) return;
+	static int s_cv_log = 0;
+
+	if (!s_sa.display_info.is_valid || view_count == 0) {
+		if (s_cv_log++ % 60 == 0)
+			fprintf(stderr, "[DisplayXR-SA] compute_views SKIP: di_valid=%d view_count=%u\n",
+			        s_sa.display_info.is_valid, view_count);
+		return;
+	}
 
 	Display3DScreen screen = {
 		s_sa.display_info.display_width_meters,
@@ -1190,39 +1240,39 @@ displayxr_standalone_compute_views(
 		s_sa.display_info.nominal_viewer_z
 	};
 
-	// Process views in pairs using display3d_compute_stereo_views
+	// Build raw eye positions for all requested views.
+	// If mode needs more views than xrLocateViews returned (e.g. quad=4
+	// but PRIMARY_STEREO=2), duplicate views[0] for extras — matches the
+	// reference test app.
+	XrVector3f raw_eyes[SA_MAX_VIEWS];
 	uint32_t n = view_count;
-	if (n > s_sa.located_view_count && s_sa.located_view_count > 0)
-		n = s_sa.located_view_count;
+	if (n > SA_MAX_VIEWS) n = SA_MAX_VIEWS;
 
-	for (uint32_t i = 0; i < n; i += 2) {
-		uint32_t li = i;
-		uint32_t ri = (i + 1 < n) ? i + 1 : i; // duplicate last if odd
-
-		XrVector3f raw_left = {
-			s_sa.eye_positions[li][0],
-			s_sa.eye_positions[li][1],
-			s_sa.eye_positions[li][2]
-		};
-		XrVector3f raw_right = {
-			s_sa.eye_positions[ri][0],
-			s_sa.eye_positions[ri][1],
-			s_sa.eye_positions[ri][2]
-		};
-
-		Display3DStereoView out_left, out_right;
-		display3d_compute_stereo_views(
-			&raw_left, &raw_right, &nominal, &screen, &tunables,
-			pose_ptr, near_z, far_z, &out_left, &out_right);
-
-		memcpy(&view_matrices[li * 16], out_left.view_matrix, 16 * sizeof(float));
-		memcpy(&proj_matrices[li * 16], out_left.projection_matrix, 16 * sizeof(float));
-
-		if (ri != li) {
-			memcpy(&view_matrices[ri * 16], out_right.view_matrix, 16 * sizeof(float));
-			memcpy(&proj_matrices[ri * 16], out_right.projection_matrix, 16 * sizeof(float));
-		}
+	for (uint32_t i = 0; i < n; i++) {
+		uint32_t src = (i < s_sa.located_view_count) ? i : 0;
+		raw_eyes[i].x = s_sa.eye_positions[src][0];
+		raw_eyes[i].y = s_sa.eye_positions[src][1];
+		raw_eyes[i].z = s_sa.eye_positions[src][2];
 	}
+
+	// Compute all N views via the N-view Kooima library
+	Display3DView out_views[SA_MAX_VIEWS];
+	display3d_compute_views(
+		raw_eyes, n, &nominal, &screen, &tunables,
+		pose_ptr, near_z, far_z, out_views);
+
+	for (uint32_t i = 0; i < n; i++) {
+		memcpy(&view_matrices[i * 16], out_views[i].view_matrix, 16 * sizeof(float));
+		memcpy(&proj_matrices[i * 16], out_views[i].projection_matrix, 16 * sizeof(float));
+	}
+
+	// Cache computed views for submit_frame_atlas (FOV + eye_world)
+	memcpy(s_sa.computed_views, out_views, n * sizeof(Display3DView));
+	s_sa.computed_view_count = n;
+
+	if (s_cv_log++ % 120 == 0)
+		fprintf(stderr, "[DisplayXR-SA] compute_views OK: n=%u located=%u tunables_set=%d pose_set=%d\n",
+		        n, s_sa.located_view_count, s_sa.tunables_set, s_sa.display_pose_set);
 
 	*valid = 1;
 }

@@ -376,6 +376,11 @@ namespace DisplayXR.Editor
                 (uint)nViews, s_NearZ, s_FarZ,
                 viewMats, projMats, out int matricesValid);
 
+            if (s_FrameCount % 120 == 0)
+                Debug.Log($"[DisplayXR-SA] Frame {s_FrameCount}: nViews={nViews} valid={matricesValid} " +
+                    $"cams={s_EyeCams?.Length} atlas={s_AtlasRT != null} " +
+                    $"tiles={s_TileColumns}x{s_TileRows} viewPx={s_ViewWidth}x{s_ViewHeight}");
+
             if (matricesValid != 0 && s_EyeCams != null && s_AtlasRT != null)
             {
                 s_FrameCount++;
@@ -689,6 +694,20 @@ namespace DisplayXR.Editor
         private static void CloneSourceCameraSettings(Camera source)
         {
             if (s_EyeCams == null) return;
+
+            // The source camera may have been suppressed by GameViewOverlay
+            // (cullingMask=0, clearFlags=SolidColor, bg=black). Save and
+            // temporarily restore before cloning so eye cameras render the scene.
+            int savedMask = source.cullingMask;
+            CameraClearFlags savedClear = source.clearFlags;
+            Color savedBg = source.backgroundColor;
+            bool suppressed = savedMask == 0;
+            if (suppressed)
+            {
+                source.cullingMask = -1; // Everything
+                source.clearFlags = CameraClearFlags.Skybox;
+            }
+
             foreach (var cam in s_EyeCams)
             {
                 if (cam == null) continue;
@@ -696,6 +715,14 @@ namespace DisplayXR.Editor
                 cam.enabled = false;
                 cam.targetTexture = s_AtlasRT;
                 cam.allowHDR = false;
+            }
+
+            // Restore suppression on the source camera
+            if (suppressed)
+            {
+                source.cullingMask = savedMask;
+                source.clearFlags = savedClear;
+                source.backgroundColor = savedBg;
             }
         }
 

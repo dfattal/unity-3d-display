@@ -181,37 +181,38 @@ hooked_xrLocateViews(XrSession session,
 		cam_tunables.inv_convergence_distance = tunables.inv_convergence_distance;
 		cam_tunables.half_tan_vfov = tunables.fov_override;
 
-		Camera3DStereoView cam_left, cam_right;
-		camera3d_compute_stereo_views(
-			&raw_left, &raw_right,
+		XrVector3f raw_eyes[2] = {raw_left, raw_right};
+		Camera3DView cam_views[2];
+		camera3d_compute_views(
+			raw_eyes, 2,
 			&nominal, &screen, &cam_tunables,
 			&scene_pose,
 			tunables.near_z, tunables.far_z,
-			&cam_left, &cam_right);
+			cam_views);
 
-		views[0].fov = cam_left.fov;
-		views[1].fov = cam_right.fov;
+		views[0].fov = cam_views[0].fov;
+		views[1].fov = cam_views[1].fov;
 
-		views[0].pose.position = cam_left.eye_world;
-		views[1].pose.position = cam_right.eye_world;
+		views[0].pose.position = cam_views[0].eye_world;
+		views[1].pose.position = cam_views[1].eye_world;
 		views[0].pose.orientation = scene_pose.orientation;
 		views[1].pose.orientation = scene_pose.orientation;
 
 		// Store Kooima matrices for C# stereo override
 		DisplayXRStereoMatrices mats = {};
-		memcpy(mats.left_view, cam_left.view_matrix, sizeof(float) * 16);
-		memcpy(mats.left_projection, cam_left.projection_matrix, sizeof(float) * 16);
-		memcpy(mats.right_view, cam_right.view_matrix, sizeof(float) * 16);
-		memcpy(mats.right_projection, cam_right.projection_matrix, sizeof(float) * 16);
+		memcpy(mats.left_view, cam_views[0].view_matrix, sizeof(float) * 16);
+		memcpy(mats.left_projection, cam_views[0].projection_matrix, sizeof(float) * 16);
+		memcpy(mats.right_view, cam_views[1].view_matrix, sizeof(float) * 16);
+		memcpy(mats.right_projection, cam_views[1].projection_matrix, sizeof(float) * 16);
 		mats.valid = 1;
 		displayxr_state_set_stereo_matrices(&mats);
 
 		if (s_cam_log % 60 == 1) {
 			fprintf(stderr, "[DisplayXR] OUTPUT L: eye_world=(%.3f,%.3f,%.3f) "
 			        "fov=(L=%.1f R=%.1f U=%.1f D=%.1f)\n",
-			        cam_left.eye_world.x, cam_left.eye_world.y, cam_left.eye_world.z,
-			        cam_left.fov.angleLeft * 57.2958f, cam_left.fov.angleRight * 57.2958f,
-			        cam_left.fov.angleUp * 57.2958f, cam_left.fov.angleDown * 57.2958f);
+			        cam_views[0].eye_world.x, cam_views[0].eye_world.y, cam_views[0].eye_world.z,
+			        cam_views[0].fov.angleLeft * 57.2958f, cam_views[0].fov.angleRight * 57.2958f,
+			        cam_views[0].fov.angleUp * 57.2958f, cam_views[0].fov.angleDown * 57.2958f);
 		}
 	} else {
 		// Display-centric: atan-based Kooima (display3d_view library)
@@ -232,27 +233,28 @@ hooked_xrLocateViews(XrSession session,
 		disp_tunables.perspective_factor = tunables.perspective_factor;
 		disp_tunables.virtual_display_height = vdh;
 
-		Display3DStereoView disp_left, disp_right;
-		display3d_compute_stereo_views(
-			&raw_left, &raw_right,
+		XrVector3f raw_eyes[2] = {raw_left, raw_right};
+		Display3DView disp_views[2];
+		display3d_compute_views(
+			raw_eyes, 2,
 			&nominal, &screen, &disp_tunables,
 			scene_xform.enabled ? &scene_pose : NULL,
 			tunables.near_z, tunables.far_z,
-			&disp_left, &disp_right);
+			disp_views);
 
-		views[0].fov = disp_left.fov;
-		views[1].fov = disp_right.fov;
-		views[0].pose.position = disp_left.eye_world;
-		views[1].pose.position = disp_right.eye_world;
+		views[0].fov = disp_views[0].fov;
+		views[1].fov = disp_views[1].fov;
+		views[0].pose.position = disp_views[0].eye_world;
+		views[1].pose.position = disp_views[1].eye_world;
 		views[0].pose.orientation = scene_pose.orientation;
 		views[1].pose.orientation = scene_pose.orientation;
 
 		// Store Kooima matrices for C# stereo override
 		DisplayXRStereoMatrices mats = {};
-		memcpy(mats.left_view, disp_left.view_matrix, sizeof(float) * 16);
-		memcpy(mats.left_projection, disp_left.projection_matrix, sizeof(float) * 16);
-		memcpy(mats.right_view, disp_right.view_matrix, sizeof(float) * 16);
-		memcpy(mats.right_projection, disp_right.projection_matrix, sizeof(float) * 16);
+		memcpy(mats.left_view, disp_views[0].view_matrix, sizeof(float) * 16);
+		memcpy(mats.left_projection, disp_views[0].projection_matrix, sizeof(float) * 16);
+		memcpy(mats.right_view, disp_views[1].view_matrix, sizeof(float) * 16);
+		memcpy(mats.right_projection, disp_views[1].projection_matrix, sizeof(float) * 16);
 		mats.valid = 1;
 		displayxr_state_set_stereo_matrices(&mats);
 	}

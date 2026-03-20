@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BSL-1.0
 /*!
  * @file
- * @brief  Camera-centric stereo view math for 3D displays
+ * @brief  Camera-centric multiview math for 3D displays
  *
  * Companion to display3d_view.h. Instead of scaling a physical display into
  * virtual app-space, the app defines a virtual camera (position, orientation,
@@ -10,6 +10,8 @@
  *
  * Both abstractions share the same double-duty pattern: a single post-IPD/parallax
  * eye displacement feeds both the view matrix and the projection.
+ *
+ * See also: docs/architecture/stereo3d-math.md for full pipeline derivation.
  *
  * The tunables struct takes half_tan_vfov = tan(vFOV/2) rather than the angle:
  *   - Zoom is trivial: half_tan_vfov / zoom_factor (no trig round-trip)
@@ -37,18 +39,18 @@ typedef struct Camera3DTunables {
 	float half_tan_vfov;             //!< tan(vFOV/2) — divide by zoom at call site
 } Camera3DTunables;
 
-typedef struct Camera3DStereoView {
+typedef struct Camera3DView {
 	float view_matrix[16];       //!< Column-major 4x4 (per-eye: eye displaced in world space)
 	float projection_matrix[16]; //!< Column-major 4x4 asymmetric frustum (per-eye)
 	XrFovf fov;                  //!< Asymmetric FOV angles in radians (per-eye)
 	XrVector3f eye_world;        //!< Eye position in world space
 	XrQuaternionf orientation;   //!< Camera orientation (same for both eyes)
-} Camera3DStereoView;
+} Camera3DView;
 
 // --- Functions ---
 
 /*!
- * All-in-one: compute camera-centric stereo view+projection from raw eye tracking data.
+ * All-in-one: compute camera-centric 3D view+projection from raw eye tracking data.
  *
  * Pipeline:
  *   1. Apply IPD factor + parallax factor (reuses display3d_apply_eye_factors)
@@ -60,28 +62,51 @@ typedef struct Camera3DStereoView {
  *   7. Build projection matrix from tangent half-angles + near/far
  *   8. Convert tangents to XrFovf angles
  *
- * @param raw_left       Raw left eye in DISPLAY space (from xrLocateViews)
- * @param raw_right      Raw right eye in DISPLAY space (from xrLocateViews)
+ * @param raw_eyes       Array of N raw eye positions in DISPLAY space (from xrLocateViews)
+ * @param count          Number of views (must be >= 1)
  * @param nominal_viewer Nominal viewer position in DISPLAY space (or NULL for {0,0,0.5})
  * @param screen         Physical screen dimensions (used for aspect ratio)
  * @param tunables       Camera tunables (or NULL for defaults)
  * @param camera_pose    Camera pose in world space (or NULL for identity)
  * @param near_z         Near clip plane distance
  * @param far_z          Far clip plane distance
- * @param out_left       Output left eye view
- * @param out_right      Output right eye view
+ * @param out_views      Output array of N views
  */
 void
-camera3d_compute_stereo_views(const XrVector3f *raw_left,
-                              const XrVector3f *raw_right,
+camera3d_compute_views(const XrVector3f *raw_eyes,
+                              uint32_t count,
                               const XrVector3f *nominal_viewer,
                               const Display3DScreen *screen,
                               const Camera3DTunables *tunables,
                               const XrPosef *camera_pose,
                               float near_z,
                               float far_z,
-                              Camera3DStereoView *out_left,
-                              Camera3DStereoView *out_right);
+                              Camera3DView *out_views);
+
+/*!
+ * Compute camera-centric view+projection for a single eye.
+ *
+ * Takes a pre-processed eye position (after display3d_apply_eye_factors) and
+ * computes view matrix, projection matrix, FOV, and world-space eye position.
+ *
+ * @param processed_eye  Processed eye position (after apply_eye_factors)
+ * @param nominal_z      Nominal viewer Z distance (e.g. 0.5)
+ * @param screen         Physical screen dimensions (for aspect ratio)
+ * @param tunables       Camera tunables (or NULL for defaults)
+ * @param camera_pose    Camera pose in world space (or NULL for identity)
+ * @param near_z         Near clip plane distance
+ * @param far_z          Far clip plane distance
+ * @param out            Output view for this eye
+ */
+void
+camera3d_compute_view(const XrVector3f *processed_eye,
+                      float nominal_z,
+                      const Display3DScreen *screen,
+                      const Camera3DTunables *tunables,
+                      const XrPosef *camera_pose,
+                      float near_z,
+                      float far_z,
+                      Camera3DView *out);
 
 /*!
  * Default camera tunables: ipd=1, parallax=1, invd=1, half_tan=tan(18deg) (~36deg vFOV).
