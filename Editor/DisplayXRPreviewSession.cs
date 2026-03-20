@@ -376,11 +376,6 @@ namespace DisplayXR.Editor
                 (uint)nViews, s_NearZ, s_FarZ,
                 viewMats, projMats, out int matricesValid);
 
-            if (s_FrameCount % 120 == 0)
-                Debug.Log($"[DisplayXR-SA] Frame {s_FrameCount}: nViews={nViews} valid={matricesValid} " +
-                    $"cams={s_EyeCams?.Length} atlas={s_AtlasRT != null} " +
-                    $"tiles={s_TileColumns}x{s_TileRows} viewPx={s_ViewWidth}x{s_ViewHeight}");
-
             if (matricesValid != 0 && s_EyeCams != null && s_AtlasRT != null)
             {
                 s_FrameCount++;

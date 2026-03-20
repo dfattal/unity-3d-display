@@ -1011,12 +1011,6 @@ displayxr_standalone_submit_frame_atlas(void *atlas_tex)
 	uint32_t n_views = display3D ? eye_count : 1;
 	if (n_views > SA_MAX_VIEWS) n_views = SA_MAX_VIEWS;
 
-	static int s_submit_log = 0;
-	if (s_submit_log++ % 120 == 0)
-		fprintf(stderr, "[DisplayXR-SA] submit_atlas: n_views=%u eye_count=%u display3D=%d "
-		        "tiles=%ux%u view=%ux%u mode_idx=%u located=%u\n",
-		        n_views, eye_count, display3D, tile_cols, tile_rows,
-		        view_w, view_h, s_sa.current_rendering_mode_index, s_sa.located_view_count);
 
 	// Build raw eye positions for submission (same duplication as compute_views)
 	XrVector3f raw_eyes[SA_MAX_VIEWS];
@@ -1214,14 +1208,7 @@ displayxr_standalone_compute_views(
 	int *valid)
 {
 	*valid = 0;
-	static int s_cv_log = 0;
-
-	if (!s_sa.display_info.is_valid || view_count == 0) {
-		if (s_cv_log++ % 60 == 0)
-			fprintf(stderr, "[DisplayXR-SA] compute_views SKIP: di_valid=%d view_count=%u\n",
-			        s_sa.display_info.is_valid, view_count);
-		return;
-	}
+	if (!s_sa.display_info.is_valid || view_count == 0) return;
 
 	Display3DScreen screen = {
 		s_sa.display_info.display_width_meters,
@@ -1269,10 +1256,6 @@ displayxr_standalone_compute_views(
 	// Cache computed views for submit_frame_atlas (FOV + eye_world)
 	memcpy(s_sa.computed_views, out_views, n * sizeof(Display3DView));
 	s_sa.computed_view_count = n;
-
-	if (s_cv_log++ % 120 == 0)
-		fprintf(stderr, "[DisplayXR-SA] compute_views OK: n=%u located=%u tunables_set=%d pose_set=%d\n",
-		        n, s_sa.located_view_count, s_sa.tunables_set, s_sa.display_pose_set);
 
 	*valid = 1;
 }
