@@ -188,10 +188,35 @@ namespace DisplayXR.Editor
                 GUIContent.none, GUIStyle.none,
                 GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
 
+            // Canvas = preview area in backing pixels (Retina-aware)
+            float ppp = EditorGUIUtility.pixelsPerPoint;
+            uint canvasW = (uint)(previewRect.width * ppp);
+            uint canvasH = (uint)(previewRect.height * ppp);
+
+            // Tell the runtime where the canvas is (screen position + size)
+            if (DisplayXRPreviewSession.IsRunning)
+            {
+                Rect winPos = position;
+                int screenX = (int)((winPos.x + previewRect.x) * ppp);
+                int screenY = (int)((winPos.y + previewRect.y) * ppp);
+                DisplayXRNative.displayxr_standalone_set_canvas_rect(
+                    screenX, screenY, canvasW, canvasH);
+            }
+
             Texture tex = GetPreviewTexture();
             if (tex != null)
             {
-                float texAspect = (float)tex.width / tex.height;
+                uint surfW = (uint)tex.width;
+                uint surfH = (uint)tex.height;
+
+                // UV crop: canvas portion of IOSurface (compositor writes to top-left)
+                float uMax = (canvasW > 0 && surfW > 0) ? (float)canvasW / surfW : 1f;
+                float vMax = (canvasH > 0 && surfH > 0) ? (float)canvasH / surfH : 1f;
+
+                // Letterbox by canvas aspect (not IOSurface aspect)
+                float texAspect = (canvasW > 0 && canvasH > 0)
+                    ? (float)canvasW / canvasH
+                    : (float)surfW / surfH;
                 float rectAspect = previewRect.width / previewRect.height;
 
                 Rect drawRect;
@@ -211,11 +236,12 @@ namespace DisplayXR.Editor
                         previewRect.width, h);
                 }
 
-                // Metal textures (IOSurface) are Y-flipped
-                GUI.DrawTextureWithTexCoords(drawRect, tex, new Rect(0, 1, 1, -1));
+                // Metal textures are Y-flipped; crop to canvas UV region
+                GUI.DrawTextureWithTexCoords(drawRect, tex, new Rect(0, vMax, uMax, -vMax));
 
-                var labelRect = new Rect(drawRect.x + 4, drawRect.y + 4, 200, 20);
-                GUI.Label(labelRect, $"{tex.width}x{tex.height}", EditorStyles.miniLabel);
+                var labelRect = new Rect(drawRect.x + 4, drawRect.y + 4, 300, 20);
+                GUI.Label(labelRect, $"Canvas: {canvasW}x{canvasH}  Surface: {surfW}x{surfH}",
+                    EditorStyles.miniLabel);
             }
             else
             {

@@ -52,6 +52,7 @@ static XrInstance s_deferred_destroy_instance = XR_NULL_HANDLE;
 static PFN_xrDestroyInstance s_deferred_destroy_instance_fn = nullptr;
 static int s_runtime_pinned = 0; // Whether we've pinned the runtime via RTLD_NODELETE
 static volatile int s_stop_polling = 0; // Stop forwarding xrPollEvent after EXITING event
+static PFN_xrSetSharedTextureOutputRectEXT s_pfn_set_output_rect = nullptr;
 
 
 // ============================================================================
@@ -342,6 +343,11 @@ hooked_xrGetSystemProperties(XrInstance instance, XrSystemId systemId, XrSystemP
 				if (XR_SUCCEEDED(s_next_gipa(s_instance, "xrRequestDisplayModeEXT", &fn)) && fn) {
 					state->pfn_request_display_mode = (PFN_xrRequestDisplayModeEXT)fn;
 					state->has_display_mode_ext = 1;
+				}
+				fn = nullptr;
+				if (XR_SUCCEEDED(s_next_gipa(s_instance, "xrSetSharedTextureOutputRectEXT", &fn)) && fn) {
+					s_pfn_set_output_rect = (PFN_xrSetSharedTextureOutputRectEXT)fn;
+					fprintf(stderr, "[DisplayXR] Resolved xrSetSharedTextureOutputRectEXT\n");
 				}
 			}
 			break;
@@ -1037,4 +1043,11 @@ displayxr_get_shared_texture(void **native_ptr, uint32_t *width, uint32_t *heigh
 	*width = state->shared_texture_width;
 	*height = state->shared_texture_height;
 	*ready = state->shared_texture_ready;
+}
+
+void
+displayxr_set_canvas_rect(int32_t x, int32_t y, uint32_t w, uint32_t h)
+{
+	if (s_pfn_set_output_rect && s_session != XR_NULL_HANDLE)
+		s_pfn_set_output_rect(s_session, x, y, w, h);
 }

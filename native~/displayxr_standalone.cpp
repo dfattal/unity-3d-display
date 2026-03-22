@@ -18,6 +18,7 @@
 #include "displayxr_standalone_metal.h"
 #endif
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -185,6 +186,9 @@ typedef struct StandaloneState {
 	PFN_xrRequestDisplayModeEXT pfn_request_display_mode;
 	PFN_xrRequestDisplayRenderingModeEXT pfn_request_rendering_mode;
 	PFN_xrEnumerateDisplayRenderingModesEXT pfn_enumerate_rendering_modes;
+	PFN_xrSetSharedTextureOutputRectEXT pfn_set_output_rect;
+	uint32_t canvas_width;
+	uint32_t canvas_height;
 	int has_display_mode_ext;
 } StandaloneState;
 
@@ -313,6 +317,11 @@ resolve_functions(void)
 			s_sa.pfn_enumerate_rendering_modes = (PFN_xrEnumerateDisplayRenderingModesEXT)fn;
 			fprintf(stderr, "[DisplayXR-SA] Resolved xrEnumerateDisplayRenderingModesEXT\n");
 		}
+		fn = NULL;
+		if (XR_SUCCEEDED(s_sa.gipa(s_sa.instance, "xrSetSharedTextureOutputRectEXT", &fn)) && fn) {
+			s_sa.pfn_set_output_rect = (PFN_xrSetSharedTextureOutputRectEXT)fn;
+			fprintf(stderr, "[DisplayXR-SA] Resolved xrSetSharedTextureOutputRectEXT\n");
+		}
 	}
 
 	return 1;
@@ -393,6 +402,51 @@ get_mode_tiling(const XrDisplayRenderingModeInfoEXT *mode,
 		*tile_rows = 1;
 		*view_w = s_sa.display_info.display_pixel_width;
 		*view_h = s_sa.display_info.display_pixel_height;
+	}
+}
+
+
+// Canvas-aware render tiling: computes per-view render dimensions from canvas
+// dims (matching the reference app pattern). Falls back to display-based dims
+// if canvas is not set. Used for actual rendering; get_mode_tiling (above)
+// is used for worst-case atlas/swapchain sizing.
+static void
+get_render_tiling(const XrDisplayRenderingModeInfoEXT *mode,
+                  uint32_t *view_count, uint32_t *tile_cols, uint32_t *tile_rows,
+                  uint32_t *view_w, uint32_t *view_h)
+{
+	if (!mode || mode->tileColumns == 0 || mode->tileRows == 0) {
+		// Fallback: use display-based tiling
+		get_mode_tiling(mode, view_count, tile_cols, tile_rows, view_w, view_h);
+		return;
+	}
+
+	*view_count = mode->viewCount > 0 ? mode->viewCount : 2;
+	*tile_cols = mode->tileColumns;
+	*tile_rows = mode->tileRows;
+
+	if (s_sa.canvas_width > 0 && s_sa.canvas_height > 0) {
+		int display3D = (int)mode->hardwareDisplay3D;
+		if (!display3D) {
+			// 2D mode: render at canvas size
+			*view_w = s_sa.canvas_width;
+			*view_h = s_sa.canvas_height;
+		} else {
+			// 3D mode: canvas × view scale
+			float sx = mode->viewScaleX > 0 ? mode->viewScaleX : 0.5f;
+			float sy = mode->viewScaleY > 0 ? mode->viewScaleY : 0.5f;
+			*view_w = (uint32_t)(s_sa.canvas_width * sx);
+			*view_h = (uint32_t)(s_sa.canvas_height * sy);
+		}
+
+		// Clamp to atlas tile limits
+		uint32_t max_vw, max_vh, dummy_vc, dummy_tc, dummy_tr;
+		get_mode_tiling(mode, &dummy_vc, &dummy_tc, &dummy_tr, &max_vw, &max_vh);
+		if (*view_w > max_vw) *view_w = max_vw;
+		if (*view_h > max_vh) *view_h = max_vh;
+	} else {
+		// No canvas set — fall back to display-based dims
+		get_mode_tiling(mode, view_count, tile_cols, tile_rows, view_w, view_h);
 	}
 }
 
@@ -1001,10 +1055,10 @@ displayxr_standalone_submit_frame_atlas(void *atlas_tex)
 	XrSwapchainImageReleaseInfo rel_info = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
 	s_sa.pfn_release_swapchain_image(s_sa.atlas.handle, &rel_info);
 
-	// Get current mode tiling parameters
+	// Get current mode tiling parameters (canvas-aware render dims)
 	const XrDisplayRenderingModeInfoEXT *mode = get_current_mode();
 	uint32_t eye_count, tile_cols, tile_rows, view_w, view_h;
-	get_mode_tiling(mode, &eye_count, &tile_cols, &tile_rows, &view_w, &view_h);
+	get_render_tiling(mode, &eye_count, &tile_cols, &tile_rows, &view_w, &view_h);
 
 	// Determine whether this is a 3D mode (hw3d) or 2D/mono
 	int display3D = mode ? (int)mode->hardwareDisplay3D : 1;
@@ -1148,10 +1202,24 @@ displayxr_standalone_compute_stereo_views(float near_z, float far_z,
 		s_sa.display_info.nominal_viewer_z
 	};
 
-	Display3DScreen screen = {
-		s_sa.display_info.display_width_meters,
-		s_sa.display_info.display_height_meters
-	};
+	// Scale Kooima screen to canvas aspect (matches reference app pattern):
+	// canvas pixels → meters → scale so min dim matches physical display min dim
+	Display3DScreen screen;
+	if (s_sa.canvas_width > 0 && s_sa.canvas_height > 0 &&
+	    s_sa.display_info.display_pixel_width > 0 && s_sa.display_info.display_pixel_height > 0) {
+		float pxSizeX = s_sa.display_info.display_width_meters / (float)s_sa.display_info.display_pixel_width;
+		float pxSizeY = s_sa.display_info.display_height_meters / (float)s_sa.display_info.display_pixel_height;
+		float winW_m = (float)s_sa.canvas_width * pxSizeX;
+		float winH_m = (float)s_sa.canvas_height * pxSizeY;
+		float minDisp = fminf(s_sa.display_info.display_width_meters, s_sa.display_info.display_height_meters);
+		float minWin  = fminf(winW_m, winH_m);
+		float vs = minDisp / minWin;
+		screen.width_m = winW_m * vs;
+		screen.height_m = winH_m * vs;
+	} else {
+		screen.width_m = s_sa.display_info.display_width_meters;
+		screen.height_m = s_sa.display_info.display_height_meters;
+	}
 
 	// Use stored tunables (from C# DisplayXRDisplay/Camera) or defaults
 	Display3DTunables tunables = s_sa.tunables_set
@@ -1210,10 +1278,23 @@ displayxr_standalone_compute_views(
 	*valid = 0;
 	if (!s_sa.display_info.is_valid || view_count == 0) return;
 
-	Display3DScreen screen = {
-		s_sa.display_info.display_width_meters,
-		s_sa.display_info.display_height_meters
-	};
+	// Scale Kooima screen to canvas aspect (matches reference app pattern)
+	Display3DScreen screen;
+	if (s_sa.canvas_width > 0 && s_sa.canvas_height > 0 &&
+	    s_sa.display_info.display_pixel_width > 0 && s_sa.display_info.display_pixel_height > 0) {
+		float pxSizeX = s_sa.display_info.display_width_meters / (float)s_sa.display_info.display_pixel_width;
+		float pxSizeY = s_sa.display_info.display_height_meters / (float)s_sa.display_info.display_pixel_height;
+		float winW_m = (float)s_sa.canvas_width * pxSizeX;
+		float winH_m = (float)s_sa.canvas_height * pxSizeY;
+		float minDisp = fminf(s_sa.display_info.display_width_meters, s_sa.display_info.display_height_meters);
+		float minWin  = fminf(winW_m, winH_m);
+		float vs = minDisp / minWin;
+		screen.width_m = winW_m * vs;
+		screen.height_m = winH_m * vs;
+	} else {
+		screen.width_m = s_sa.display_info.display_width_meters;
+		screen.height_m = s_sa.display_info.display_height_meters;
+	}
 
 	Display3DTunables tunables = s_sa.tunables_set
 		? s_sa.tunables
@@ -1275,7 +1356,7 @@ displayxr_standalone_get_current_mode_info(
 {
 	const XrDisplayRenderingModeInfoEXT *mode = get_current_mode();
 	uint32_t vc, tc, tr, vw, vh;
-	get_mode_tiling(mode, &vc, &tc, &tr, &vw, &vh);
+	get_render_tiling(mode, &vc, &tc, &tr, &vw, &vh);
 
 	*view_count = vc;
 	*tile_columns = tc;
@@ -1401,6 +1482,31 @@ displayxr_standalone_get_shared_texture(void **native_ptr, uint32_t *width,
 	*width = s_sa.tex_width;
 	*height = s_sa.tex_height;
 	*ready = s_sa.tex_ready;
+}
+
+
+#if defined(__APPLE__)
+extern "C" float displayxr_sa_metal_get_backing_scale(void);
+#endif
+
+float
+displayxr_get_backing_scale_factor(void)
+{
+#if defined(__APPLE__)
+	return displayxr_sa_metal_get_backing_scale();
+#else
+	return 1.0f;
+#endif
+}
+
+
+void
+displayxr_standalone_set_canvas_rect(int32_t x, int32_t y, uint32_t w, uint32_t h)
+{
+	s_sa.canvas_width = w;
+	s_sa.canvas_height = h;
+	if (s_sa.pfn_set_output_rect && s_sa.session != XR_NULL_HANDLE)
+		s_sa.pfn_set_output_rect(s_sa.session, x, y, w, h);
 }
 
 

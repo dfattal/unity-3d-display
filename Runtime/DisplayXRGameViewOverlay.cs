@@ -98,9 +98,26 @@ namespace DisplayXR
             Texture tex = UpdateSharedTexture();
             if (tex == null) return;
 
-            // Fullscreen with aspect-ratio letterboxing
+            // Canvas = Game View size in backing pixels (Retina-aware)
+            float backingScale = DisplayXRNative.displayxr_get_backing_scale_factor();
+            uint canvasW = (uint)(Screen.width * backingScale);
+            uint canvasH = (uint)(Screen.height * backingScale);
+
+            // Tell the runtime the canvas rect (screen position + size)
+            DisplayXRNative.displayxr_standalone_set_canvas_rect(0, 0, canvasW, canvasH);
+
+            uint surfW = (uint)tex.width;
+            uint surfH = (uint)tex.height;
+
+            // UV crop: canvas portion of IOSurface (compositor writes to top-left)
+            float uMax = (canvasW > 0 && surfW > 0) ? (float)canvasW / surfW : 1f;
+            float vMax = (canvasH > 0 && surfH > 0) ? (float)canvasH / surfH : 1f;
+
+            // Letterbox by canvas aspect (not IOSurface aspect)
             Rect screenRect = new Rect(0, 0, Screen.width, Screen.height);
-            float texAspect = (float)tex.width / tex.height;
+            float texAspect = (canvasW > 0 && canvasH > 0)
+                ? (float)canvasW / canvasH
+                : (float)surfW / surfH;
             float screenAspect = screenRect.width / screenRect.height;
 
             Rect drawRect;
@@ -115,14 +132,14 @@ namespace DisplayXR
                 drawRect = new Rect(0, (screenRect.height - h) * 0.5f, screenRect.width, h);
             }
 
-            // Y-flip for Metal (IOSurface)
-            GUI.DrawTextureWithTexCoords(drawRect, tex, new Rect(0, 1, 1, -1));
+            // Metal textures are Y-flipped; crop to canvas UV region
+            GUI.DrawTextureWithTexCoords(drawRect, tex, new Rect(0, vMax, uMax, -vMax));
 
             // Status label
             string modeName = GetCurrentModeName();
             string camName = ActiveCamera != null ? ActiveCamera.gameObject.name : "None";
             GUI.Label(new Rect(drawRect.x + 4, drawRect.y + 4, 400, 20),
-                $"{tex.width}x{tex.height}  Mode: {modeName}  Camera: {camName}",
+                $"Canvas: {canvasW}x{canvasH}  Surface: {surfW}x{surfH}  Mode: {modeName}  Camera: {camName}",
                 GUI.skin.label);
         }
 

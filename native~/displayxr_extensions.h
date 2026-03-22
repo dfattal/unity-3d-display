@@ -63,6 +63,10 @@ typedef XrResult(XRAPI_PTR *PFN_xrEnumerateDisplayRenderingModesEXT)(
     uint32_t *modeCountOutput,
     XrDisplayRenderingModeInfoEXT *modes);
 
+// --- Shared texture output rect (canvas positioning for weaver alignment) ---
+typedef XrResult (XRAPI_PTR *PFN_xrSetSharedTextureOutputRectEXT)(
+    XrSession session, int32_t x, int32_t y, uint32_t width, uint32_t height);
+
 // --- Readback callback (shared by macOS and Win32 bindings) ---
 typedef void (*PFN_xrReadbackCallback)(const uint8_t *pixels, uint32_t width, uint32_t height, void *userdata);
 

@@ -185,6 +185,29 @@ namespace DisplayXR
         internal static extern void displayxr_standalone_get_shared_texture(
             out IntPtr nativePtr, out uint width, out uint height, out int ready);
 
+        /// <summary>
+        /// Set the canvas output rect for shared texture compositing (standalone session).
+        /// Tells the runtime where the content should be rendered within the IOSurface.
+        /// </summary>
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void displayxr_standalone_set_canvas_rect(
+            int x, int y, uint w, uint h);
+
+        /// <summary>
+        /// Set the canvas output rect for shared texture compositing (play mode).
+        /// Tells the runtime where the content should be rendered within the shared texture.
+        /// </summary>
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void displayxr_set_canvas_rect(
+            int x, int y, uint w, uint h);
+
+        /// <summary>
+        /// Get the display backing scale factor (Retina).
+        /// Returns 2.0 on macOS Retina, 1.0 on non-Retina or non-macOS.
+        /// </summary>
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern float displayxr_get_backing_scale_factor();
+
         // ====================================================================
         // Standalone frame loop (split: poll → begin → render → submit)
         // ====================================================================

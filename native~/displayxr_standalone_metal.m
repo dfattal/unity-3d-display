@@ -5,6 +5,7 @@
 // Independent from the hook chain's IOSurface (displayxr_metal.m).
 
 #import <Metal/Metal.h>
+#import <AppKit/AppKit.h>
 #include <IOSurface/IOSurface.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <stdio.h>
@@ -101,6 +102,13 @@ void *
 displayxr_sa_metal_get_texture(void)
 {
 	return (__bridge void *)s_sa_texture;
+}
+
+float
+displayxr_sa_metal_get_backing_scale(void)
+{
+	NSScreen *screen = [NSScreen mainScreen];
+	return screen ? (float)[screen backingScaleFactor] : 2.0f;
 }
 
 void *

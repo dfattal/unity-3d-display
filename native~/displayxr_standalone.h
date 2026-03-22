@@ -139,6 +139,19 @@ DISPLAYXR_EXPORT void displayxr_standalone_get_eye_positions(
 DISPLAYXR_EXPORT void displayxr_standalone_get_shared_texture(
     void **native_ptr, uint32_t *width, uint32_t *height, int *ready);
 
+/// Set the canvas output rect for shared texture compositing.
+/// Calls xrSetSharedTextureOutputRectEXT on the runtime session.
+/// @param x Left edge in client-area pixels.
+/// @param y Top edge in client-area pixels.
+/// @param w Canvas width in pixels.
+/// @param h Canvas height in pixels.
+DISPLAYXR_EXPORT void displayxr_standalone_set_canvas_rect(
+    int32_t x, int32_t y, uint32_t w, uint32_t h);
+
+/// Get the display backing scale factor (Retina).
+/// Returns 2.0 on macOS Retina, 1.0 on non-Retina or non-macOS.
+DISPLAYXR_EXPORT float displayxr_get_backing_scale_factor(void);
+
 /// Get atlas swapchain dimensions (for creating matching RenderTextures in C#).
 DISPLAYXR_EXPORT void displayxr_standalone_get_swapchain_size(
     uint32_t *width, uint32_t *height);

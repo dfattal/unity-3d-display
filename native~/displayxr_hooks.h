@@ -110,6 +110,11 @@ DISPLAYXR_EXPORT void displayxr_get_shared_texture(void **native_ptr,
                                                   uint32_t *height,
                                                   int *ready);
 
+/// Set the canvas output rect for shared texture compositing (play mode).
+/// Calls xrSetSharedTextureOutputRectEXT on the runtime session.
+DISPLAYXR_EXPORT void displayxr_set_canvas_rect(
+    int32_t x, int32_t y, uint32_t w, uint32_t h);
+
 /// Kill xrPollEvent forwarding immediately. Call from C# before session/instance
 /// teardown to prevent use-after-free when the runtime is unloaded.
 DISPLAYXR_EXPORT void displayxr_stop_polling(void);

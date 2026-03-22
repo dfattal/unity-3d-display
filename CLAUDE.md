@@ -78,6 +78,31 @@ The native plugin intercepts OpenXR calls via `xrGetInstanceProcAddr` hooking:
 - `xrGetSystemProperties` → extracts display info
 - `xrEndFrame` → submits overlay composition layers
 
+### Shared Texture Architecture (IOSurface / DXGI)
+
+The compositor shares a GPU texture with the Unity plugin for preview and game overlay output. Two consumers display this texture:
+
+- **Standalone Preview Window** (`Editor/DisplayXRPreviewWindow.cs`) — EditorWindow, no Play Mode
+- **Game View Overlay** (`Runtime/DisplayXRGameViewOverlay.cs`) — MonoBehaviour, Play Mode
+
+**IOSurface / shared texture contract:**
+
+| Property | Value | Source |
+|----------|-------|--------|
+| Texture size | Display pixel dimensions (worst-case) | Created once at session start, never resized |
+| Content region | Top-left corner, canvas.w × canvas.h | App decides canvas, tells runtime |
+| UV crop | (canvasW / surfaceW, canvasH / surfaceH) | App computes from known dims |
+| Letterbox aspect | canvasW / canvasH | Canvas aspect, not surface aspect |
+
+**Flow each frame:**
+1. App computes canvas = view area in backing pixels (preview rect or Screen size)
+2. App calls `xrSetSharedTextureOutputRectEXT(session, x, y, w, h)` via `displayxr_standalone_set_canvas_rect()` — tells the runtime where to render and at what size
+3. Runtime/compositor writes interlaced output to IOSurface at (0, 0, canvasW, canvasH)
+4. App creates `Texture2D.CreateExternalTexture()` at full IOSurface dims, but samples only the canvas portion via UV scaling: `Rect(0, vMax, uMax, -vMax)` (Y-flipped for Metal)
+5. App letterboxes using canvas aspect ratio (since canvas = view size, typically no letterbox)
+
+**Screen position (x, y):** Required for pixel-precise interlacing alignment on lenticular displays. The runtime uses this internally in the Display Processor — the app doesn't need it back.
+
 ### Wire Protocol
 
 Extension struct definitions in `native~/displayxr_extensions.h` must match the runtime's implementation. These are versioned by extension spec version. When changing extensions, update the runtime first, then the plugin.
