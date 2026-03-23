@@ -192,6 +192,8 @@ Automates the complete CI workflow for native plugin builds: commit → push →
 - Attempts up to 3 automatic fixes before reporting failure
 - Detects when only C# files changed (no native build triggered)
 
+**Important:** Always include the related GitHub issue number in commit messages — e.g., `Fix linker error (#93)`. Check conversation context and recent commits to determine the issue number.
+
 **Skill location:** `.claude/skills/ci-monitor/SKILL.md`
 
 ## Cross-Repo References

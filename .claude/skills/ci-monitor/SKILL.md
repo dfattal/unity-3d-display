@@ -55,11 +55,22 @@ Before launching the subagent, you MUST determine which files to include in the 
    - If you have no tracked session files (e.g., user invoked `/ci-monitor` directly without prior edits): use the literal string `AUTO`
 4. **Substitute `[FILES_TO_COMMIT]`** in the subagent prompt template below.
 
+### Determining the Issue Reference
+
+Before launching the subagent, determine the related GitHub issue number:
+
+1. **Check conversation context** — the user may have mentioned an issue number (e.g., "working on #93", or a commit referencing an issue).
+2. **Check recent commits** — run `git log --oneline -5` to see if recent commits reference an issue.
+3. **Build the `[ISSUE_REF]` value:**
+   - If an issue number is known: use e.g. `#93`
+   - If no issue is identifiable: use `NONE`
+4. **Substitute `[ISSUE_REF]`** in the subagent prompt template below.
+
 ---
 
 ## Subagent Prompt Template
 
-Pass this complete prompt to the subagent (replace `[USER_MESSAGE]` with the user's commit message or "auto-generate", and `[FILES_TO_COMMIT]` with the file list or "AUTO"):
+Pass this complete prompt to the subagent (replace `[USER_MESSAGE]` with the user's commit message or "auto-generate", `[FILES_TO_COMMIT]` with the file list or "AUTO", and `[ISSUE_REF]` with the issue number or "NONE"):
 
 ```
 Execute the unity-3d-display ci-monitor workflow. You have access to Edit and Write tools to fix build errors.
@@ -76,6 +87,9 @@ Working directory: /Users/david.fattal/Documents/GitHub/unity-3d-display
 
 ## Commit Message
 [USER_MESSAGE]
+
+## Issue Reference
+[ISSUE_REF]
 
 ## Files to Commit
 [FILES_TO_COMMIT]
@@ -119,10 +133,15 @@ If commit message is "auto-generate":
 - Examine the changes and create a descriptive message summarizing what changed
 
 ### Step 1.4: Create Commit
+
+**Issue reference:** If the "Issue Reference" section above contains an issue number (e.g., `#93`),
+append it to the first line of the commit message in parentheses — e.g., `Fix linker error (#93)`.
+If the issue reference is "NONE", omit it.
+
 Run:
 ```bash
 cd /Users/david.fattal/Documents/GitHub/unity-3d-display && git commit -m "$(cat <<'EOF'
-[YOUR COMMIT MESSAGE HERE]
+[YOUR COMMIT MESSAGE HERE (with issue ref if applicable)]
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 EOF
