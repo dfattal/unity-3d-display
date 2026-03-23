@@ -268,28 +268,55 @@ Display-centric mode anchors a virtual display in the scene. The viewer looks "i
 
 ## Step 6: Test in the Editor
 
+There are two ways to preview DisplayXR output in the editor. Use whichever fits your workflow — or both.
+
+### 6a. Standalone Preview (recommended for iteration)
+
+The standalone preview creates its own OpenXR session — no Play Mode needed.
+
 1. Verify the runtime is configured: **Project Settings > XR Plug-in Management > OpenXR > DisplayXR** should show either a connected display or the sim_display info.
 
 2. Open one of the demo scenes.
 
-3. **Open the standalone preview:** **Window > DisplayXR > Preview Window**.
+3. **Window > DisplayXR > Preview Window**.
 
-4. Click **Start** — the preview creates its own OpenXR session and connects to the DisplayXR runtime. The window shows live composited output via zero-copy GPU texture sharing.
+4. Click **Start** — the preview connects to the DisplayXR runtime and shows live composited output via zero-copy GPU texture sharing (IOSurface on macOS, shared DXGI on Windows).
 
 5. Use the **camera dropdown** to switch between scene cameras. Cameras are categorized by rig type (DisplayRig, CameraRig, Regular Camera). Switching rig types auto-requests the appropriate rendering mode.
 
 6. Press **V** to cycle rendering modes, or **0–8** to select a specific mode. Available modes depend on the connected display hardware (or sim_display configuration).
 
-7. **Play Mode** is still available but the standalone preview is the recommended workflow — it avoids XR session conflicts and doesn't require entering/exiting Play Mode.
-
-8. **Enable Log Eye Tracking** on either component to see per-frame eye positions in the Console:
+7. **Enable Log Eye Tracking** on either component to see per-frame eye positions in the Console:
    ```
    [DisplayXR] Eyes: L=(0.032, 0.001, 0.504), R=(-0.031, 0.001, 0.504), tracked=True
    ```
 
+### 6b. Game View Overlay (Play Mode)
+
+The Game View Overlay renders the composited stereo output directly in Unity's Game View during Play Mode. Use this when you need input, physics, or game logic running alongside the 3D preview.
+
+1. Add **DisplayXR > Game View Overlay** (`DisplayXRGameViewOverlay`) to any GameObject in the scene. Only one instance is needed — it manages all DisplayXR cameras automatically.
+
+2. Enter **Play Mode** — the overlay suppresses normal scene rendering and displays the composited output from the runtime, filling the entire Game View.
+
+3. Use Unity's **Display dropdown** (Display 1, Display 2, ...) in the Game View toolbar to switch between DisplayXR cameras. Each camera with a `DisplayXRDisplay` or `DisplayXRCamera` component is assigned a display index automatically.
+
+4. Press **V** to cycle rendering modes, **0–8** for a specific mode, **F11** for fullscreen.
+
+### When to use each
+
+| | Standalone Preview | Game View Overlay |
+|-|-------------------|-------------------|
+| **Best for** | Quick iteration, tweaking stereo parameters | Full Play Mode testing with game logic |
+| **Requires Play Mode** | No | Yes |
+| **Scene modification** | None needed | Add one component |
+| **Ships with builds** | No (editor-only) | Yes — required for standalone apps |
+
 ---
 
 ## Step 7: Build a Standalone App
+
+> **Important:** Your scene must include a `DisplayXRGameViewOverlay` component for the composited 3D output to display in the built app's window. This is the same component from Step 6b — it works in both the editor and standalone builds.
 
 ### Windows Build
 
