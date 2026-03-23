@@ -37,6 +37,11 @@ namespace DisplayXR
         private float m_InitialYaw, m_InitialPitch;
         private Vector3 m_InitialScale;
 
+        // Rig type detection for zoom behavior
+        private Camera m_Camera;
+        private bool m_IsCameraCentric;
+        private float m_InitialFov;
+
         void Start()
         {
             Application.runInBackground = true;
@@ -57,6 +62,14 @@ namespace DisplayXR
             m_InitialYaw = m_Yaw;
             m_InitialPitch = m_Pitch;
             m_InitialScale = transform.localScale;
+
+            // Detect rig type for zoom behavior
+            m_IsCameraCentric = GetComponent<DisplayXRCamera>() != null;
+            if (m_IsCameraCentric)
+            {
+                m_Camera = GetComponent<Camera>();
+                m_InitialFov = m_Camera.fieldOfView;
+            }
         }
 
         // Rendering mode cycling
@@ -127,9 +140,19 @@ namespace DisplayXR
             float scroll = GetScrollDelta();
             if (Mathf.Abs(scroll) < 0.001f) return;
 
-            float factor = 1f + scroll * zoomSpeed;
-            factor = Mathf.Clamp(factor, 0.5f, 2f);
-            transform.localScale *= factor;
+            if (m_IsCameraCentric)
+            {
+                // Camera-centric: zoom by adjusting FOV
+                m_Camera.fieldOfView = Mathf.Clamp(
+                    m_Camera.fieldOfView - scroll * zoomSpeed * 10f, 5f, 120f);
+            }
+            else
+            {
+                // Display-centric: zoom by scaling transform
+                float factor = 1f + scroll * zoomSpeed;
+                factor = Mathf.Clamp(factor, 0.5f, 2f);
+                transform.localScale *= factor;
+            }
         }
 
         private void HandleReset()
@@ -144,6 +167,9 @@ namespace DisplayXR
                     m_Pitch * Mathf.Rad2Deg,
                     m_Yaw * Mathf.Rad2Deg,
                     0f);
+
+                if (m_IsCameraCentric)
+                    m_Camera.fieldOfView = m_InitialFov;
             }
         }
 
