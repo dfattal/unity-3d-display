@@ -11,6 +11,7 @@
 #include "displayxr_extensions.h"
 #include "displayxr_shared_state.h"
 #include "display3d_view.h"
+#include "camera3d_view.h"
 
 #include <openxr/openxr.h>
 
@@ -131,6 +132,9 @@ typedef struct StandaloneState {
 	// Tunables + display pose (set from C#)
 	Display3DTunables tunables;
 	int tunables_set;
+	int camera_centric;
+	float inv_convergence_distance;
+	float fov_override; // half_tan_vfov for camera-centric
 	XrPosef display_pose;
 	int display_pose_set;
 
@@ -1323,20 +1327,49 @@ displayxr_standalone_compute_views(
 		raw_eyes[i].z = s_sa.eye_positions[src][2];
 	}
 
-	// Compute all N views via the N-view Kooima library
-	Display3DView out_views[SA_MAX_VIEWS];
-	display3d_compute_views(
-		raw_eyes, n, &nominal, &screen, &tunables,
-		pose_ptr, near_z, far_z, out_views);
+	if (s_sa.camera_centric) {
+		// Camera-centric: use camera3d library (tangent-space Kooima)
+		Camera3DTunables cam_tunables;
+		cam_tunables.ipd_factor = tunables.ipd_factor;
+		cam_tunables.parallax_factor = tunables.parallax_factor;
+		cam_tunables.inv_convergence_distance = s_sa.inv_convergence_distance;
+		cam_tunables.half_tan_vfov = s_sa.fov_override;
 
-	for (uint32_t i = 0; i < n; i++) {
-		memcpy(&view_matrices[i * 16], out_views[i].view_matrix, 16 * sizeof(float));
-		memcpy(&proj_matrices[i * 16], out_views[i].projection_matrix, 16 * sizeof(float));
+		Camera3DView cam_views[SA_MAX_VIEWS];
+		camera3d_compute_views(
+			raw_eyes, n, &nominal, &screen, &cam_tunables,
+			pose_ptr, near_z, far_z, cam_views);
+
+		for (uint32_t i = 0; i < n; i++) {
+			memcpy(&view_matrices[i * 16], cam_views[i].view_matrix, 16 * sizeof(float));
+			memcpy(&proj_matrices[i * 16], cam_views[i].projection_matrix, 16 * sizeof(float));
+		}
+
+		// Cache as Display3DView for submit_frame_atlas (layout-compatible fields)
+		for (uint32_t i = 0; i < n; i++) {
+			memcpy(s_sa.computed_views[i].view_matrix, cam_views[i].view_matrix, 16 * sizeof(float));
+			memcpy(s_sa.computed_views[i].projection_matrix, cam_views[i].projection_matrix, 16 * sizeof(float));
+			s_sa.computed_views[i].fov = cam_views[i].fov;
+			s_sa.computed_views[i].eye_world = cam_views[i].eye_world;
+			s_sa.computed_views[i].orientation = cam_views[i].orientation;
+		}
+		s_sa.computed_view_count = n;
+	} else {
+		// Display-centric: use display3d library
+		Display3DView out_views[SA_MAX_VIEWS];
+		display3d_compute_views(
+			raw_eyes, n, &nominal, &screen, &tunables,
+			pose_ptr, near_z, far_z, out_views);
+
+		for (uint32_t i = 0; i < n; i++) {
+			memcpy(&view_matrices[i * 16], out_views[i].view_matrix, 16 * sizeof(float));
+			memcpy(&proj_matrices[i * 16], out_views[i].projection_matrix, 16 * sizeof(float));
+		}
+
+		// Cache computed views for submit_frame_atlas (FOV + eye_world)
+		memcpy(s_sa.computed_views, out_views, n * sizeof(Display3DView));
+		s_sa.computed_view_count = n;
 	}
-
-	// Cache computed views for submit_frame_atlas (FOV + eye_world)
-	memcpy(s_sa.computed_views, out_views, n * sizeof(Display3DView));
-	s_sa.computed_view_count = n;
 
 	*valid = 1;
 }
@@ -1384,14 +1417,12 @@ displayxr_standalone_set_tunables(
 	s_sa.tunables.perspective_factor = perspective_factor;
 	s_sa.tunables.virtual_display_height = virtual_display_height;
 	s_sa.tunables_set = 1;
-	// near_z, far_z, inv_convergence_distance, fov_override, camera_centric
-	// are not in Display3DTunables — they're passed to compute_stereo_views directly.
-	// Store them for potential future use but currently near/far come from the C# call.
-	(void)inv_convergence_distance;
-	(void)fov_override;
+	s_sa.camera_centric = camera_centric;
+	s_sa.inv_convergence_distance = inv_convergence_distance;
+	s_sa.fov_override = fov_override;
+	// near_z, far_z come from the C# compute_views call directly
 	(void)near_z;
 	(void)far_z;
-	(void)camera_centric;
 }
 
 void

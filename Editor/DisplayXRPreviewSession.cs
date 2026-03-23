@@ -87,6 +87,7 @@ namespace DisplayXR.Editor
             AssemblyReloadEvents.beforeAssemblyReload += OnBeforeAssemblyReload;
             EditorApplication.quitting += OnEditorQuitting;
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+
         }
 
         private static void OnPlayModeStateChanged(PlayModeStateChange state)
@@ -523,6 +524,13 @@ namespace DisplayXR.Editor
             GL.invertCulling = true;
             cam.Render();
             GL.invertCulling = false;
+
+            // Reset matrices after rendering so cam.fieldOfView returns the
+            // original value on the next frame. Without this, the Y-flipped
+            // projection (m11 < 0) causes fieldOfView to return a bogus value,
+            // which corrupts halfTanVfov in PushRigParameters for camera-centric rigs.
+            cam.ResetWorldToCameraMatrix();
+            cam.ResetProjectionMatrix();
         }
 
         private static void RefreshModeInfo()
@@ -640,6 +648,10 @@ namespace DisplayXR.Editor
 
             if (IsRunning)
                 ApplyCameraSelection();
+
+            // Sync to game overlay so both tabs agree on the active camera
+            if (Application.isPlaying)
+                DisplayXRGameViewOverlay.ActiveCamera = cam;
         }
 
         public static void RestoreSelection()
@@ -743,13 +755,21 @@ namespace DisplayXR.Editor
 
             Camera cam = s_SelectedSourceCamera;
 
-            // In play mode, the Game View overlay may override the source camera
-            // based on which Display is selected in the Game View toolbar
+            // In play mode, use the game overlay's ActiveCamera (set by Tab key
+            // or synced from the preview dropdown via SelectCamera)
             if (Application.isPlaying)
             {
                 var overrideCam = DisplayXRGameViewOverlay.ActiveCamera;
                 if (overrideCam != null)
+                {
                     cam = overrideCam;
+                    // Sync back to preview dropdown so both selectors agree
+                    if (s_SelectedSourceCamera != cam)
+                    {
+                        s_SelectedSourceCamera = cam;
+                        SessionState.SetInt(kSelectedCameraIDKey, cam.GetInstanceID());
+                    }
+                }
             }
 
             if (cam == null) return;

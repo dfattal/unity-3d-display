@@ -86,6 +86,9 @@ namespace DisplayXR
             HandleModeCycle();
         }
 
+        // Known issue: editor popups swallow the OS mouse-up event, leaving
+        // the Input System stuck with isPressed=true. Click in the Game View
+        // to unstick. See https://github.com/dfattal/unity-3d-display/issues/33
         private void HandleMouseRotation()
         {
             if (GetMouseButtonDown(0))

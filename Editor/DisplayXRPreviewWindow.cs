@@ -103,6 +103,25 @@ namespace DisplayXR.Editor
             }
         }
 
+        private void SyncCameraIndex()
+        {
+            // Sync dropdown index when camera changed externally (e.g. Tab key)
+            Camera sel = DisplayXRPreviewSession.SelectedCamera;
+            if (sel != null && m_CameraList != null &&
+                (m_SelectedCameraIndex >= m_CameraList.Length ||
+                 m_CameraList[m_SelectedCameraIndex].camera != sel))
+            {
+                for (int i = 0; i < m_CameraList.Length; i++)
+                {
+                    if (m_CameraList[i].camera == sel)
+                    {
+                        m_SelectedCameraIndex = i;
+                        break;
+                    }
+                }
+            }
+        }
+
         private void ValidateCameraSelection()
         {
             Camera sel = DisplayXRPreviewSession.SelectedCamera;
@@ -118,6 +137,7 @@ namespace DisplayXR.Editor
         void OnGUI()
         {
             HandleKeyInput();
+            SyncCameraIndex();
 
             // Toolbar
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);

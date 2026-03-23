@@ -22,7 +22,7 @@ namespace DisplayXR
         /// The currently active camera as determined by Display dropdown selection.
         /// Read by DisplayXRPreviewSession.PushRigParameters() to override the source camera.
         /// </summary>
-        public static Camera ActiveCamera { get; private set; }
+        public static Camera ActiveCamera { get; set; }
 
         private struct ManagedCamera
         {
@@ -46,22 +46,16 @@ namespace DisplayXR
         private string[] m_RenderingModeNames;
         private int m_CurrentRenderingMode = 1;
 
-        // Track active camera via onPreRender
-        private static Camera s_LastPreRenderCamera;
-
         void Start()
         {
             DiscoverAndAssignCameras();
-            Camera.onPreRender += OnCameraPreRender;
         }
 
         void OnDisable()
         {
-            Camera.onPreRender -= OnCameraPreRender;
             RestoreAllCameras();
             CleanupSharedTexture();
             ActiveCamera = null;
-            s_LastPreRenderCamera = null;
             m_RenderingModeNames = null;
         }
 
@@ -83,7 +77,7 @@ namespace DisplayXR
 
             if (running)
             {
-                UpdateActiveCamera();
+                HandleCameraCycle();
                 HandleModeKeys();
             }
 
@@ -183,16 +177,16 @@ namespace DisplayXR
                 return string.Compare(a.camera.name, b.camera.name, StringComparison.Ordinal);
             });
 
-            // Assign sequential targetDisplay values
+            // Assign all cameras to Display 0 (OnGUI only draws on the primary display)
             for (int i = 0; i < entries.Count; i++)
             {
                 var e = entries[i];
                 e.assignedDisplay = i;
-                e.camera.targetDisplay = i;
+                e.camera.targetDisplay = 0;
                 entries[i] = e;
 
                 string rigType = e.hasDisplayRig ? "Display" : "Camera";
-                Debug.Log($"[DisplayXR] Display {i + 1} = {e.camera.name} ({rigType})");
+                Debug.Log($"[DisplayXR] Camera {i + 1} = {e.camera.name} ({rigType})");
             }
 
             m_ManagedCameras = entries;
@@ -231,31 +225,34 @@ namespace DisplayXR
         }
 
         // ================================================================
-        // Active camera tracking via Display dropdown
+        // Camera cycling via Tab key
         // ================================================================
 
-        private static void OnCameraPreRender(Camera cam)
-        {
-            s_LastPreRenderCamera = cam;
-        }
+        private static int s_LastCycleFrame = -1;
 
-        private void UpdateActiveCamera()
+        private void HandleCameraCycle()
         {
-            if (s_LastPreRenderCamera == null) return;
+            if (!GetKeyDown(KeyCode.Tab) || m_ManagedCameras.Count < 2) return;
+            if (Time.frameCount == s_LastCycleFrame) return;
+            s_LastCycleFrame = Time.frameCount;
 
-            // Check if the rendering camera is one of ours
+            // Find current index
+            int cur = 0;
             for (int i = 0; i < m_ManagedCameras.Count; i++)
             {
-                if (m_ManagedCameras[i].camera == s_LastPreRenderCamera)
+                if (m_ManagedCameras[i].camera == ActiveCamera)
                 {
-                    if (ActiveCamera != s_LastPreRenderCamera)
-                    {
-                        ActiveCamera = s_LastPreRenderCamera;
-                        Debug.Log($"[DisplayXR] Active camera switched to: {ActiveCamera.name} (Display {i + 1})");
-                    }
+                    cur = i;
                     break;
                 }
             }
+
+            int next = (cur + 1) % m_ManagedCameras.Count;
+            Camera cam = m_ManagedCameras[next].camera;
+            if (cam == null) return;
+
+            ActiveCamera = cam;
+            Debug.Log($"[DisplayXR] Active camera switched to: {cam.name} (Camera {next + 1})");
         }
 
         // ================================================================
@@ -411,6 +408,7 @@ namespace DisplayXR
                 case KeyCode.Alpha6: return Key.Digit6;
                 case KeyCode.Alpha7: return Key.Digit7;
                 case KeyCode.Alpha8: return Key.Digit8;
+                case KeyCode.Tab: return Key.Tab;
                 case KeyCode.F11: return Key.F11;
                 default: return Key.None;
             }
