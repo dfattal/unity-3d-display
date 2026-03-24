@@ -46,6 +46,7 @@ namespace DisplayXR
             m_Camera = GetComponent<Camera>();
             m_Feature = DisplayXRFeature.Instance;
             Camera.onPreRender += OnCameraPreRender;
+            DisplayXRRigManager.Register(m_Camera);
 #if !UNITY_EDITOR
             if (m_Feature == null)
             {
@@ -58,6 +59,7 @@ namespace DisplayXR
         void OnDisable()
         {
             Camera.onPreRender -= OnCameraPreRender;
+            DisplayXRRigManager.Unregister(m_Camera);
         }
 
         void OnCameraPreRender(Camera cam)
@@ -100,6 +102,9 @@ namespace DisplayXR
 
         void LateUpdate()
         {
+            // Only the active rig pushes tunables (prevents multi-rig conflicts)
+            var active = DisplayXRRigManager.ActiveCamera;
+            if (active != null && active != m_Camera) return;
 
             if (m_Feature == null)
             {

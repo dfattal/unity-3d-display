@@ -58,17 +58,42 @@ Verifies the code compiles for Windows but the DLL stays in `build-win/` (MinGW 
 
 ### Three Layers
 
-1. **Runtime (C#)** — `DisplayXRFeature.cs` hooks into OpenXR lifecycle; `DisplayXRCamera.cs` and `DisplayXRDisplay.cs` are the two stereo rig modes; `DisplayXRPreview.cs` provides inline preview textures (SBS, readback, SharedTexture)
+1. **Runtime (C#)** — `DisplayXRFeature.cs` hooks into OpenXR lifecycle; `DisplayXRCamera.cs` and `DisplayXRDisplay.cs` are the two stereo rig modes; `DisplayXRRigManager.cs` coordinates multi-camera scenes; `DisplayXRPreview.cs` provides inline preview textures (SBS, readback, SharedTexture)
 2. **Editor (C#)** — Custom inspectors, settings page, and the standalone preview system (`DisplayXRPreviewSession.cs` manages an independent OpenXR session; `DisplayXRPreviewWindow.cs` provides the editor UI with camera selector and rendering mode controls)
 3. **Native (C/C++)** — Hook chain on `xrLocateViews`, `xrCreateSession`, `xrGetSystemProperties`, `xrEndFrame`; Kooima projection math; thread-safe shared state
 
 ### Key Features
 
 - **Two stereo rig modes**: Camera-centric (`DisplayXRCamera` — inherits camera FOV, inv. convergence distance tunable) and display-centric (`DisplayXRDisplay` — physical display geometry, virtual display height, scale-as-zoom)
+- **Multi-camera support**: Multiple rigs coexist in one scene; `DisplayXRRigManager` coordinates which rig is active (see below)
 - **Standalone editor preview**: Own OpenXR session bypassing Unity XR. Camera selector dropdown, dynamic rendering mode enumeration, zero-copy SharedTexture output (IOSurface/DXGI). Replaces Play Mode for DisplayXR workflows.
 - **Play Mode conflict prevention**: Preview auto-removes Unity's OpenXR loader on Play entry, restores on exit (saved via SessionState)
 - **2D UI overlay**: Canvas → `XrCompositionLayerWindowSpaceEXT` with stereo disparity
 - **Native Kooima math**: `display3d_view.c` (screen-edge frustum) and `camera3d_view.c` (tangent-space frustum) — pure C, no DisplayXR dependency
+
+### Multi-Camera Rig Management
+
+Scenes can contain multiple cameras with different rig types (display-centric, camera-centric, or plain cameras). A static registry coordinates which rig is active at any time.
+
+**`DisplayXRRigManager`** (static class, no scene object needed):
+- Rigs self-register in `OnEnable`, self-deregister in `OnDisable`
+- First registered camera is auto-elected as `ActiveCamera`
+- `CycleNext()` advances to the next registered camera (used by Tab key)
+- `ActiveCamera` property is the single source of truth for rig gating and input
+
+**Rig gating**: `DisplayXRDisplay.LateUpdate()` and `DisplayXRCamera.LateUpdate()` check `DisplayXRRigManager.ActiveCamera` before pushing tunables to the native hook chain. Only the active rig pushes — prevents multi-rig conflicts (wrong projection, FOV feedback loops).
+
+**Input isolation**: `DisplayXRInputController.IsActiveCamera()` returns true only for the active camera's controller. Inactive controllers clear their drag state to prevent rotation jumps on reactivation.
+
+**Component reference:**
+
+| Component | Required | Purpose |
+|-----------|----------|---------|
+| `DisplayXRDisplay` | One of | Display-centric stereo rig (scale-as-zoom) |
+| `DisplayXRCamera` | One of | Camera-centric stereo rig (FOV-based) |
+| `DisplayXRRigManager` | Automatic | Static camera registry — no scene object, rigs self-register |
+| `DisplayXRInputController` | Optional | Sample WASD/mouse/scroll controller. Tab cycles cameras via `DisplayXRRigManager.CycleNext()`. Developers typically replace this with their own input. |
+| `DisplayXRGameViewOverlay` | Optional | Editor play-mode only: draws shared texture in Game View, suppresses scene rendering. Not needed in built apps. |
 
 ### OpenXR Hook Chain
 

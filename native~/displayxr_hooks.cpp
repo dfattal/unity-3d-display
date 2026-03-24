@@ -288,12 +288,17 @@ hooked_xrLocateViews(XrSession session,
 		}
 	} else {
 		// Display-centric: atan-based Kooima (display3d_view library)
-		// Pass raw eyes + display_pose directly (like the native test app).
-		//
-		// Parent camera scale as world-scale (matches reference test app):
-		// vdh /= sy gives uniform 1/sy zoom via m2v.  Anisotropic
-		// corrections (sy/sx, sy/sz) on eyes and screen width handle
-		// non-uniform scale.  For uniform scale these are 1.0.
+		static int s_disp_log = 0;
+		if (s_disp_log++ % 60 == 0) {
+			displayxr_log("[DisplayXR] DISP-CENTRIC: scene_pose=(%.3f,%.3f,%.3f) "
+				"scale=(%.3f,%.3f,%.3f) vdh=%.3f cam_centric=%d "
+				"raw_L=(%.3f,%.3f,%.3f) raw_R=(%.3f,%.3f,%.3f)\n",
+				scene_pose.position.x, scene_pose.position.y, scene_pose.position.z,
+				scene_xform.scale[0], scene_xform.scale[1], scene_xform.scale[2],
+				tunables.virtual_display_height, tunables.camera_centric,
+				raw_left.x, raw_left.y, raw_left.z,
+				raw_right.x, raw_right.y, raw_right.z);
+		}
 
 		float sx = (scene_xform.scale[0] > 0.001f) ? scene_xform.scale[0] : 1.0f;
 		float sy = (scene_xform.scale[1] > 0.001f) ? scene_xform.scale[1] : 1.0f;

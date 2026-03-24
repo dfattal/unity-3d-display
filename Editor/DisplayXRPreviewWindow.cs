@@ -352,6 +352,13 @@ namespace DisplayXR.Editor
                 case KeyCode.Alpha6: modeIdx = 6; break;
                 case KeyCode.Alpha7: modeIdx = 7; break;
                 case KeyCode.Alpha8: modeIdx = 8; break;
+                case KeyCode.Tab:
+                    DisplayXRRigManager.CycleNext();
+                    var newCam = DisplayXRRigManager.ActiveCamera;
+                    if (newCam != null)
+                        DisplayXRPreviewSession.SelectCamera(newCam);
+                    e.Use();
+                    return;
             }
 
             if (modeIdx >= 0)

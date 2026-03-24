@@ -649,10 +649,8 @@ namespace DisplayXR.Editor
             if (IsRunning)
                 ApplyCameraSelection();
 
-            // Sync input controller and game overlay to the selected camera
-            DisplayXRInputController.ActiveInputCamera = cam;
-            if (Application.isPlaying)
-                DisplayXRGameViewOverlay.ActiveCamera = cam;
+            // Sync the rig manager so rig gating and input controller agree
+            DisplayXRRigManager.ActiveCamera = cam;
         }
 
         public static void RestoreSelection()
@@ -696,7 +694,7 @@ namespace DisplayXR.Editor
         private static void ApplyCameraSelection()
         {
             if (s_SelectedSourceCamera == null || s_EyeCams == null) return;
-            DisplayXRInputController.ActiveInputCamera = s_SelectedSourceCamera;
+            DisplayXRRigManager.ActiveCamera = s_SelectedSourceCamera;
             CloneSourceCameraSettings(s_SelectedSourceCamera);
         }
 
@@ -757,21 +755,19 @@ namespace DisplayXR.Editor
 
             Camera cam = s_SelectedSourceCamera;
 
-            // In play mode, keep game overlay's ActiveCamera in sync
+            // In play mode, sync with rig manager (Tab key may have changed active camera)
             if (Application.isPlaying)
             {
-                var overrideCam = DisplayXRGameViewOverlay.ActiveCamera;
+                var overrideCam = DisplayXRRigManager.ActiveCamera;
                 if (overrideCam != null && overrideCam != cam)
                 {
-                    // Tab key changed ActiveCamera — sync preview to match
                     cam = overrideCam;
                     if (s_SelectedSourceCamera != cam)
                         SelectCamera(cam);
                 }
                 else if (cam != null)
                 {
-                    // Ensure game overlay always knows the active camera
-                    DisplayXRGameViewOverlay.ActiveCamera = cam;
+                    DisplayXRRigManager.ActiveCamera = cam;
                 }
             }
 

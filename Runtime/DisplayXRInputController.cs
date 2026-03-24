@@ -72,10 +72,24 @@ namespace DisplayXR
 
         // Rendering mode cycling
         private int m_CurrentRenderingMode = 1;
+        private static int s_LastTabFrame = -1;
 
         void Update()
         {
-            if (!IsActiveCamera()) return;
+            // Tab cycles cameras globally (only process once per frame)
+            if (GetKeyDown(KeyCode.Tab) && Time.frameCount != s_LastTabFrame)
+            {
+                s_LastTabFrame = Time.frameCount;
+                DisplayXRRigManager.CycleNext();
+            }
+
+            if (!IsActiveCamera())
+            {
+                // Clear drag state so we don't jump on reactivation
+                m_Dragging = false;
+                m_DragPending = false;
+                return;
+            }
 
             HandleMouseRotation();
             HandleKeyboardMovement();
@@ -86,23 +100,10 @@ namespace DisplayXR
             HandleModeCycle();
         }
 
-        /// <summary>
-        /// Set by the preview session or game overlay to indicate which camera
-        /// should process input. Only one controller is active at a time.
-        /// </summary>
-        public static Camera ActiveInputCamera { get; set; }
-
         private bool IsActiveCamera()
         {
-            // In play mode, use the game overlay's active camera
-            if (Application.isPlaying)
-                return DisplayXRGameViewOverlay.ActiveCamera == m_Camera;
-
-            // In edit mode, use the shared static (set by preview session)
-            if (ActiveInputCamera != null)
-                return ActiveInputCamera == m_Camera;
-
-            return true;
+            var active = DisplayXRRigManager.ActiveCamera;
+            return active == null || active == m_Camera;
         }
 
         private const float kDragThreshold = 3f; // pixels before drag starts
@@ -285,6 +286,7 @@ namespace DisplayXR
                 case KeyCode.V: return Key.V;
                 case KeyCode.Space: return Key.Space;
                 case KeyCode.Escape: return Key.Escape;
+                case KeyCode.Tab: return Key.Tab;
                 case KeyCode.F11: return Key.F11;
                 default: return Key.None;
             }

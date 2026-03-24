@@ -12,41 +12,22 @@ namespace DisplayXR
 {
     /// <summary>
     /// Renders the DisplayXR composited preview texture in the Game View during Play Mode.
-    /// Auto-assigns targetDisplay to each discovered DisplayXR camera so Unity's Display
-    /// dropdown acts as a camera selector. Only one instance needed in the scene.
+    /// Suppresses scene camera rendering while the standalone preview is running and draws
+    /// the shared texture (IOSurface) via OnGUI. Only one instance needed in the scene.
+    /// Camera management (ActiveCamera, cycling) lives in DisplayXRRigManager.
     /// </summary>
     [AddComponentMenu("DisplayXR/Game View Overlay")]
     public class DisplayXRGameViewOverlay : MonoBehaviour
     {
-        /// <summary>
-        /// The currently active camera as determined by Display dropdown selection.
-        /// Read by DisplayXRPreviewSession.PushRigParameters() to override the source camera.
-        /// </summary>
-        public static Camera ActiveCamera
-        {
-            get => s_ActiveCamera;
-            set
-            {
-                s_ActiveCamera = value;
-                if (value != null)
-                    s_ActiveCameraName = value.gameObject.name;
-            }
-        }
-        private static Camera s_ActiveCamera;
-        private static string s_ActiveCameraName;
-
-        private struct ManagedCamera
+        private struct SuppressedCamera
         {
             public Camera camera;
             public int originalCullingMask;
             public CameraClearFlags originalClearFlags;
             public Color originalBackgroundColor;
-            public int assignedDisplay;
-            public bool hasDisplayRig;
-            public bool hasCameraRig;
         }
 
-        private List<ManagedCamera> m_ManagedCameras = new List<ManagedCamera>();
+        private List<SuppressedCamera> m_SuppressedCameras = new List<SuppressedCamera>();
         private bool m_Suppressing;
 
         // Shared texture for OnGUI drawing
@@ -57,27 +38,11 @@ namespace DisplayXR
         private string[] m_RenderingModeNames;
         private int m_CurrentRenderingMode = 1;
 
-        private static DisplayXRGameViewOverlay s_Instance;
-
-        void Start()
-        {
-            // Only the first instance is active — duplicates disable themselves
-            if (s_Instance != null && s_Instance != this)
-            {
-                enabled = false;
-                return;
-            }
-            s_Instance = this;
-            DiscoverAndAssignCameras();
-        }
-
         void OnDisable()
         {
             RestoreAllCameras();
             CleanupSharedTexture();
-            ActiveCamera = null;
             m_RenderingModeNames = null;
-            if (s_Instance == this) s_Instance = null;
         }
 
         void Update()
@@ -93,14 +58,10 @@ namespace DisplayXR
             {
                 RestoreAllCameras();
                 m_Suppressing = false;
-                ActiveCamera = null;
             }
 
             if (running)
-            {
-                HandleCameraCycle();
                 HandleModeKeys();
-            }
 
             HandleFullscreen();
         }
@@ -152,128 +113,48 @@ namespace DisplayXR
 
             // Status label
             string modeName = GetCurrentModeName();
-            string camName = !string.IsNullOrEmpty(s_ActiveCameraName) ? s_ActiveCameraName : "—";
+            string camName = DisplayXRRigManager.ActiveCameraName ?? "—";
             GUI.Label(new Rect(drawRect.x + 4, drawRect.y + 4, 800, 20),
                 $"Canvas: {canvasW}x{canvasH}  Surface: {surfW}x{surfH}  Mode: {modeName}  Camera: {camName}",
                 GUI.skin.label);
         }
 
         // ================================================================
-        // Camera discovery and display assignment
+        // Camera suppression (prevent scene rendering while preview runs)
         // ================================================================
 
-        private void DiscoverAndAssignCameras()
+        private void SuppressSceneRendering()
         {
-            m_ManagedCameras.Clear();
-            var cameras = FindObjectsByType<Camera>(FindObjectsSortMode.None);
-            var entries = new List<ManagedCamera>();
-
-            foreach (var cam in cameras)
+            m_SuppressedCameras.Clear();
+            var registered = DisplayXRRigManager.RegisteredCameras;
+            for (int i = 0; i < registered.Count; i++)
             {
-                if (cam.gameObject.hideFlags.HasFlag(HideFlags.HideAndDontSave))
-                    continue;
-
-                var entry = new ManagedCamera
+                var cam = registered[i];
+                if (cam == null) continue;
+                m_SuppressedCameras.Add(new SuppressedCamera
                 {
                     camera = cam,
                     originalCullingMask = cam.cullingMask,
                     originalClearFlags = cam.clearFlags,
                     originalBackgroundColor = cam.backgroundColor,
-                    hasDisplayRig = cam.GetComponent<DisplayXRDisplay>() != null,
-                    hasCameraRig = cam.GetComponent<DisplayXRCamera>() != null,
-                };
-
-                // Only manage cameras with DisplayXR components
-                if (entry.hasDisplayRig || entry.hasCameraRig)
-                    entries.Add(entry);
-            }
-
-            // Sort: DisplayRig first, then CameraRig
-            entries.Sort((a, b) =>
-            {
-                int catA = a.hasDisplayRig ? 0 : 1;
-                int catB = b.hasDisplayRig ? 0 : 1;
-                int catCmp = catA.CompareTo(catB);
-                if (catCmp != 0) return catCmp;
-                return string.Compare(a.camera.name, b.camera.name, StringComparison.Ordinal);
-            });
-
-            // Assign all cameras to Display 0 (OnGUI only draws on the primary display)
-            for (int i = 0; i < entries.Count; i++)
-            {
-                var e = entries[i];
-                e.assignedDisplay = i;
-                e.camera.targetDisplay = 0;
-                entries[i] = e;
-
-                string rigType = e.hasDisplayRig ? "Display" : "Camera";
-                Debug.Log($"[DisplayXR] Camera {i + 1} = {e.camera.name} ({rigType})");
-            }
-
-            m_ManagedCameras = entries;
-
-            // Set initial active camera
-            if (m_ManagedCameras.Count > 0)
-                ActiveCamera = m_ManagedCameras[0].camera;
-        }
-
-        // ================================================================
-        // Camera suppression (prevent scene rendering, save GPU)
-        // ================================================================
-
-        private void SuppressSceneRendering()
-        {
-            for (int i = 0; i < m_ManagedCameras.Count; i++)
-            {
-                var mc = m_ManagedCameras[i];
-                if (mc.camera == null) continue;
-                mc.camera.cullingMask = 0;
-                mc.camera.clearFlags = CameraClearFlags.SolidColor;
-                mc.camera.backgroundColor = Color.black;
+                });
+                cam.cullingMask = 0;
+                cam.clearFlags = CameraClearFlags.SolidColor;
+                cam.backgroundColor = Color.black;
             }
         }
 
         private void RestoreAllCameras()
         {
-            for (int i = 0; i < m_ManagedCameras.Count; i++)
+            for (int i = 0; i < m_SuppressedCameras.Count; i++)
             {
-                var mc = m_ManagedCameras[i];
+                var mc = m_SuppressedCameras[i];
                 if (mc.camera == null) continue;
                 mc.camera.cullingMask = mc.originalCullingMask;
                 mc.camera.clearFlags = mc.originalClearFlags;
                 mc.camera.backgroundColor = mc.originalBackgroundColor;
             }
-        }
-
-        // ================================================================
-        // Camera cycling via Tab key
-        // ================================================================
-
-        private static int s_LastCycleFrame = -1;
-
-        private void HandleCameraCycle()
-        {
-            if (!GetKeyDown(KeyCode.Tab) || m_ManagedCameras.Count < 2) return;
-            if (Time.frameCount == s_LastCycleFrame) return;
-            s_LastCycleFrame = Time.frameCount;
-
-            // Find current index
-            int cur = 0;
-            for (int i = 0; i < m_ManagedCameras.Count; i++)
-            {
-                if (m_ManagedCameras[i].camera == ActiveCamera)
-                {
-                    cur = i;
-                    break;
-                }
-            }
-
-            int next = (cur + 1) % m_ManagedCameras.Count;
-            Camera cam = m_ManagedCameras[next].camera;
-            if (cam == null) return;
-
-            ActiveCamera = cam;
-            Debug.Log($"[DisplayXR] Active camera switched to: {cam.name} (Camera {next + 1})");
+            m_SuppressedCameras.Clear();
         }
 
         // ================================================================
@@ -429,7 +310,6 @@ namespace DisplayXR
                 case KeyCode.Alpha6: return Key.Digit6;
                 case KeyCode.Alpha7: return Key.Digit7;
                 case KeyCode.Alpha8: return Key.Digit8;
-                case KeyCode.Tab: return Key.Tab;
                 case KeyCode.F11: return Key.F11;
                 default: return Key.None;
             }

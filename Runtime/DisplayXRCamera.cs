@@ -61,12 +61,14 @@ namespace DisplayXR
             if (m_CachedCameraFov < 1.0f)
                 m_CachedCameraFov = 60.0f;
             Camera.onPreRender += OnCameraPreRender;
+            DisplayXRRigManager.Register(m_Camera);
         }
 
         void OnDisable()
         {
             Debug.Log("[DisplayXR] DisplayXRCamera.OnDisable");
             Camera.onPreRender -= OnCameraPreRender;
+            DisplayXRRigManager.Unregister(m_Camera);
             m_Feature = null;
         }
 
@@ -101,6 +103,9 @@ namespace DisplayXR
 
         void LateUpdate()
         {
+            // Only the active rig pushes tunables (prevents multi-rig conflicts)
+            var active = DisplayXRRigManager.ActiveCamera;
+            if (active != null && active != m_Camera) return;
 
             if (m_Feature == null)
             {
@@ -108,12 +113,15 @@ namespace DisplayXR
                 if (m_Feature == null) return;
             }
 
-            // Update cached FOV from parent camera when it changes in the editor.
-            // Only accept values >= 1 — below that, XR has overridden fieldOfView
-            // with the Kooima FOV, which would create a feedback loop.
-            float currentFov = m_Camera.fieldOfView;
-            if (currentFov >= 1.0f)
-                m_CachedCameraFov = currentFov;
+            // In play mode, XR overwrites cam.fieldOfView with the Kooima FOV
+            // each frame — reading it back creates a feedback loop that blows
+            // up to ~180°.  Only sync from the camera in edit mode (inspector edits).
+            if (!Application.isPlaying)
+            {
+                float currentFov = m_Camera.fieldOfView;
+                if (currentFov >= 1.0f)
+                    m_CachedCameraFov = currentFov;
+            }
 
             // Compute half_tan_vfov from the cached camera FOV
             float halfTanVfov = Mathf.Tan(m_CachedCameraFov * 0.5f * Mathf.Deg2Rad);
