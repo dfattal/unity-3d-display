@@ -10,8 +10,9 @@ Step-by-step walkthrough: install the plugin, build two demo scenes, test both s
 
 - [Prerequisites](#prerequisites)
 - [Step 1: Install the Plugin](#step-1-install-the-plugin)
-  - [macOS](#macos-install)
-  - [Windows](#windows-install)
+  - [Option A: From Git URL (recommended)](#option-a-from-git-url-recommended)
+  - [Option B: From Release Tarball](#option-b-from-release-tarball)
+  - [Option C: From Local Folder (for contributors)](#option-c-from-local-folder-for-contributors)
 - [Step 2: Enable the Feature](#step-2-enable-the-feature)
 - [Step 3: Set Up the Runtime](#step-3-set-up-the-runtime)
 - [Step 4: Demo Scene A — Camera-Centric Mode](#step-4-demo-scene-a--camera-centric-mode)
@@ -41,61 +42,56 @@ You do **not** need a 3D display to complete this guide — the sim_display driv
 
 ## Step 1: Install the Plugin
 
-### macOS Install
+### Option A: From Git URL (recommended)
+
+The simplest method — no cloning or building required. Pre-built native binaries are included.
+
+> **Prerequisites:** Git must be accessible to Unity. **Windows:** Install [Git for Windows](https://gitforwindows.org/). **macOS:** Run `xcode-select --install` if needed, or launch Unity from a terminal if Git is installed via Homebrew. See [Troubleshooting](../README.md#troubleshooting) for details.
 
 1. Open (or create) a Unity project — any render pipeline (Built-in, URP, HDRP) works.
 
-2. Clone the repository (if you haven't already):
-   ```bash
-   git clone https://github.com/dfattal/unity-3d-display.git
+2. In Unity: **Window > Package Manager**.
+
+3. Click the **+** button (top-left) and choose **Add package from git URL...**
+
+4. Enter:
+   ```
+   https://github.com/DisplayXR/displayxr-unity.git#upm
+   ```
+   Or for a pinned version:
+   ```
+   https://github.com/DisplayXR/displayxr-unity.git#upm/v0.1.0
    ```
 
-3. Build the native plugin:
-   ```bash
-   cd unity-3d-display/native~
-   mkdir build && cd build
-   cmake .. -DCMAKE_BUILD_TYPE=Release
-   cmake --build . --config Release
-   ```
-   This produces `Runtime/Plugins/macOS/displayxr_unity.bundle`.
+5. The package appears as **DisplayXR** in the Package Manager list — ready to use.
 
-4. In Unity: **Window > Package Manager**.
+### Option B: From Release Tarball
 
-5. Click the **+** button (top-left) and choose **Add package from disk...**
+1. Download the `.tgz` file from the [latest release](https://github.com/DisplayXR/displayxr-unity/releases).
+2. In Unity: **Window > Package Manager > + > Add package from tarball...**
+3. Select the downloaded `.tgz` file.
 
-6. Navigate to the cloned `unity-3d-display/package.json` and select it.
+### Option C: From Local Folder (for contributors)
 
-7. The package appears as **DisplayXR** in the Package Manager list.
+Clone and build the native plugin yourself:
 
-> **After a release is published:** Once a `v*` tag has been pushed (creating the `upm` branch with pre-built binaries), you can skip the clone/build steps and install directly via git URL: **Add package from git URL...** → `https://github.com/dfattal/unity-3d-display.git#upm`. See the [README](../README.md#installing-the-plugin) for all install methods.
+**macOS:**
+```bash
+git clone https://github.com/DisplayXR/displayxr-unity.git
+cd displayxr-unity
+native~/build-mac.sh
+```
 
-### Windows Install
+**Windows** (requires [CMake](https://cmake.org/download/) and Visual Studio):
+```cmd
+git clone https://github.com/DisplayXR/displayxr-unity.git
+cd displayxr-unity\native~
+mkdir build && cd build
+cmake .. -A x64 -DCMAKE_BUILD_TYPE=Release
+cmake --build . --config Release
+```
 
-1. Open (or create) a Unity project.
-
-2. Clone the repository:
-   ```cmd
-   git clone https://github.com/dfattal/unity-3d-display.git
-   ```
-
-3. Build the native plugin (requires [CMake](https://cmake.org/download/) and Visual Studio or Build Tools):
-   ```cmd
-   cd unity-3d-display\native~
-   mkdir build && cd build
-   cmake .. -A x64 -DCMAKE_BUILD_TYPE=Release
-   cmake --build . --config Release
-   ```
-   This produces `Runtime\Plugins\Windows\x64\displayxr_unity.dll`.
-
-4. In Unity: **Window > Package Manager > + > Add package from disk...**
-
-5. Select the cloned `unity-3d-display\package.json`.
-
-6. The package appears as **DisplayXR**.
-
-> **Note:** If your machine doesn't have `git` on PATH, install [Git for Windows](https://git-scm.com/download/win) first.
->
-> **After a release is published:** Use **Add package from git URL...** → `https://github.com/dfattal/unity-3d-display.git#upm` to install with pre-built binaries (no local build needed). Or download the `.tgz` from the [Releases page](https://github.com/dfattal/unity-3d-display/releases) and use **Add package from tarball...**
+Then in Unity: **Window > Package Manager > + > Add package from disk...** → select `displayxr-unity/package.json`.
 
 ---
 
