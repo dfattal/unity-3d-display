@@ -904,13 +904,36 @@ namespace DisplayXR.Editor
 
         private static string FindRuntimeJson()
         {
-            // 1. XR_RUNTIME_JSON environment variable
+            // 1. XR_RUNTIME_JSON environment variable (highest priority on all platforms)
             string envPath = Environment.GetEnvironmentVariable("XR_RUNTIME_JSON");
             if (!string.IsNullOrEmpty(envPath) && File.Exists(envPath))
                 return envPath;
 
-            // 2. Well-known macOS paths
-#if UNITY_EDITOR_OSX
+#if UNITY_EDITOR_WIN
+            // 2. Windows: read ActiveRuntime from the OpenXR registry (set by the installer)
+            //    Key: HKLM\Software\Khronos\OpenXR\1  Value: ActiveRuntime
+            //    The installer writes this with SetRegView 64, so we read the 64-bit hive.
+            try
+            {
+                using (var hklm = Microsoft.Win32.RegistryKey.OpenBaseKey(
+                    Microsoft.Win32.RegistryHive.LocalMachine,
+                    Microsoft.Win32.RegistryView.Registry64))
+                using (var key = hklm.OpenSubKey(@"Software\Khronos\OpenXR\1"))
+                {
+                    if (key != null)
+                    {
+                        string activeRuntime = key.GetValue("ActiveRuntime") as string;
+                        if (!string.IsNullOrEmpty(activeRuntime) && File.Exists(activeRuntime))
+                            return activeRuntime;
+                    }
+                }
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning($"[DisplayXR-SA] Failed to read OpenXR registry: {e.Message}");
+            }
+#elif UNITY_EDITOR_OSX
+            // 2. macOS: well-known paths
             string[] searchPaths = new[]
             {
                 // Local development build

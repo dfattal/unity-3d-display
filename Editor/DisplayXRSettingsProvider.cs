@@ -56,9 +56,33 @@ namespace DisplayXR.Editor
             EditorGUILayout.LabelField("Runtime Status", EditorStyles.boldLabel);
 
             string runtimeJson = Environment.GetEnvironmentVariable("XR_RUNTIME_JSON");
+            string source = "XR_RUNTIME_JSON";
+
+            // If env var not set, try platform-specific discovery
+            if (string.IsNullOrEmpty(runtimeJson))
+            {
+#if UNITY_EDITOR_WIN
+                try
+                {
+                    using (var hklm = Microsoft.Win32.RegistryKey.OpenBaseKey(
+                        Microsoft.Win32.RegistryHive.LocalMachine,
+                        Microsoft.Win32.RegistryView.Registry64))
+                    using (var key = hklm.OpenSubKey(@"Software\Khronos\OpenXR\1"))
+                    {
+                        if (key != null)
+                            runtimeJson = key.GetValue("ActiveRuntime") as string;
+                    }
+                    if (!string.IsNullOrEmpty(runtimeJson))
+                        source = "Registry (Khronos\\OpenXR\\1\\ActiveRuntime)";
+                }
+                catch { }
+#endif
+            }
+
             if (!string.IsNullOrEmpty(runtimeJson))
             {
-                EditorGUILayout.LabelField("XR_RUNTIME_JSON", runtimeJson);
+                EditorGUILayout.LabelField("Source", source);
+                EditorGUILayout.LabelField("Runtime JSON", runtimeJson);
                 bool exists = System.IO.File.Exists(runtimeJson);
                 EditorGUILayout.LabelField("File Exists", exists ? "Yes" : "No");
                 if (!exists)
@@ -71,8 +95,8 @@ namespace DisplayXR.Editor
             else
             {
                 EditorGUILayout.HelpBox(
-                    "XR_RUNTIME_JSON not set. The system default OpenXR runtime will be used.\n" +
-                    "Set this environment variable to point to DisplayXR's openxr_displayxr.json manifest.",
+                    "No OpenXR runtime found.\n" +
+                    "Install the DisplayXR runtime or set XR_RUNTIME_JSON environment variable.",
                     MessageType.Warning);
             }
 
