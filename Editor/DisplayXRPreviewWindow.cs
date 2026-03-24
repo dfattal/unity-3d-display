@@ -452,7 +452,7 @@ namespace DisplayXR.Editor
                 CleanupSharedTexture();
 
                 m_SharedTexture = Texture2D.CreateExternalTexture(
-                    (int)w, (int)h, TextureFormat.BGRA32, false, false, nativePtr);
+                    (int)w, (int)h, TextureFormat.BGRA32, false, true, nativePtr);
                 m_SharedTexture.name = "DisplayXR_SA_Preview";
                 m_SharedTexture.filterMode = FilterMode.Bilinear;
                 m_SharedNativePtr = nativePtr;
