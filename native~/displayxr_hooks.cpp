@@ -16,12 +16,23 @@
 #include "displayxr_metal.h"
 #elif defined(_WIN32)
 #include "displayxr_win32.h"
+#include <d3d11.h>
 #endif
 
 #include <string.h>
 #include <stdio.h>
 #if !defined(_WIN32)
 #include <dlfcn.h>
+#endif
+
+// --- D3D11 swapchain image struct (from openxr_platform.h) ---
+// Defined inline to avoid requiring XR_USE_GRAPHICS_API_D3D11 globally.
+#if defined(_WIN32)
+typedef struct XrSwapchainImageD3D11KHR {
+	XrStructureType type;
+	void *next;
+	ID3D11Texture2D *texture;
+} XrSwapchainImageD3D11KHR;
 #endif
 
 // --- Stored real function pointers ---
@@ -34,6 +45,14 @@ static PFN_xrEndFrame s_real_end_frame = nullptr;
 static PFN_xrCreateReferenceSpace s_real_create_reference_space = nullptr;
 static volatile PFN_xrPollEvent s_real_poll_event = nullptr;
 static PFN_xrDestroyInstance s_real_destroy_instance = nullptr;
+
+// --- Swapchain diagnostic hooks (issue #36: D3D11 black screen) ---
+static PFN_xrEnumerateSwapchainFormats s_real_enumerate_swapchain_formats = nullptr;
+static PFN_xrCreateSwapchain s_real_create_swapchain = nullptr;
+static PFN_xrEnumerateSwapchainImages s_real_enumerate_swapchain_images = nullptr;
+static PFN_xrAcquireSwapchainImage s_real_acquire_swapchain_image = nullptr;
+static PFN_xrWaitSwapchainImage s_real_wait_swapchain_image = nullptr;
+static PFN_xrReleaseSwapchainImage s_real_release_swapchain_image = nullptr;
 
 static XrInstance s_instance = XR_NULL_HANDLE;
 static XrSession s_session = XR_NULL_HANDLE;
@@ -669,6 +688,194 @@ hooked_xrEndFrame(XrSession session, const XrFrameEndInfo *frameEndInfo)
 
 
 
+// ============================================================================
+// Swapchain diagnostic hooks (issue #36: D3D11 black screen)
+// Pure passthrough + logging — no behavioral changes.
+// ============================================================================
+
+static XrResult XRAPI_CALL
+hooked_xrEnumerateSwapchainFormats(XrSession session,
+                                   uint32_t formatCapacityInput,
+                                   uint32_t *formatCountOutput,
+                                   int64_t *formats)
+{
+	XrResult result = s_real_enumerate_swapchain_formats(session, formatCapacityInput,
+	                                                     formatCountOutput, formats);
+	if (XR_SUCCEEDED(result) && formats != nullptr && formatCountOutput != nullptr) {
+		fprintf(stderr, "[DisplayXR] xrEnumerateSwapchainFormats: %u formats\n", *formatCountOutput);
+		for (uint32_t i = 0; i < *formatCountOutput; i++) {
+			fprintf(stderr, "  format[%u] = %lld", i, (long long)formats[i]);
+#if defined(_WIN32)
+			// Annotate well-known DXGI formats
+			switch (formats[i]) {
+			case 28: fprintf(stderr, " (DXGI_FORMAT_R8G8B8A8_UNORM)"); break;
+			case 29: fprintf(stderr, " (DXGI_FORMAT_R8G8B8A8_UNORM_SRGB)"); break;
+			case 87: fprintf(stderr, " (DXGI_FORMAT_B8G8R8A8_UNORM)"); break;
+			case 91: fprintf(stderr, " (DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)"); break;
+			case 10: fprintf(stderr, " (DXGI_FORMAT_R16G16B16A16_FLOAT)"); break;
+			case 24: fprintf(stderr, " (DXGI_FORMAT_R10G10B10A2_UNORM)"); break;
+			default: break;
+			}
+#endif
+			fprintf(stderr, "\n");
+		}
+	}
+	return result;
+}
+
+static XrResult XRAPI_CALL
+hooked_xrCreateSwapchain(XrSession session,
+                          const XrSwapchainCreateInfo *createInfo,
+                          XrSwapchain *swapchain)
+{
+	fprintf(stderr, "[DisplayXR] xrCreateSwapchain: format=%lld size=%ux%u "
+	        "samples=%u faces=%u arrays=%u mips=%u "
+	        "createFlags=0x%llx usageFlags=0x%llx\n",
+	        (long long)createInfo->format,
+	        createInfo->width, createInfo->height,
+	        createInfo->sampleCount, createInfo->faceCount,
+	        createInfo->arraySize, createInfo->mipCount,
+	        (unsigned long long)createInfo->createFlags,
+	        (unsigned long long)createInfo->usageFlags);
+
+#if defined(_WIN32)
+	// Annotate usage flags
+	if (createInfo->usageFlags & XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT)
+		fprintf(stderr, "  usage: COLOR_ATTACHMENT\n");
+	if (createInfo->usageFlags & XR_SWAPCHAIN_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+		fprintf(stderr, "  usage: DEPTH_STENCIL_ATTACHMENT\n");
+	if (createInfo->usageFlags & XR_SWAPCHAIN_USAGE_UNORDERED_ACCESS_BIT)
+		fprintf(stderr, "  usage: UNORDERED_ACCESS\n");
+	if (createInfo->usageFlags & XR_SWAPCHAIN_USAGE_TRANSFER_SRC_BIT)
+		fprintf(stderr, "  usage: TRANSFER_SRC\n");
+	if (createInfo->usageFlags & XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT)
+		fprintf(stderr, "  usage: TRANSFER_DST\n");
+	if (createInfo->usageFlags & XR_SWAPCHAIN_USAGE_SAMPLED_BIT)
+		fprintf(stderr, "  usage: SAMPLED\n");
+	if (createInfo->usageFlags & XR_SWAPCHAIN_USAGE_MUTABLE_FORMAT_BIT)
+		fprintf(stderr, "  usage: MUTABLE_FORMAT\n");
+#endif
+
+	XrResult result = s_real_create_swapchain(session, createInfo, swapchain);
+	if (XR_SUCCEEDED(result)) {
+		fprintf(stderr, "[DisplayXR] xrCreateSwapchain: OK swapchain=%p\n",
+		        (void *)(uintptr_t)*swapchain);
+	} else {
+		fprintf(stderr, "[DisplayXR] xrCreateSwapchain: FAILED result=%d\n", result);
+	}
+	return result;
+}
+
+static XrResult XRAPI_CALL
+hooked_xrEnumerateSwapchainImages(XrSwapchain swapchain,
+                                   uint32_t imageCapacityInput,
+                                   uint32_t *imageCountOutput,
+                                   XrSwapchainImageBaseHeader *images)
+{
+	XrResult result = s_real_enumerate_swapchain_images(swapchain, imageCapacityInput,
+	                                                    imageCountOutput, images);
+	if (XR_SUCCEEDED(result) && images != nullptr && imageCountOutput != nullptr) {
+		fprintf(stderr, "[DisplayXR] xrEnumerateSwapchainImages: sc=%p count=%u type=%u\n",
+		        (void *)(uintptr_t)swapchain, *imageCountOutput, (unsigned)images->type);
+
+#if defined(_WIN32)
+		// D3D11: stride is sizeof(XrSwapchainImageD3D11KHR), query texture descriptors
+		if (images->type == XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR) {
+			XrSwapchainImageD3D11KHR *d3d_images = (XrSwapchainImageD3D11KHR *)images;
+			for (uint32_t i = 0; i < *imageCountOutput; i++) {
+				ID3D11Texture2D *tex = d3d_images[i].texture;
+				fprintf(stderr, "  image[%u] texture=%p", i, (void *)tex);
+				if (tex != nullptr) {
+					D3D11_TEXTURE2D_DESC desc = {};
+					tex->GetDesc(&desc);
+					fprintf(stderr, "\n    D3D11: %ux%u fmt=%u bindFlags=0x%x "
+					        "usage=%u miscFlags=0x%x cpuAccess=0x%x "
+					        "mips=%u arrays=%u samples=%u",
+					        desc.Width, desc.Height,
+					        (unsigned)desc.Format,
+					        (unsigned)desc.BindFlags,
+					        (unsigned)desc.Usage,
+					        (unsigned)desc.MiscFlags,
+					        (unsigned)desc.CPUAccessFlags,
+					        desc.MipLevels, desc.ArraySize,
+					        desc.SampleDesc.Count);
+					// Annotate bind flags
+					if (desc.BindFlags & D3D11_BIND_RENDER_TARGET)
+						fprintf(stderr, " [RT]");
+					if (desc.BindFlags & D3D11_BIND_SHADER_RESOURCE)
+						fprintf(stderr, " [SRV]");
+					if (desc.BindFlags & D3D11_BIND_UNORDERED_ACCESS)
+						fprintf(stderr, " [UAV]");
+					// Annotate misc flags
+					if (desc.MiscFlags & D3D11_RESOURCE_MISC_SHARED)
+						fprintf(stderr, " [SHARED]");
+					if (desc.MiscFlags & D3D11_RESOURCE_MISC_SHARED_NTHANDLE)
+						fprintf(stderr, " [SHARED_NTHANDLE]");
+					if (desc.MiscFlags & D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX)
+						fprintf(stderr, " [KEYED_MUTEX]");
+				}
+				fprintf(stderr, "\n");
+			}
+		} else
+#endif
+		{
+			// Generic fallback: just log type for each image
+			for (uint32_t i = 0; i < *imageCountOutput; i++) {
+				fprintf(stderr, "  image[%u] type=%u\n", i, (unsigned)images[i].type);
+			}
+		}
+	}
+	return result;
+}
+
+static XrResult XRAPI_CALL
+hooked_xrAcquireSwapchainImage(XrSwapchain swapchain,
+                                const XrSwapchainImageAcquireInfo *acquireInfo,
+                                uint32_t *index)
+{
+	XrResult result = s_real_acquire_swapchain_image(swapchain, acquireInfo, index);
+	// Log first few acquires per swapchain, then every 120th frame
+	static int s_acq_count = 0;
+	if (s_acq_count < 6 || s_acq_count % 120 == 0) {
+		fprintf(stderr, "[DisplayXR] xrAcquireSwapchainImage: sc=%p idx=%u result=%d\n",
+		        (void *)(uintptr_t)swapchain,
+		        (index != nullptr) ? *index : 0xFFFFFFFF,
+		        result);
+	}
+	s_acq_count++;
+	return result;
+}
+
+static XrResult XRAPI_CALL
+hooked_xrWaitSwapchainImage(XrSwapchain swapchain,
+                             const XrSwapchainImageWaitInfo *waitInfo)
+{
+	XrResult result = s_real_wait_swapchain_image(swapchain, waitInfo);
+	static int s_wait_count = 0;
+	if (s_wait_count < 6 || s_wait_count % 120 == 0) {
+		fprintf(stderr, "[DisplayXR] xrWaitSwapchainImage: sc=%p timeout=%llu result=%d\n",
+		        (void *)(uintptr_t)swapchain,
+		        (unsigned long long)(waitInfo ? waitInfo->timeout : 0),
+		        result);
+	}
+	s_wait_count++;
+	return result;
+}
+
+static XrResult XRAPI_CALL
+hooked_xrReleaseSwapchainImage(XrSwapchain swapchain,
+                                const XrSwapchainImageReleaseInfo *releaseInfo)
+{
+	static int s_rel_count = 0;
+	if (s_rel_count < 6 || s_rel_count % 120 == 0) {
+		fprintf(stderr, "[DisplayXR] xrReleaseSwapchainImage: sc=%p\n",
+		        (void *)(uintptr_t)swapchain);
+	}
+	s_rel_count++;
+	return s_real_release_swapchain_image(swapchain, releaseInfo);
+}
+
+
 static XrResult XRAPI_CALL
 hooked_xrDestroyInstance(XrInstance instance)
 {
@@ -696,6 +903,12 @@ hooked_xrDestroyInstance(XrInstance instance)
 	s_real_create_reference_space = nullptr;
 	s_real_poll_event = nullptr;
 	s_real_destroy_instance = nullptr;
+	s_real_enumerate_swapchain_formats = nullptr;
+	s_real_create_swapchain = nullptr;
+	s_real_enumerate_swapchain_images = nullptr;
+	s_real_acquire_swapchain_image = nullptr;
+	s_real_wait_swapchain_image = nullptr;
+	s_real_release_swapchain_image = nullptr;
 
 	fprintf(stderr, "[DisplayXR] xrDestroyInstance END (deferred, returning XR_SUCCESS)\n");
 	s_instance = XR_NULL_HANDLE;
@@ -810,6 +1023,26 @@ displayxr_hook_xrGetInstanceProcAddr(XrInstance instance, const char *name, PFN_
 	} else if (strcmp(name, "xrDestroyInstance") == 0) {
 		s_real_destroy_instance = (PFN_xrDestroyInstance)*function;
 		*function = (PFN_xrVoidFunction)hooked_xrDestroyInstance;
+	}
+	// --- Swapchain diagnostic hooks (issue #36) ---
+	else if (strcmp(name, "xrEnumerateSwapchainFormats") == 0) {
+		s_real_enumerate_swapchain_formats = (PFN_xrEnumerateSwapchainFormats)*function;
+		*function = (PFN_xrVoidFunction)hooked_xrEnumerateSwapchainFormats;
+	} else if (strcmp(name, "xrCreateSwapchain") == 0) {
+		s_real_create_swapchain = (PFN_xrCreateSwapchain)*function;
+		*function = (PFN_xrVoidFunction)hooked_xrCreateSwapchain;
+	} else if (strcmp(name, "xrEnumerateSwapchainImages") == 0) {
+		s_real_enumerate_swapchain_images = (PFN_xrEnumerateSwapchainImages)*function;
+		*function = (PFN_xrVoidFunction)hooked_xrEnumerateSwapchainImages;
+	} else if (strcmp(name, "xrAcquireSwapchainImage") == 0) {
+		s_real_acquire_swapchain_image = (PFN_xrAcquireSwapchainImage)*function;
+		*function = (PFN_xrVoidFunction)hooked_xrAcquireSwapchainImage;
+	} else if (strcmp(name, "xrWaitSwapchainImage") == 0) {
+		s_real_wait_swapchain_image = (PFN_xrWaitSwapchainImage)*function;
+		*function = (PFN_xrVoidFunction)hooked_xrWaitSwapchainImage;
+	} else if (strcmp(name, "xrReleaseSwapchainImage") == 0) {
+		s_real_release_swapchain_image = (PFN_xrReleaseSwapchainImage)*function;
+		*function = (PFN_xrVoidFunction)hooked_xrReleaseSwapchainImage;
 	}
 
 	return result;
