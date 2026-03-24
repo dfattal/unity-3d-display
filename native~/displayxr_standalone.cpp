@@ -120,6 +120,8 @@ typedef struct StandaloneState {
 #if defined(_WIN32)
 	ID3D11Device *d3d_device;
 	ID3D11DeviceContext *d3d_context;
+	ID3D11Texture2D *d3d_shared_texture;
+	HANDLE d3d_shared_handle;
 #endif
 
 	XrInstance instance;
@@ -883,6 +885,44 @@ displayxr_standalone_start(const char *runtime_json_path)
 		s_sa.tex_height = s_sa.display_info.display_pixel_height;
 		s_sa.tex_ready = 1;
 	}
+#elif defined(_WIN32)
+	// --- Step 7: Create D3D11 shared texture ---
+	if (s_sa.display_info.is_valid &&
+	    s_sa.display_info.display_pixel_width > 0 &&
+	    s_sa.display_info.display_pixel_height > 0)
+	{
+		D3D11_TEXTURE2D_DESC desc = {};
+		desc.Width = s_sa.display_info.display_pixel_width;
+		desc.Height = s_sa.display_info.display_pixel_height;
+		desc.MipLevels = 1;
+		desc.ArraySize = 1;
+		desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+		desc.SampleDesc.Count = 1;
+		desc.Usage = D3D11_USAGE_DEFAULT;
+		desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+		desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED;
+
+		HRESULT hr = s_sa.d3d_device->CreateTexture2D(&desc, NULL, &s_sa.d3d_shared_texture);
+		if (FAILED(hr)) {
+			fprintf(stderr, "[DisplayXR-SA] CreateTexture2D (shared) failed: 0x%08lx\n", hr);
+			displayxr_standalone_stop();
+			return 0;
+		}
+
+		IDXGIResource *dxgi_resource = NULL;
+		hr = s_sa.d3d_shared_texture->QueryInterface(
+			__uuidof(IDXGIResource), (void **)&dxgi_resource);
+		if (SUCCEEDED(hr)) {
+			dxgi_resource->GetSharedHandle(&s_sa.d3d_shared_handle);
+			dxgi_resource->Release();
+		}
+
+		s_sa.tex_width = desc.Width;
+		s_sa.tex_height = desc.Height;
+		s_sa.tex_ready = 1;
+		fprintf(stderr, "[DisplayXR-SA] D3D11 shared texture: %ux%u, handle=%p\n",
+		        desc.Width, desc.Height, s_sa.d3d_shared_handle);
+	}
 #endif
 
 	// --- Step 8: Create session with Metal graphics binding + window binding ---
@@ -929,7 +969,7 @@ displayxr_standalone_start(const char *runtime_json_path)
 	win_binding.windowHandle = NULL;
 	win_binding.readbackCallback = NULL;
 	win_binding.readbackUserdata = NULL;
-	win_binding.sharedTextureHandle = NULL;
+	win_binding.sharedTextureHandle = s_sa.d3d_shared_handle;
 
 	// Chain: session_ci → d3d_binding → win_binding
 	d3d_binding.next = &win_binding;
@@ -1018,6 +1058,8 @@ displayxr_standalone_stop(void)
 #if defined(__APPLE__)
 	displayxr_sa_metal_destroy();
 #elif defined(_WIN32)
+	if (s_sa.d3d_shared_texture) { s_sa.d3d_shared_texture->Release(); s_sa.d3d_shared_texture = NULL; }
+	s_sa.d3d_shared_handle = NULL;
 	if (s_sa.d3d_context) { s_sa.d3d_context->Release(); s_sa.d3d_context = NULL; }
 	if (s_sa.d3d_device) { s_sa.d3d_device->Release(); s_sa.d3d_device = NULL; }
 #endif
@@ -1651,6 +1693,8 @@ displayxr_standalone_get_shared_texture(void **native_ptr, uint32_t *width,
 {
 #if defined(__APPLE__)
 	*native_ptr = displayxr_sa_metal_get_texture();
+#elif defined(_WIN32)
+	*native_ptr = s_sa.d3d_shared_handle;
 #else
 	*native_ptr = NULL;
 #endif
