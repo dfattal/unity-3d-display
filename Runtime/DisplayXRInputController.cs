@@ -63,13 +63,11 @@ namespace DisplayXR
             m_InitialPitch = m_Pitch;
             m_InitialScale = transform.localScale;
 
-            // Detect rig type for zoom behavior
+            // Cache camera reference (needed for active check and zoom)
+            m_Camera = GetComponent<Camera>();
             m_IsCameraCentric = GetComponent<DisplayXRCamera>() != null;
             if (m_IsCameraCentric)
-            {
-                m_Camera = GetComponent<Camera>();
                 m_InitialFov = m_Camera.fieldOfView;
-            }
         }
 
         // Rendering mode cycling
@@ -77,6 +75,8 @@ namespace DisplayXR
 
         void Update()
         {
+            if (!IsActiveCamera()) return;
+
             HandleMouseRotation();
             HandleKeyboardMovement();
             HandleScrollZoom();
@@ -86,18 +86,53 @@ namespace DisplayXR
             HandleModeCycle();
         }
 
-        // Known issue: editor popups swallow the OS mouse-up event, leaving
-        // the Input System stuck with isPressed=true. Click in the Game View
-        // to unstick. See https://github.com/dfattal/unity-3d-display/issues/33
+        /// <summary>
+        /// Set by the preview session or game overlay to indicate which camera
+        /// should process input. Only one controller is active at a time.
+        /// </summary>
+        public static Camera ActiveInputCamera { get; set; }
+
+        private bool IsActiveCamera()
+        {
+            // In play mode, use the game overlay's active camera
+            if (Application.isPlaying)
+                return DisplayXRGameViewOverlay.ActiveCamera == m_Camera;
+
+            // In edit mode, use the shared static (set by preview session)
+            if (ActiveInputCamera != null)
+                return ActiveInputCamera == m_Camera;
+
+            return true;
+        }
+
+        private const float kDragThreshold = 3f; // pixels before drag starts
+        private bool m_DragPending;
+        private Vector2 m_DragStartPos;
+
         private void HandleMouseRotation()
         {
-            if (GetMouseButtonDown(0))
+            if (GetMouseButtonDown(0) && !ShouldIgnoreInput())
             {
-                m_Dragging = true;
-                m_LastMousePos = GetMousePosition();
+                m_DragPending = true;
+                m_DragStartPos = GetMousePosition();
+                m_LastMousePos = m_DragStartPos;
             }
             if (GetMouseButtonUp(0))
+            {
                 m_Dragging = false;
+                m_DragPending = false;
+            }
+
+            if (m_DragPending && !m_Dragging)
+            {
+                Vector2 pos = GetMousePosition();
+                if ((pos - m_DragStartPos).sqrMagnitude > kDragThreshold * kDragThreshold)
+                {
+                    m_Dragging = true;
+                    m_DragPending = false;
+                    m_LastMousePos = pos;
+                }
+            }
 
             if (m_Dragging)
             {
@@ -140,6 +175,7 @@ namespace DisplayXR
 
         private void HandleScrollZoom()
         {
+            if (ShouldIgnoreInput()) return;
             float scroll = GetScrollDelta();
             if (Mathf.Abs(scroll) < 0.001f) return;
 
@@ -196,6 +232,24 @@ namespace DisplayXR
             m_CurrentRenderingMode = m_CurrentRenderingMode == 0 ? 1 : 0;
             DisplayXRNative.displayxr_request_display_mode(m_CurrentRenderingMode);
             Debug.Log($"[DisplayXR] Display mode → {(m_CurrentRenderingMode == 0 ? "2D" : "3D")}");
+        }
+
+        private static bool ShouldIgnoreInput()
+        {
+            // Runtime UI (Canvas/EventSystem)
+            var es = UnityEngine.EventSystems.EventSystem.current;
+            if (es != null && es.IsPointerOverGameObject())
+                return true;
+
+#if UNITY_EDITOR
+            // Only capture mouse in Game View or Preview Window
+            var focused = UnityEditor.EditorWindow.focusedWindow;
+            if (focused == null) return true;
+            string typeName = focused.GetType().Name;
+            if (typeName != "GameView" && typeName != "DisplayXRPreviewWindow")
+                return true;
+#endif
+            return false;
         }
 
         // --- Input abstraction (keyboard + mouse) ---

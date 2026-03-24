@@ -22,7 +22,18 @@ namespace DisplayXR
         /// The currently active camera as determined by Display dropdown selection.
         /// Read by DisplayXRPreviewSession.PushRigParameters() to override the source camera.
         /// </summary>
-        public static Camera ActiveCamera { get; set; }
+        public static Camera ActiveCamera
+        {
+            get => s_ActiveCamera;
+            set
+            {
+                s_ActiveCamera = value;
+                if (value != null)
+                    s_ActiveCameraName = value.gameObject.name;
+            }
+        }
+        private static Camera s_ActiveCamera;
+        private static string s_ActiveCameraName;
 
         private struct ManagedCamera
         {
@@ -46,8 +57,17 @@ namespace DisplayXR
         private string[] m_RenderingModeNames;
         private int m_CurrentRenderingMode = 1;
 
+        private static DisplayXRGameViewOverlay s_Instance;
+
         void Start()
         {
+            // Only the first instance is active — duplicates disable themselves
+            if (s_Instance != null && s_Instance != this)
+            {
+                enabled = false;
+                return;
+            }
+            s_Instance = this;
             DiscoverAndAssignCameras();
         }
 
@@ -57,6 +77,7 @@ namespace DisplayXR
             CleanupSharedTexture();
             ActiveCamera = null;
             m_RenderingModeNames = null;
+            if (s_Instance == this) s_Instance = null;
         }
 
         void Update()
@@ -131,8 +152,8 @@ namespace DisplayXR
 
             // Status label
             string modeName = GetCurrentModeName();
-            string camName = ActiveCamera != null ? ActiveCamera.gameObject.name : "None";
-            GUI.Label(new Rect(drawRect.x + 4, drawRect.y + 4, 400, 20),
+            string camName = !string.IsNullOrEmpty(s_ActiveCameraName) ? s_ActiveCameraName : "—";
+            GUI.Label(new Rect(drawRect.x + 4, drawRect.y + 4, 800, 20),
                 $"Canvas: {canvasW}x{canvasH}  Surface: {surfW}x{surfH}  Mode: {modeName}  Camera: {camName}",
                 GUI.skin.label);
         }

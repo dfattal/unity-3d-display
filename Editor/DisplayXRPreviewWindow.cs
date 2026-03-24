@@ -107,19 +107,23 @@ namespace DisplayXR.Editor
         {
             // Sync dropdown index when camera changed externally (e.g. Tab key)
             Camera sel = DisplayXRPreviewSession.SelectedCamera;
-            if (sel != null && m_CameraList != null &&
-                (m_SelectedCameraIndex >= m_CameraList.Length ||
-                 m_CameraList[m_SelectedCameraIndex].camera != sel))
+            if (sel == null || m_CameraList == null) return;
+
+            if (m_SelectedCameraIndex < m_CameraList.Length &&
+                m_CameraList[m_SelectedCameraIndex].camera == sel)
+                return; // Already in sync
+
+            for (int i = 0; i < m_CameraList.Length; i++)
             {
-                for (int i = 0; i < m_CameraList.Length; i++)
+                if (m_CameraList[i].camera == sel)
                 {
-                    if (m_CameraList[i].camera == sel)
-                    {
-                        m_SelectedCameraIndex = i;
-                        break;
-                    }
+                    m_SelectedCameraIndex = i;
+                    return;
                 }
             }
+
+            // Camera not in list — refresh and retry
+            RefreshCameraList();
         }
 
         private void ValidateCameraSelection()

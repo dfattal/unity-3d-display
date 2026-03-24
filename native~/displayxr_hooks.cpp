@@ -168,21 +168,40 @@ hooked_xrLocateViews(XrSession session,
 		if (s_cam_log++ % 60 == 0) {
 			fprintf(stderr, "[DisplayXR] CAM-CENTRIC: scene_pose=(%.3f,%.3f,%.3f) "
 			        "raw_L=(%.3f,%.3f,%.3f) raw_R=(%.3f,%.3f,%.3f) "
-			        "nominal=(%.3f,%.3f,%.3f) invd=%.4f half_tan_vfov=%.4f\n",
+			        "nominal=(%.3f,%.3f,%.3f) invd=%.4f half_tan_vfov=%.4f "
+			        "scale=(%.3f,%.3f,%.3f)\n",
 			        scene_pose.position.x, scene_pose.position.y, scene_pose.position.z,
 			        raw_left.x, raw_left.y, raw_left.z,
 			        raw_right.x, raw_right.y, raw_right.z,
 			        nominal.x, nominal.y, nominal.z,
 			        tunables.inv_convergence_distance,
-			        tunables.fov_override);
+			        tunables.fov_override,
+			        scene_xform.scale[0], scene_xform.scale[1], scene_xform.scale[2]);
 		}
 		Camera3DTunables cam_tunables;
 		cam_tunables.ipd_factor = tunables.ipd_factor;
 		cam_tunables.parallax_factor = tunables.parallax_factor;
-		cam_tunables.inv_convergence_distance = tunables.inv_convergence_distance;
 		cam_tunables.half_tan_vfov = tunables.fov_override;
 
+		// Parent camera scale: multiply eye positions and nominal viewer,
+		// divide inv_convergence_distance by sz.
+		float sx = (scene_xform.scale[0] > 0.001f) ? scene_xform.scale[0] : 1.0f;
+		float sy = (scene_xform.scale[1] > 0.001f) ? scene_xform.scale[1] : 1.0f;
+		float sz = (scene_xform.scale[2] > 0.001f) ? scene_xform.scale[2] : 1.0f;
+
+		cam_tunables.inv_convergence_distance = tunables.inv_convergence_distance / sz;
+
 		XrVector3f raw_eyes[2] = {raw_left, raw_right};
+		for (int i = 0; i < 2; i++) {
+			raw_eyes[i].x *= sx;
+			raw_eyes[i].y *= sy;
+			raw_eyes[i].z *= sz;
+		}
+
+		nominal.x *= sx;
+		nominal.y *= sy;
+		nominal.z *= sz;
+
 		Camera3DView cam_views[2];
 		camera3d_compute_views(
 			raw_eyes, 2,
@@ -219,14 +238,25 @@ hooked_xrLocateViews(XrSession session,
 		// Display-centric: atan-based Kooima (display3d_view library)
 		// Pass raw eyes + display_pose directly (like the native test app).
 		//
-		// Camera transform scale acts as zoom via virtual_display_height:
-		// virtual_display_height is divided by scale.y so a larger scale
-		// means a smaller virtual display → zooms in (like test app mouse wheel).
+		// Parent camera scale as world-scale (matches reference test app):
+		// vdh /= sy gives uniform 1/sy zoom via m2v.  Anisotropic
+		// corrections (sy/sx, sy/sz) on eyes and screen width handle
+		// non-uniform scale.  For uniform scale these are 1.0.
 
+		float sx = (scene_xform.scale[0] > 0.001f) ? scene_xform.scale[0] : 1.0f;
 		float sy = (scene_xform.scale[1] > 0.001f) ? scene_xform.scale[1] : 1.0f;
-		float vdh = tunables.virtual_display_height;
-		// Fold camera scale into virtual display height
-		vdh /= sy;
+		float sz = (scene_xform.scale[2] > 0.001f) ? scene_xform.scale[2] : 1.0f;
+
+		// Primary zoom via virtual_display_height (reference app approach)
+		float vdh = tunables.virtual_display_height / sy;
+
+		// Anisotropic corrections: m2v gives uniform 1/sy; these extra
+		// factors achieve per-axis 1/sx, 1/sz on top.
+		float ax = sy / sx;   // 1.0 for uniform scale
+		float az = sy / sz;   // 1.0 for uniform scale
+
+		// Adjust screen width for X-axis aspect ratio
+		screen.width_m *= ax;
 
 		Display3DTunables disp_tunables;
 		disp_tunables.ipd_factor = tunables.ipd_factor;
@@ -235,6 +265,15 @@ hooked_xrLocateViews(XrSession session,
 		disp_tunables.virtual_display_height = vdh;
 
 		XrVector3f raw_eyes[2] = {raw_left, raw_right};
+
+		// Anisotropic eye position corrections
+		for (int i = 0; i < 2; i++) {
+			raw_eyes[i].x *= ax;
+			raw_eyes[i].z *= az;
+		}
+
+		// Scale nominal viewer depth for consistency
+		nominal.z *= az;
 		Display3DView disp_views[2];
 		display3d_compute_views(
 			raw_eyes, 2,

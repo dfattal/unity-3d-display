@@ -649,7 +649,8 @@ namespace DisplayXR.Editor
             if (IsRunning)
                 ApplyCameraSelection();
 
-            // Sync to game overlay so both tabs agree on the active camera
+            // Sync input controller and game overlay to the selected camera
+            DisplayXRInputController.ActiveInputCamera = cam;
             if (Application.isPlaying)
                 DisplayXRGameViewOverlay.ActiveCamera = cam;
         }
@@ -695,6 +696,7 @@ namespace DisplayXR.Editor
         private static void ApplyCameraSelection()
         {
             if (s_SelectedSourceCamera == null || s_EyeCams == null) return;
+            DisplayXRInputController.ActiveInputCamera = s_SelectedSourceCamera;
             CloneSourceCameraSettings(s_SelectedSourceCamera);
         }
 
@@ -755,20 +757,21 @@ namespace DisplayXR.Editor
 
             Camera cam = s_SelectedSourceCamera;
 
-            // In play mode, use the game overlay's ActiveCamera (set by Tab key
-            // or synced from the preview dropdown via SelectCamera)
+            // In play mode, keep game overlay's ActiveCamera in sync
             if (Application.isPlaying)
             {
                 var overrideCam = DisplayXRGameViewOverlay.ActiveCamera;
-                if (overrideCam != null)
+                if (overrideCam != null && overrideCam != cam)
                 {
+                    // Tab key changed ActiveCamera — sync preview to match
                     cam = overrideCam;
-                    // Sync back to preview dropdown so both selectors agree
                     if (s_SelectedSourceCamera != cam)
-                    {
-                        s_SelectedSourceCamera = cam;
-                        SessionState.SetInt(kSelectedCameraIDKey, cam.GetInstanceID());
-                    }
+                        SelectCamera(cam);
+                }
+                else if (cam != null)
+                {
+                    // Ensure game overlay always knows the active camera
+                    DisplayXRGameViewOverlay.ActiveCamera = cam;
                 }
             }
 
