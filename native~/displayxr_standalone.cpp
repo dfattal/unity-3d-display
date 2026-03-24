@@ -21,6 +21,14 @@
 #include <windows.h>
 #include <d3d11.h>
 #include <dxgi.h>
+
+// D3D11 swapchain image struct (from openxr_platform.h, inlined to avoid
+// requiring XR_USE_GRAPHICS_API_D3D11 globally).
+typedef struct XrSwapchainImageD3D11KHR {
+	XrStructureType type;
+	void *next;
+	ID3D11Texture2D *texture;
+} XrSwapchainImageD3D11KHR;
 #endif
 
 #include <math.h>
@@ -108,10 +116,15 @@ typedef XrResult (XRAPI_PTR *PFN_xrGetMetalGraphicsRequirementsKHR)(
 
 typedef struct SASwapchain {
 	XrSwapchain handle;
+#if defined(__APPLE__)
 	XrSwapchainImageMetalKHR images[SA_MAX_SWAPCHAIN_IMAGES];
+#elif defined(_WIN32)
+	XrSwapchainImageD3D11KHR images[SA_MAX_SWAPCHAIN_IMAGES];
+#endif
 	uint32_t image_count;
 	uint32_t width;
 	uint32_t height;
+	int64_t format; // selected swapchain format (for typed RTV creation)
 } SASwapchain;
 
 typedef struct StandaloneState {
@@ -507,12 +520,17 @@ create_atlas_swapchain(void)
 	if (fmt_count > 32) fmt_count = 32;
 	s_sa.pfn_enumerate_swapchain_formats(s_sa.session, fmt_count, &fmt_count, formats);
 
-	// Prefer BGRA8Unorm (Metal=80), fallback to RGBA8Unorm (Metal=70), else first
+	// Pick a suitable format per platform
 	int64_t format = formats[0];
 	for (uint32_t i = 0; i < fmt_count; i++) {
 		fprintf(stderr, "[DisplayXR-SA] Supported format[%u]: %lld\n", i, formats[i]);
+#if defined(__APPLE__)
 		if (formats[i] == 80) { format = 80; break; } // MTLPixelFormatBGRA8Unorm
 		if (formats[i] == 70) { format = 70; }         // MTLPixelFormatRGBA8Unorm
+#elif defined(_WIN32)
+		if (formats[i] == 87) { format = 87; break; }  // DXGI_FORMAT_B8G8R8A8_UNORM
+		if (formats[i] == 28) { format = 28; }          // DXGI_FORMAT_R8G8B8A8_UNORM
+#endif
 	}
 	fprintf(stderr, "[DisplayXR-SA] Selected swapchain format: %lld\n", format);
 
@@ -537,6 +555,7 @@ create_atlas_swapchain(void)
 
 	s_sa.atlas.width = atlas_w;
 	s_sa.atlas.height = atlas_h;
+	s_sa.atlas.format = format;
 
 	// Enumerate swapchain images
 	uint32_t count = 0;
@@ -545,7 +564,11 @@ create_atlas_swapchain(void)
 	s_sa.atlas.image_count = count;
 
 	for (uint32_t i = 0; i < count; i++) {
+#if defined(__APPLE__)
 		s_sa.atlas.images[i].type = XR_TYPE_SWAPCHAIN_IMAGE_METAL_KHR;
+#elif defined(_WIN32)
+		s_sa.atlas.images[i].type = XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR;
+#endif
 		s_sa.atlas.images[i].next = NULL;
 	}
 
@@ -1218,7 +1241,6 @@ displayxr_standalone_submit_frame_atlas(void *atlas_tex)
 	}
 	s_sa.frame_begun = 0;
 
-#if defined(__APPLE__)
 	// Acquire the single atlas swapchain image
 	uint32_t index = 0;
 	XrSwapchainImageAcquireInfo acq_info = {XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
@@ -1236,11 +1258,21 @@ displayxr_standalone_submit_frame_atlas(void *atlas_tex)
 		fprintf(stderr, "[DisplayXR-SA] Wait atlas swapchain failed: %d\n", r);
 	}
 
-	// Blit Unity atlas RenderTexture → swapchain image (single blit)
+	// Blit Unity atlas RenderTexture → swapchain image (platform-specific)
+#if defined(__APPLE__)
 	void *dst = s_sa.atlas.images[index].texture;
 	if (atlas_tex && dst) {
 		displayxr_sa_metal_blit(atlas_tex, dst);
 	}
+#elif defined(_WIN32)
+	{
+		ID3D11Texture2D *dst = s_sa.atlas.images[index].texture;
+		ID3D11Texture2D *src = (ID3D11Texture2D *)atlas_tex;
+		if (src && dst && s_sa.d3d_context) {
+			s_sa.d3d_context->CopyResource(dst, src);
+		}
+	}
+#endif
 
 	XrSwapchainImageReleaseInfo rel_info = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
 	s_sa.pfn_release_swapchain_image(s_sa.atlas.handle, &rel_info);
@@ -1329,10 +1361,6 @@ displayxr_standalone_submit_frame_atlas(void *atlas_tex)
 
 	s_sa.pfn_end_frame(s_sa.session, &end_info);
 	return 1;
-#else
-	displayxr_standalone_end_frame_empty();
-	return 0;
-#endif
 }
 
 
