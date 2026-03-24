@@ -1694,7 +1694,8 @@ displayxr_standalone_get_shared_texture(void **native_ptr, uint32_t *width,
 #if defined(__APPLE__)
 	*native_ptr = displayxr_sa_metal_get_texture();
 #elif defined(_WIN32)
-	*native_ptr = s_sa.d3d_shared_handle;
+	// Unity's CreateExternalTexture expects ID3D11Texture2D*, not the DXGI shared handle
+	*native_ptr = (void *)s_sa.d3d_shared_texture;
 #else
 	*native_ptr = NULL;
 #endif
