@@ -79,6 +79,10 @@ In Unity: **Window > Package Manager > + > Add package from disk...** → select
 
 > **Note:** The `upm` branch is created by CI when a `v*` tag is pushed. If no release has been published yet, use Option A.
 
+> **Git must be in PATH.** Unity's Package Manager requires Git installed and accessible to GUI apps.
+> - **Windows:** Install [Git for Windows](https://gitforwindows.org/) and ensure it's in your system PATH.
+> - **macOS:** If Git is installed via Homebrew, Unity launched from Hub/Finder may not find it (GUI apps don't inherit your shell PATH). Fix: run `xcode-select --install` to ensure `/usr/bin/git` works, or launch Unity from a terminal. See [Troubleshooting](#troubleshooting) for details.
+
 1. In Unity: **Window > Package Manager**
 2. Click **+** > **Add package from git URL...**
 3. Enter:
@@ -380,6 +384,8 @@ This lets you develop and test the full stereo pipeline on any machine.
 | Black screen | DisplayXR feature not enabled | Check Project Settings > XR Plug-in Management > OpenXR > Features |
 | No stereo (flat image) | Eye tracking not running | Verify the DisplayXR runtime is configured with a display that supports eye tracking, or use sim_display for testing |
 | Stereo looks wrong | Tunables misconfigured | Reset to defaults (IPD=1, Parallax=1, Scale=1) |
+| UPM "cannot add package from git URL" (Windows) | Git not installed or not in PATH | Install [Git for Windows](https://gitforwindows.org/), restart Unity. Verify with `git --version` in a terminal. |
+| UPM "cannot add package from git URL" (macOS) | GUI apps can't find Homebrew Git | Run `xcode-select --install` to set up `/usr/bin/git`, or launch Unity from terminal (`open -a Unity`). Check `~/Library/Logs/Unity/upm.log` for details. |
 | `DllNotFoundException: displayxr_unity` | Native plugin not found by Unity | Ensure the plugin binaries are in `Runtime/Plugins/Windows/x64/` or `Runtime/Plugins/macOS/` |
 | HDRP stereo artifacts | Single-pass instanced issue | Verify both eye views have correct FOVs in Frame Debugger |
 | Preview shows "Not Connected" | `XR_RUNTIME_JSON` not set or runtime not running | Set the env var before launching Unity; verify the runtime process is active |
