@@ -65,10 +65,11 @@ if(APPLE)
     list(APPEND HEADERS displayxr_metal.h displayxr_standalone_metal.h)
 endif()
 
-# Windows-only: overlay child window
+# Windows-only: overlay child window + D3D11/DXGI
 if(WIN32)
     list(APPEND SOURCES displayxr_win32.c)
     list(APPEND HEADERS displayxr_win32.h)
+    link_libraries(d3d11 dxgi)
 endif()
 
 # --- Build shared library ---

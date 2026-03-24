@@ -19,6 +19,8 @@
 #include "displayxr_standalone_metal.h"
 #elif defined(_WIN32)
 #include <windows.h>
+#include <d3d11.h>
+#include <dxgi.h>
 #endif
 
 #include <math.h>
@@ -115,6 +117,10 @@ typedef struct SASwapchain {
 typedef struct StandaloneState {
 	void *runtime_lib;
 	PFN_xrGetInstanceProcAddr gipa;
+#if defined(_WIN32)
+	ID3D11Device *d3d_device;
+	ID3D11DeviceContext *d3d_context;
+#endif
 
 	XrInstance instance;
 	XrSystemId system_id;
@@ -695,6 +701,7 @@ displayxr_standalone_start(const char *runtime_json_path)
 		XR_KHR_METAL_ENABLE_EXTENSION_NAME,
 		XR_EXT_COCOA_WINDOW_BINDING_EXTENSION_NAME,
 #elif defined(_WIN32)
+		"XR_KHR_D3D11_enable",
 		XR_EXT_WIN32_WINDOW_BINDING_EXTENSION_NAME,
 #endif
 	};
@@ -762,6 +769,77 @@ displayxr_standalone_start(const char *runtime_json_path)
 		} else {
 			fprintf(stderr, "[DisplayXR-SA] Warning: xrGetMetalGraphicsRequirementsKHR not found\n");
 		}
+	}
+#elif defined(_WIN32)
+	// --- Step 5b: Get D3D11 graphics requirements + create device ---
+	{
+		PFN_xrVoidFunction fn_req = NULL;
+		s_sa.gipa(s_sa.instance, "xrGetD3D11GraphicsRequirementsKHR", &fn_req);
+
+		LUID adapter_luid = {};
+		if (fn_req) {
+			// XrGraphicsRequirementsD3D11KHR: type, next, adapterLuid, minFeatureLevel
+			struct {
+				XrStructureType type;
+				void *next;
+				LUID adapterLuid;
+				D3D_FEATURE_LEVEL minFeatureLevel;
+			} req = {};
+			req.type = XR_TYPE_GRAPHICS_REQUIREMENTS_D3D11_KHR;
+			result = ((XrResult(XRAPI_CALL *)(XrInstance, XrSystemId, void *))fn_req)(
+				s_sa.instance, s_sa.system_id, &req);
+			if (XR_FAILED(result)) {
+				fprintf(stderr, "[DisplayXR-SA] xrGetD3D11GraphicsRequirementsKHR failed: %d\n", result);
+				displayxr_standalone_stop();
+				return 0;
+			}
+			adapter_luid = req.adapterLuid;
+			fprintf(stderr, "[DisplayXR-SA] D3D11 requirements: adapter LUID=%08lx-%08lx, minFeatureLevel=0x%x\n",
+			        adapter_luid.HighPart, adapter_luid.LowPart, (unsigned)req.minFeatureLevel);
+		}
+
+		// Find the adapter matching the LUID (if specified by runtime)
+		IDXGIAdapter *adapter = NULL;
+		if (adapter_luid.HighPart != 0 || adapter_luid.LowPart != 0) {
+			IDXGIFactory1 *factory = NULL;
+			if (SUCCEEDED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void **)&factory))) {
+				for (UINT i = 0; ; i++) {
+					IDXGIAdapter *a = NULL;
+					if (factory->EnumAdapters(i, &a) == DXGI_ERROR_NOT_FOUND) break;
+					DXGI_ADAPTER_DESC desc;
+					a->GetDesc(&desc);
+					if (desc.AdapterLuid.HighPart == adapter_luid.HighPart &&
+					    desc.AdapterLuid.LowPart == adapter_luid.LowPart) {
+						adapter = a;
+						fprintf(stderr, "[DisplayXR-SA] Found matching adapter: %ls\n", desc.Description);
+						break;
+					}
+					a->Release();
+				}
+				factory->Release();
+			}
+		}
+
+		D3D_FEATURE_LEVEL feature_level;
+		D3D_FEATURE_LEVEL feature_levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
+		HRESULT hr = D3D11CreateDevice(
+			adapter,
+			adapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE,
+			NULL,
+			0,
+			feature_levels, 2,
+			D3D11_SDK_VERSION,
+			&s_sa.d3d_device,
+			&feature_level,
+			&s_sa.d3d_context);
+		if (adapter) adapter->Release();
+
+		if (FAILED(hr)) {
+			fprintf(stderr, "[DisplayXR-SA] D3D11CreateDevice failed: 0x%08lx\n", hr);
+			displayxr_standalone_stop();
+			return 0;
+		}
+		fprintf(stderr, "[DisplayXR-SA] D3D11 device created (feature level 0x%x)\n", (unsigned)feature_level);
 	}
 #endif
 
@@ -835,6 +913,16 @@ displayxr_standalone_start(const char *runtime_json_path)
 	metal_binding.next = &mac_binding;
 	session_ci.next = &metal_binding;
 #elif defined(_WIN32)
+	// D3D11 graphics binding (required by the runtime)
+	// Inline struct to avoid requiring XR_USE_GRAPHICS_API_D3D11 globally
+	struct {
+		XrStructureType type;
+		const void *next;
+		ID3D11Device *device;
+	} d3d_binding = {};
+	d3d_binding.type = XR_TYPE_GRAPHICS_BINDING_D3D11_KHR;
+	d3d_binding.device = s_sa.d3d_device;
+
 	// Win32 window binding (offscreen, no shared texture yet)
 	XrWin32WindowBindingCreateInfoEXT win_binding = {};
 	win_binding.type = XR_TYPE_WIN32_WINDOW_BINDING_CREATE_INFO_EXT;
@@ -842,7 +930,10 @@ displayxr_standalone_start(const char *runtime_json_path)
 	win_binding.readbackCallback = NULL;
 	win_binding.readbackUserdata = NULL;
 	win_binding.sharedTextureHandle = NULL;
-	session_ci.next = &win_binding;
+
+	// Chain: session_ci → d3d_binding → win_binding
+	d3d_binding.next = &win_binding;
+	session_ci.next = &d3d_binding;
 #endif
 
 	result = s_sa.pfn_create_session(s_sa.instance, &session_ci, &s_sa.session);
@@ -926,6 +1017,9 @@ displayxr_standalone_stop(void)
 
 #if defined(__APPLE__)
 	displayxr_sa_metal_destroy();
+#elif defined(_WIN32)
+	if (s_sa.d3d_context) { s_sa.d3d_context->Release(); s_sa.d3d_context = NULL; }
+	if (s_sa.d3d_device) { s_sa.d3d_device->Release(); s_sa.d3d_device = NULL; }
 #endif
 
 	if (s_sa.instance != XR_NULL_HANDLE && s_sa.pfn_destroy_instance) {
