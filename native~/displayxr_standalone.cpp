@@ -17,6 +17,8 @@
 
 #if defined(__APPLE__)
 #include "displayxr_standalone_metal.h"
+#elif defined(_WIN32)
+#include <windows.h>
 #endif
 
 #include <math.h>
@@ -596,9 +598,50 @@ displayxr_standalone_start(const char *runtime_json_path)
 	XrResult result;
 
 #if defined(_WIN32)
-	// TODO: Windows LoadLibrary path
+	HMODULE hmod = LoadLibraryA(lib_abs);
+	if (!hmod) {
+		fprintf(stderr, "[DisplayXR-SA] LoadLibrary failed: %lu\n", GetLastError());
+		free(lib_abs);
+		return 0;
+	}
+	s_sa.runtime_lib = (void *)hmod;
 	free(lib_abs);
-	return 0;
+
+	// --- Step 2: Negotiate with the runtime ---
+	PFN_xrNegotiateLoaderRuntimeInterface negotiate =
+		(PFN_xrNegotiateLoaderRuntimeInterface)GetProcAddress(hmod,
+		    "xrNegotiateLoaderRuntimeInterface");
+	if (!negotiate) {
+		fprintf(stderr, "[DisplayXR-SA] Runtime doesn't export xrNegotiateLoaderRuntimeInterface\n");
+		FreeLibrary(hmod);
+		s_sa.runtime_lib = NULL;
+		return 0;
+	}
+
+	XrNegotiateLoaderInfo loader_info = {};
+	loader_info.structType = XR_LOADER_INTERFACE_STRUCT_LOADER_INFO;
+	loader_info.structVersion = 1;
+	loader_info.structSize = sizeof(XrNegotiateLoaderInfo);
+	loader_info.minInterfaceVersion = 1;
+	loader_info.maxInterfaceVersion = XR_CURRENT_LOADER_RUNTIME_VERSION;
+	loader_info.minApiVersion = XR_MAKE_VERSION(1, 0, 0);
+	loader_info.maxApiVersion = XR_MAKE_VERSION(1, 1, 0);
+
+	XrNegotiateRuntimeRequest runtime_req = {};
+	runtime_req.structType = XR_LOADER_INTERFACE_STRUCT_RUNTIME_REQUEST;
+	runtime_req.structVersion = 1;
+	runtime_req.structSize = sizeof(XrNegotiateRuntimeRequest);
+
+	result = negotiate(&loader_info, &runtime_req);
+	if (XR_FAILED(result) || !runtime_req.getInstanceProcAddr) {
+		fprintf(stderr, "[DisplayXR-SA] Runtime negotiation failed: %d\n", result);
+		FreeLibrary(hmod);
+		s_sa.runtime_lib = NULL;
+		return 0;
+	}
+
+	s_sa.gipa = runtime_req.getInstanceProcAddr;
+	fprintf(stderr, "[DisplayXR-SA] Runtime negotiation succeeded\n");
 #else
 	s_sa.runtime_lib = dlopen(lib_abs, RTLD_LOCAL | RTLD_LAZY);
 	if (!s_sa.runtime_lib) {
@@ -791,6 +834,15 @@ displayxr_standalone_start(const char *runtime_json_path)
 	// Chain: session_ci → metal_binding → mac_binding
 	metal_binding.next = &mac_binding;
 	session_ci.next = &metal_binding;
+#elif defined(_WIN32)
+	// Win32 window binding (offscreen, no shared texture yet)
+	XrWin32WindowBindingCreateInfoEXT win_binding = {};
+	win_binding.type = XR_TYPE_WIN32_WINDOW_BINDING_CREATE_INFO_EXT;
+	win_binding.windowHandle = NULL;
+	win_binding.readbackCallback = NULL;
+	win_binding.readbackUserdata = NULL;
+	win_binding.sharedTextureHandle = NULL;
+	session_ci.next = &win_binding;
 #endif
 
 	result = s_sa.pfn_create_session(s_sa.instance, &session_ci, &s_sa.session);
@@ -882,17 +934,15 @@ displayxr_standalone_stop(void)
 		fprintf(stderr, "[DisplayXR-SA] Instance destroyed\n");
 	}
 
-#if !defined(_WIN32)
-	// NOTE: Intentionally skip dlclose. The runtime may have background
-	// dispatch queues (CVDisplayLink, GCD timers) that reference code in the
-	// shared library. Unloading while those are still draining causes a
-	// deferred SIGSEGV. Leaking the handle is harmless — the editor process
-	// will reclaim it on exit, and we can re-dlopen on next Start().
+	// NOTE: Intentionally skip library unload on both platforms.
+	// The runtime may have background threads referencing code in the
+	// shared library. Unloading while those are still draining causes crashes.
+	// Leaking the handle is harmless — the editor process will reclaim it on
+	// exit, and we can re-load on next Start().
 	if (s_sa.runtime_lib) {
-		// dlclose(s_sa.runtime_lib);  — see comment above
+		// dlclose / FreeLibrary skipped — see comment above
 		s_sa.runtime_lib = NULL;
 	}
-#endif
 
 	memset(&s_sa, 0, sizeof(s_sa));
 	fprintf(stderr, "[DisplayXR-SA] Standalone session stopped\n");
