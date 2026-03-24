@@ -87,6 +87,12 @@ static PFN_xrAcquireSwapchainImage s_real_acquire_swapchain_image = nullptr;
 static PFN_xrWaitSwapchainImage s_real_wait_swapchain_image = nullptr;
 static PFN_xrReleaseSwapchainImage s_real_release_swapchain_image = nullptr;
 
+// --- D3D11 GPU sync (issue #36: rendering artifacts from async GPU) ---
+#if defined(_WIN32)
+static ID3D11Device *s_d3d11_device = nullptr;
+static ID3D11DeviceContext *s_d3d11_context = nullptr;
+#endif
+
 static XrInstance s_instance = XR_NULL_HANDLE;
 static XrSession s_session = XR_NULL_HANDLE;
 static XrSpace s_local_space = XR_NULL_HANDLE;
@@ -477,6 +483,17 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 				displayxr_log( "[DisplayXR] Graphics binding: VULKAN (via MoltenVK on macOS)\n");
 			} else if (item->type == XR_TYPE_GRAPHICS_BINDING_D3D11_KHR) {
 				displayxr_log( "[DisplayXR] Graphics binding: D3D11\n");
+#if defined(_WIN32)
+				// Extract D3D11 device for GPU sync in xrReleaseSwapchainImage
+				typedef struct { XrStructureType type; const void *next; ID3D11Device *device; } XrGfxBindingD3D11;
+				const XrGfxBindingD3D11 *binding = (const XrGfxBindingD3D11 *)item;
+				s_d3d11_device = binding->device;
+				if (s_d3d11_device) {
+					s_d3d11_device->GetImmediateContext(&s_d3d11_context);
+					displayxr_log("[DisplayXR] Captured D3D11 device=%p context=%p for GPU sync\n",
+					              (void *)s_d3d11_device, (void *)s_d3d11_context);
+				}
+#endif
 			} else if (item->type == XR_TYPE_GRAPHICS_BINDING_D3D12_KHR) {
 				displayxr_log( "[DisplayXR] Graphics binding: D3D12\n");
 			} else {
@@ -904,6 +921,17 @@ static XrResult XRAPI_CALL
 hooked_xrReleaseSwapchainImage(XrSwapchain swapchain,
                                 const XrSwapchainImageReleaseInfo *releaseInfo)
 {
+#if defined(_WIN32)
+	// D3D11 GPU sync: flush all pending commands before the compositor reads.
+	// Unity's render thread may not have finished submitting draw commands when
+	// the main thread calls xrReleaseSwapchainImage. Without this, the compositor
+	// reads a partially-rendered texture → missing faces, distorted geometry.
+	// RenderDoc serializes execution and masks this issue.
+	if (s_d3d11_context != nullptr) {
+		s_d3d11_context->Flush();
+	}
+#endif
+
 	static int s_rel_count = 0;
 	if (s_rel_count < 6 || s_rel_count % 120 == 0) {
 		displayxr_log( "[DisplayXR] xrReleaseSwapchainImage: sc=%p\n",
@@ -947,6 +975,10 @@ hooked_xrDestroyInstance(XrInstance instance)
 	s_real_acquire_swapchain_image = nullptr;
 	s_real_wait_swapchain_image = nullptr;
 	s_real_release_swapchain_image = nullptr;
+#if defined(_WIN32)
+	if (s_d3d11_context) { s_d3d11_context->Release(); s_d3d11_context = nullptr; }
+	s_d3d11_device = nullptr; // Not owned by us — don't Release
+#endif
 
 	displayxr_log( "[DisplayXR] xrDestroyInstance END (deferred, returning XR_SUCCESS)\n");
 	s_instance = XR_NULL_HANDLE;
