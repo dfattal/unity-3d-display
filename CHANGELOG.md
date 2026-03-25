@@ -5,6 +5,17 @@ All notable changes to the DisplayXR Unity plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-03-25
+
+### Changed
+- Migrate Windows standalone preview from D3D11 to D3D12 (#35)
+  - Replace D3D11 device/context with D3D12 device/queue/command list/fence
+  - D3D12 shared texture via `CreateCommittedResource` + `D3D12_HEAP_FLAG_SHARED`
+  - Atlas blit with D3D12 command list, resource barriers, and fence sync
+  - `XrGraphicsBindingD3D12KHR` for session creation
+  - Platform-conditional Y-flip (Metal vs D3D12)
+  - Supports both D3D11 and D3D12 Unity graphics backends
+
 ## [0.2.2] - 2026-03-24
 
 ### Fixed
