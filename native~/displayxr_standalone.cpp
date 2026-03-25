@@ -1134,10 +1134,36 @@ displayxr_standalone_start(const char *runtime_json_path)
 	d3d12_binding.device = s_sa.d3d12_device;
 	d3d12_binding.queue = s_sa.d3d12_queue;
 
-	// Win32 window binding (offscreen, shared texture via DXGI handle)
+	// Win32 window binding with Unity's HWND (required by Leia weaver for
+	// pixel-precise interlacing alignment) and shared texture via DXGI handle.
+	// Find Unity's main window by enumerating top-level windows for our process.
+	HWND unity_hwnd = NULL;
+	DWORD our_pid = GetCurrentProcessId();
+	HWND fg = GetForegroundWindow();
+	if (fg) {
+		DWORD fg_pid = 0;
+		GetWindowThreadProcessId(fg, &fg_pid);
+		if (fg_pid == our_pid) unity_hwnd = fg;
+	}
+	if (!unity_hwnd) {
+		HWND hw = NULL;
+		while ((hw = FindWindowExW(NULL, hw, NULL, NULL)) != NULL) {
+			DWORD pid = 0;
+			GetWindowThreadProcessId(hw, &pid);
+			if (pid == our_pid && IsWindowVisible(hw)) {
+				RECT rc;
+				if (GetClientRect(hw, &rc) && (rc.right - rc.left) > 100) {
+					unity_hwnd = hw;
+					break;
+				}
+			}
+		}
+	}
+	fprintf(stderr, "[DisplayXR-SA] Unity HWND: %p\n", (void *)unity_hwnd);
+
 	XrWin32WindowBindingCreateInfoEXT win_binding = {};
 	win_binding.type = XR_TYPE_WIN32_WINDOW_BINDING_CREATE_INFO_EXT;
-	win_binding.windowHandle = NULL;
+	win_binding.windowHandle = (void *)unity_hwnd;
 	win_binding.readbackCallback = NULL;
 	win_binding.readbackUserdata = NULL;
 	win_binding.sharedTextureHandle = s_sa.d3d12_shared_handle;
