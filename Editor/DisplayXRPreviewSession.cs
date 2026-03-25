@@ -255,7 +255,7 @@ namespace DisplayXR.Editor
                 var texPtr = tempRT.GetNativeTexturePtr();
                 DisplayXRNative.displayxr_standalone_set_unity_device(texPtr);
                 tempRT.Release();
-                Object.DestroyImmediate(tempRT);
+                UnityEngine.Object.DestroyImmediate(tempRT);
             }
 #endif
 
