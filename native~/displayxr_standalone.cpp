@@ -638,14 +638,27 @@ displayxr_standalone_set_unity_device(void *unity_native_tex)
 		fprintf(stderr, "[DisplayXR-SA] set_unity_device: null texture\n");
 		return;
 	}
-	ID3D12Resource *res = (ID3D12Resource *)unity_native_tex;
+	fprintf(stderr, "[DisplayXR-SA] set_unity_device: native tex ptr=%p\n", unity_native_tex);
+
+	// IUnknown::QueryInterface to verify this is actually an ID3D12Resource
+	// before calling GetDevice. This avoids crashing on D3D11 pointers.
+	IUnknown *unk = (IUnknown *)unity_native_tex;
+	ID3D12Resource *res = NULL;
+	HRESULT hr = unk->QueryInterface(__uuidof(ID3D12Resource), (void **)&res);
+	if (FAILED(hr) || !res) {
+		fprintf(stderr, "[DisplayXR-SA] Texture is not an ID3D12Resource (hr=0x%08lx). "
+		        "Unity may be using D3D11 — set Graphics API to Direct3D12.\n", hr);
+		return;
+	}
+
 	ID3D12Device *dev = NULL;
-	HRESULT hr = res->GetDevice(__uuidof(ID3D12Device), (void **)&dev);
+	hr = res->GetDevice(__uuidof(ID3D12Device), (void **)&dev);
+	res->Release(); // Release the QI ref
 	if (SUCCEEDED(hr) && dev) {
 		s_unity_d3d12_device = dev;
 		fprintf(stderr, "[DisplayXR-SA] Using Unity's D3D12 device: %p\n", (void *)dev);
 	} else {
-		fprintf(stderr, "[DisplayXR-SA] Failed to get D3D12 device from Unity texture\n");
+		fprintf(stderr, "[DisplayXR-SA] GetDevice failed: hr=0x%08lx\n", hr);
 	}
 #else
 	(void)unity_native_tex;
