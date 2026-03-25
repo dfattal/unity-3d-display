@@ -25,6 +25,12 @@ extern "C" {
 // Session lifecycle
 // ============================================================================
 
+/// (Windows only) Set Unity's D3D11 device for the standalone session.
+/// Must be called BEFORE displayxr_standalone_start().
+/// @param unity_native_tex A native texture pointer from Unity (ID3D11Texture2D*).
+///        The device is extracted via GetDevice(). Pass any RenderTexture.GetNativeTexturePtr().
+DISPLAYXR_EXPORT void displayxr_standalone_set_unity_device(void *unity_native_tex);
+
 /// Start a standalone OpenXR session for editor preview.
 /// Loads the runtime from the JSON manifest, creates instance/session,
 /// and begins compositing into a shared IOSurface.

@@ -243,6 +243,20 @@ namespace DisplayXR.Editor
             }
 
             Debug.Log($"[DisplayXR-SA] Starting with runtime: {runtimeJson}");
+
+            // Pass Unity's D3D11 device to native before session creation.
+            // This ensures all textures (Unity RTs, swapchain images, shared texture)
+            // are on the same D3D11 device, avoiding cross-device CopyResource failures.
+#if UNITY_EDITOR_WIN
+            if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Direct3D11)
+            {
+                var tempRT = RenderTexture.GetTemporary(1, 1);
+                var texPtr = tempRT.GetNativeTexturePtr();
+                DisplayXRNative.displayxr_standalone_set_unity_device(texPtr);
+                RenderTexture.ReleaseTemporary(tempRT);
+            }
+#endif
+
             int result = DisplayXRNative.displayxr_standalone_start(runtimeJson);
 
             if (result != 0)

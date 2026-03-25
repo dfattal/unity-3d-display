@@ -155,6 +155,9 @@ namespace DisplayXR
         // ====================================================================
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void displayxr_standalone_set_unity_device(IntPtr unityNativeTex);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int displayxr_standalone_start(
             [MarshalAs(UnmanagedType.LPStr)] string runtimeJsonPath);
 

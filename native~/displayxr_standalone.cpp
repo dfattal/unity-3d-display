@@ -602,6 +602,37 @@ destroy_atlas_swapchain(void)
 // Public API: Session lifecycle
 // ============================================================================
 
+#if defined(_WIN32)
+// Unity's D3D11 device, extracted from a native texture pointer via GetDevice().
+// Set by C# before calling displayxr_standalone_start().
+static ID3D11Device *s_unity_d3d_device = NULL;
+static ID3D11DeviceContext *s_unity_d3d_context = NULL;
+#endif
+
+void
+displayxr_standalone_set_unity_device(void *unity_native_tex)
+{
+#if defined(_WIN32)
+	if (!unity_native_tex) {
+		fprintf(stderr, "[DisplayXR-SA] set_unity_device: null texture\n");
+		return;
+	}
+	ID3D11Texture2D *tex = (ID3D11Texture2D *)unity_native_tex;
+	ID3D11Device *dev = NULL;
+	tex->GetDevice(&dev);
+	if (dev) {
+		s_unity_d3d_device = dev;
+		dev->GetImmediateContext(&s_unity_d3d_context);
+		fprintf(stderr, "[DisplayXR-SA] Using Unity's D3D11 device: %p\n", (void *)dev);
+		// Don't Release — we keep a reference for the session lifetime
+	} else {
+		fprintf(stderr, "[DisplayXR-SA] Failed to get D3D11 device from Unity texture\n");
+	}
+#else
+	(void)unity_native_tex;
+#endif
+}
+
 int
 displayxr_standalone_start(const char *runtime_json_path)
 {
@@ -823,48 +854,58 @@ displayxr_standalone_start(const char *runtime_json_path)
 			        adapter_luid.HighPart, adapter_luid.LowPart, (unsigned)req.minFeatureLevel);
 		}
 
-		// Find the adapter matching the LUID (if specified by runtime)
-		IDXGIAdapter *adapter = NULL;
-		if (adapter_luid.HighPart != 0 || adapter_luid.LowPart != 0) {
-			IDXGIFactory1 *factory = NULL;
-			if (SUCCEEDED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void **)&factory))) {
-				for (UINT i = 0; ; i++) {
-					IDXGIAdapter *a = NULL;
-					if (factory->EnumAdapters(i, &a) == DXGI_ERROR_NOT_FOUND) break;
-					DXGI_ADAPTER_DESC desc;
-					a->GetDesc(&desc);
-					if (desc.AdapterLuid.HighPart == adapter_luid.HighPart &&
-					    desc.AdapterLuid.LowPart == adapter_luid.LowPart) {
-						adapter = a;
-						fprintf(stderr, "[DisplayXR-SA] Found matching adapter: %ls\n", desc.Description);
-						break;
+		// Use Unity's D3D11 device if available (avoids cross-device issues).
+		// If not set, create our own (fallback, may cause TDR on CopyResource).
+		if (s_unity_d3d_device) {
+			s_sa.d3d_device = s_unity_d3d_device;
+			s_sa.d3d_device->AddRef();
+			s_sa.d3d_context = s_unity_d3d_context;
+			s_sa.d3d_context->AddRef();
+			fprintf(stderr, "[DisplayXR-SA] Using Unity's D3D11 device: %p\n", (void *)s_sa.d3d_device);
+		} else {
+			// Fallback: create our own device on the matching adapter
+			IDXGIAdapter *adapter = NULL;
+			if (adapter_luid.HighPart != 0 || adapter_luid.LowPart != 0) {
+				IDXGIFactory1 *factory = NULL;
+				if (SUCCEEDED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void **)&factory))) {
+					for (UINT i = 0; ; i++) {
+						IDXGIAdapter *a = NULL;
+						if (factory->EnumAdapters(i, &a) == DXGI_ERROR_NOT_FOUND) break;
+						DXGI_ADAPTER_DESC desc;
+						a->GetDesc(&desc);
+						if (desc.AdapterLuid.HighPart == adapter_luid.HighPart &&
+						    desc.AdapterLuid.LowPart == adapter_luid.LowPart) {
+							adapter = a;
+							fprintf(stderr, "[DisplayXR-SA] Found matching adapter: %ls\n", desc.Description);
+							break;
+						}
+						a->Release();
 					}
-					a->Release();
+					factory->Release();
 				}
-				factory->Release();
 			}
-		}
 
-		D3D_FEATURE_LEVEL feature_level;
-		D3D_FEATURE_LEVEL feature_levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
-		HRESULT hr = D3D11CreateDevice(
-			adapter,
-			adapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE,
-			NULL,
-			0,
-			feature_levels, 2,
-			D3D11_SDK_VERSION,
-			&s_sa.d3d_device,
-			&feature_level,
-			&s_sa.d3d_context);
-		if (adapter) adapter->Release();
+			D3D_FEATURE_LEVEL feature_level;
+			D3D_FEATURE_LEVEL feature_levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
+			HRESULT hr = D3D11CreateDevice(
+				adapter,
+				adapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE,
+				NULL,
+				0,
+				feature_levels, 2,
+				D3D11_SDK_VERSION,
+				&s_sa.d3d_device,
+				&feature_level,
+				&s_sa.d3d_context);
+			if (adapter) adapter->Release();
 
-		if (FAILED(hr)) {
-			fprintf(stderr, "[DisplayXR-SA] D3D11CreateDevice failed: 0x%08lx\n", hr);
-			displayxr_standalone_stop();
-			return 0;
+			if (FAILED(hr)) {
+				fprintf(stderr, "[DisplayXR-SA] D3D11CreateDevice failed: 0x%08lx\n", hr);
+				displayxr_standalone_stop();
+				return 0;
+			}
+			fprintf(stderr, "[DisplayXR-SA] Created own D3D11 device (feature level 0x%x)\n", (unsigned)feature_level);
 		}
-		fprintf(stderr, "[DisplayXR-SA] D3D11 device created (feature level 0x%x)\n", (unsigned)feature_level);
 	}
 #endif
 
