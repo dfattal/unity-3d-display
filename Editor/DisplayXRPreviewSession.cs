@@ -252,7 +252,7 @@ namespace DisplayXR.Editor
             // are on the same device, avoiding cross-device copy failures.
 #if UNITY_EDITOR_WIN
             {
-                var tempRT = new RenderTexture(4, 4, 0, RenderTextureFormat.BGRA32);
+                var tempRT = new RenderTexture(4, 4, 0, RenderTextureFormat.ARGB32);
                 tempRT.Create(); // Force native resource allocation
                 var texPtr = tempRT.GetNativeTexturePtr();
                 DisplayXRNative.displayxr_standalone_set_unity_device(texPtr);
@@ -463,7 +463,7 @@ namespace DisplayXR.Editor
                 $"({s_ViewCount} views, {s_TileColumns}x{s_TileRows} tiles, {s_ViewWidth}x{s_ViewHeight} per view)");
 
             // Create single atlas RenderTexture
-            s_AtlasRT = new RenderTexture((int)s_AtlasWidth, (int)s_AtlasHeight, 24, RenderTextureFormat.BGRA32);
+            s_AtlasRT = new RenderTexture((int)s_AtlasWidth, (int)s_AtlasHeight, 24, RenderTextureFormat.ARGB32);
             s_AtlasRT.name = "DisplayXR_SA_Atlas";
             s_AtlasRT.Create();
 
@@ -494,7 +494,7 @@ namespace DisplayXR.Editor
             if (bridgePtr != IntPtr.Zero && bw > 0 && bh > 0)
             {
                 s_AtlasBridgeTex = Texture2D.CreateExternalTexture(
-                    (int)bw, (int)bh, TextureFormat.BGRA32, false, true, bridgePtr);
+                    (int)bw, (int)bh, TextureFormat.RGBA32, false, true, bridgePtr);
                 s_AtlasBridgeTex.name = "DisplayXR_AtlasBridge";
                 Debug.Log($"[DisplayXR-SA] Atlas bridge texture: {bw}x{bh}");
             }

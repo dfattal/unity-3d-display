@@ -560,8 +560,8 @@ create_atlas_swapchain(void)
 		if (formats[i] == 80) { format = 80; break; } // MTLPixelFormatBGRA8Unorm
 		if (formats[i] == 70) { format = 70; }         // MTLPixelFormatRGBA8Unorm
 #elif defined(_WIN32)
-		if (formats[i] == 87) { format = 87; break; }  // DXGI_FORMAT_B8G8R8A8_UNORM
-		if (formats[i] == 28) { format = 28; }          // DXGI_FORMAT_R8G8B8A8_UNORM
+		if (formats[i] == 28) { format = 28; break; }  // DXGI_FORMAT_R8G8B8A8_UNORM
+		if (formats[i] == 87) { format = 87; }          // DXGI_FORMAT_B8G8R8A8_UNORM
 #endif
 	}
 	fprintf(stderr, "[DisplayXR-SA] Selected swapchain format: %lld\n", format);
@@ -630,7 +630,7 @@ create_atlas_swapchain(void)
 		bd.Height = atlas_h;
 		bd.DepthOrArraySize = 1;
 		bd.MipLevels = 1;
-		bd.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+		bd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 		bd.SampleDesc.Count = 1;
 		bd.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 		bd.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
@@ -1051,7 +1051,7 @@ displayxr_standalone_start(const char *runtime_json_path)
 		td.Height = s_sa.display_info.display_pixel_height;
 		td.DepthOrArraySize = 1;
 		td.MipLevels = 1;
-		td.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+		td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 		td.SampleDesc.Count = 1;
 		td.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 		td.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
