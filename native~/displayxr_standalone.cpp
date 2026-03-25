@@ -1947,6 +1947,9 @@ displayxr_get_backing_scale_factor(void)
 {
 #if defined(__APPLE__)
 	return displayxr_sa_metal_get_backing_scale();
+#elif defined(_WIN32)
+	UINT dpi = GetDpiForSystem();
+	return (float)dpi / 96.0f;
 #else
 	return 1.0f;
 #endif
