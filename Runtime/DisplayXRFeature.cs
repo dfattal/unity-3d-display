@@ -154,6 +154,17 @@ namespace DisplayXR
         {
             Debug.Log("[DisplayXR] OpenXR session created");
 
+#if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
+            // D3D11 has a known Unity engine bug: TYPELESS swapchain textures (required
+            // by OpenXR D3D11 spec) cause geometry corruption. D3D12 works correctly.
+            if (UnityEngine.SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Direct3D11)
+            {
+                Debug.LogWarning("[DisplayXR] D3D11 detected — known geometry corruption with TYPELESS " +
+                    "swapchain textures (Unity engine bug). Switch to D3D12 in Player Settings > " +
+                    "Other Settings > Graphics API for correct rendering.");
+            }
+#endif
+
             // Fallback: Unity's OnSystemChange is unreliable in some versions.
             // By session creation time, xrGetSystemProperties has definitely run
             // and our native hook has cached the display info + created the IOSurface.
