@@ -91,6 +91,38 @@ static PFN_xrReleaseSwapchainImage s_real_release_swapchain_image = nullptr;
 #if defined(_WIN32)
 static ID3D11Device *s_d3d11_device = nullptr;
 static ID3D11DeviceContext *s_d3d11_context = nullptr;
+
+// --- D3D11 proxy textures (issue #36: TYPELESS geometry corruption) ---
+// Unity can't handle TYPELESS textures from GetDesc() — create concrete-format
+// proxies that Unity renders to, then CopyResource to real TYPELESS textures.
+#define DISPLAYXR_MAX_SWAPCHAINS 8
+#define DISPLAYXR_MAX_IMAGES_PER_SC 4
+
+struct D3D11ProxySwapchain {
+	XrSwapchain handle;
+	int64_t     concrete_format;  // Format Unity requested (e.g. DXGI_FORMAT_R8G8B8A8_UNORM_SRGB)
+	uint32_t    image_count;
+	ID3D11Texture2D *real_textures[DISPLAYXR_MAX_IMAGES_PER_SC];   // TYPELESS (from runtime)
+	ID3D11Texture2D *proxy_textures[DISPLAYXR_MAX_IMAGES_PER_SC];  // Concrete (Unity renders here)
+	uint32_t    acquired_index;   // Currently acquired image index
+};
+
+static D3D11ProxySwapchain s_proxy_swapchains[DISPLAYXR_MAX_SWAPCHAINS];
+static int s_proxy_swapchain_count = 0;
+
+// Returns true if the DXGI format is a TYPELESS variant
+static bool dxgi_is_typeless(DXGI_FORMAT fmt) {
+	switch (fmt) {
+	case DXGI_FORMAT_R8G8B8A8_TYPELESS:     // 27
+	case DXGI_FORMAT_B8G8R8A8_TYPELESS:     // 90
+	case DXGI_FORMAT_R16G16B16A16_TYPELESS:  // 9
+	case DXGI_FORMAT_R10G10B10A2_TYPELESS:   // 23
+	case DXGI_FORMAT_R32G32B32A32_TYPELESS:  // 1
+		return true;
+	default:
+		return false;
+	}
+}
 #endif
 
 static XrInstance s_instance = XR_NULL_HANDLE;
@@ -815,6 +847,21 @@ hooked_xrCreateSwapchain(XrSession session,
 	if (XR_SUCCEEDED(result)) {
 		displayxr_log( "[DisplayXR] xrCreateSwapchain: OK swapchain=%p\n",
 		        (void *)(uintptr_t)*swapchain);
+#if defined(_WIN32)
+		// Register swapchain for proxy texture creation (D3D11 TYPELESS workaround)
+		if (s_d3d11_device && s_proxy_swapchain_count < DISPLAYXR_MAX_SWAPCHAINS) {
+			D3D11ProxySwapchain *ps = &s_proxy_swapchains[s_proxy_swapchain_count];
+			ps->handle = *swapchain;
+			ps->concrete_format = createInfo->format;
+			ps->image_count = 0;
+			ps->acquired_index = 0;
+			memset(ps->real_textures, 0, sizeof(ps->real_textures));
+			memset(ps->proxy_textures, 0, sizeof(ps->proxy_textures));
+			s_proxy_swapchain_count++;
+			displayxr_log("[DisplayXR] Registered swapchain %p for proxy (format=%lld)\n",
+			              (void *)(uintptr_t)*swapchain, (long long)createInfo->format);
+		}
+#endif
 	} else {
 		displayxr_log( "[DisplayXR] xrCreateSwapchain: FAILED result=%d\n", result);
 	}
@@ -868,6 +915,32 @@ hooked_xrEnumerateSwapchainImages(XrSwapchain swapchain,
 						displayxr_log( " [SHARED_NTHANDLE]");
 					if (desc.MiscFlags & D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX)
 						displayxr_log( " [KEYED_MUTEX]");
+
+					// Create proxy texture if runtime returned TYPELESS
+					if (dxgi_is_typeless(desc.Format)) {
+						D3D11ProxySwapchain *ps = nullptr;
+						for (int j = 0; j < s_proxy_swapchain_count; j++) {
+							if (s_proxy_swapchains[j].handle == swapchain) {
+								ps = &s_proxy_swapchains[j]; break;
+							}
+						}
+						if (ps && i < DISPLAYXR_MAX_IMAGES_PER_SC) {
+							D3D11_TEXTURE2D_DESC proxy_desc = desc;
+							proxy_desc.Format = (DXGI_FORMAT)ps->concrete_format;
+							ID3D11Texture2D *proxy = nullptr;
+							HRESULT hr = s_d3d11_device->CreateTexture2D(&proxy_desc, nullptr, &proxy);
+							if (SUCCEEDED(hr) && proxy) {
+								ps->real_textures[i] = tex;
+								ps->proxy_textures[i] = proxy;
+								d3d_images[i].texture = proxy;  // Unity sees concrete format
+								ps->image_count = i + 1;
+								displayxr_log(" [PROXY fmt=%u->%u]",
+								              (unsigned)desc.Format, (unsigned)proxy_desc.Format);
+							} else {
+								displayxr_log(" [PROXY FAILED hr=0x%lx]", (long)hr);
+							}
+						}
+					}
 				}
 				displayxr_log( "\n");
 			}
@@ -889,6 +962,17 @@ hooked_xrAcquireSwapchainImage(XrSwapchain swapchain,
                                 uint32_t *index)
 {
 	XrResult result = s_real_acquire_swapchain_image(swapchain, acquireInfo, index);
+#if defined(_WIN32)
+	// Track acquired index for proxy texture copy in xrReleaseSwapchainImage
+	if (XR_SUCCEEDED(result) && index) {
+		for (int j = 0; j < s_proxy_swapchain_count; j++) {
+			if (s_proxy_swapchains[j].handle == swapchain) {
+				s_proxy_swapchains[j].acquired_index = *index;
+				break;
+			}
+		}
+	}
+#endif
 	// Log first few acquires per swapchain, then every 120th frame
 	static int s_acq_count = 0;
 	if (s_acq_count < 6 || s_acq_count % 120 == 0) {
@@ -929,6 +1013,19 @@ hooked_xrReleaseSwapchainImage(XrSwapchain swapchain,
 	// RenderDoc serializes execution and masks this issue.
 	if (s_d3d11_context != nullptr) {
 		s_d3d11_context->Flush();
+
+		// Copy proxy (concrete format, Unity-rendered) → real (TYPELESS, runtime-owned)
+		for (int j = 0; j < s_proxy_swapchain_count; j++) {
+			D3D11ProxySwapchain *ps = &s_proxy_swapchains[j];
+			if (ps->handle == swapchain) {
+				uint32_t idx = ps->acquired_index;
+				if (idx < ps->image_count && ps->proxy_textures[idx] && ps->real_textures[idx]) {
+					s_d3d11_context->CopyResource(ps->real_textures[idx], ps->proxy_textures[idx]);
+					s_d3d11_context->Flush();  // Ensure copy completes before runtime reads
+				}
+				break;
+			}
+		}
 	}
 #endif
 
@@ -976,6 +1073,16 @@ hooked_xrDestroyInstance(XrInstance instance)
 	s_real_wait_swapchain_image = nullptr;
 	s_real_release_swapchain_image = nullptr;
 #if defined(_WIN32)
+	// Release proxy textures before releasing the D3D11 context
+	for (int j = 0; j < s_proxy_swapchain_count; j++) {
+		for (uint32_t k = 0; k < s_proxy_swapchains[j].image_count; k++) {
+			if (s_proxy_swapchains[j].proxy_textures[k]) {
+				s_proxy_swapchains[j].proxy_textures[k]->Release();
+				s_proxy_swapchains[j].proxy_textures[k] = nullptr;
+			}
+		}
+	}
+	s_proxy_swapchain_count = 0;
 	if (s_d3d11_context) { s_d3d11_context->Release(); s_d3d11_context = nullptr; }
 	s_d3d11_device = nullptr; // Not owned by us — don't Release
 #endif
