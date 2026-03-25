@@ -1350,48 +1350,43 @@ displayxr_standalone_submit_frame_atlas(void *atlas_tex)
 		ID3D12Resource *dst = s_sa.atlas.images[index].texture;
 		ID3D12Resource *src = (ID3D12Resource *)atlas_tex;
 		if (src && dst && s_sa.d3d12_cmd_list) {
-			s_sa.d3d12_cmd_alloc->Reset();
-			s_sa.d3d12_cmd_list->Reset(s_sa.d3d12_cmd_alloc, NULL);
+			// Check device status before submitting commands
+			HRESULT dev_hr = s_sa.d3d12_device->GetDeviceRemovedReason();
+			if (FAILED(dev_hr)) {
+				fprintf(stderr, "[DisplayXR-SA] D3D12 device removed before blit: 0x%08lx\n", dev_hr);
+			} else {
+				s_sa.d3d12_cmd_alloc->Reset();
+				s_sa.d3d12_cmd_list->Reset(s_sa.d3d12_cmd_alloc, NULL);
 
-			// Barrier: dst COMMON → COPY_DEST
-			D3D12_RESOURCE_BARRIER barrier = {};
-			barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-			barrier.Transition.pResource = dst;
-			barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
-			barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
-			barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-			s_sa.d3d12_cmd_list->ResourceBarrier(1, &barrier);
+				// Both src and dst use COMMON state for cross-queue access.
+				// D3D12 implicit promotion: COMMON resources can be used as
+				// COPY_SOURCE/COPY_DEST without explicit barriers when accessed
+				// from a different queue than they were last used on.
+				D3D12_TEXTURE_COPY_LOCATION dst_loc = {};
+				dst_loc.pResource = dst;
+				dst_loc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+				dst_loc.SubresourceIndex = 0;
 
-			// Copy entire texture
-			D3D12_TEXTURE_COPY_LOCATION dst_loc = {};
-			dst_loc.pResource = dst;
-			dst_loc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-			dst_loc.SubresourceIndex = 0;
+				D3D12_TEXTURE_COPY_LOCATION src_loc = {};
+				src_loc.pResource = src;
+				src_loc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+				src_loc.SubresourceIndex = 0;
 
-			D3D12_TEXTURE_COPY_LOCATION src_loc = {};
-			src_loc.pResource = src;
-			src_loc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-			src_loc.SubresourceIndex = 0;
+				s_sa.d3d12_cmd_list->CopyTextureRegion(&dst_loc, 0, 0, 0, &src_loc, NULL);
 
-			s_sa.d3d12_cmd_list->CopyTextureRegion(&dst_loc, 0, 0, 0, &src_loc, NULL);
+				s_sa.d3d12_cmd_list->Close();
 
-			// Barrier: dst COPY_DEST → COMMON
-			barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-			barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
-			s_sa.d3d12_cmd_list->ResourceBarrier(1, &barrier);
+				ID3D12CommandList *lists[] = { s_sa.d3d12_cmd_list };
+				s_sa.d3d12_queue->ExecuteCommandLists(1, lists);
 
-			s_sa.d3d12_cmd_list->Close();
-
-			ID3D12CommandList *lists[] = { s_sa.d3d12_cmd_list };
-			s_sa.d3d12_queue->ExecuteCommandLists(1, lists);
-
-			// Fence sync — wait for blit to complete
-			s_sa.d3d12_fence_value++;
-			s_sa.d3d12_queue->Signal(s_sa.d3d12_fence, s_sa.d3d12_fence_value);
-			if (s_sa.d3d12_fence->GetCompletedValue() < s_sa.d3d12_fence_value) {
-				s_sa.d3d12_fence->SetEventOnCompletion(s_sa.d3d12_fence_value,
-				                                        s_sa.d3d12_fence_event);
-				WaitForSingleObject(s_sa.d3d12_fence_event, INFINITE);
+				// Fence sync — wait for blit to complete
+				s_sa.d3d12_fence_value++;
+				s_sa.d3d12_queue->Signal(s_sa.d3d12_fence, s_sa.d3d12_fence_value);
+				if (s_sa.d3d12_fence->GetCompletedValue() < s_sa.d3d12_fence_value) {
+					s_sa.d3d12_fence->SetEventOnCompletion(s_sa.d3d12_fence_value,
+					                                        s_sa.d3d12_fence_event);
+					WaitForSingleObject(s_sa.d3d12_fence_event, INFINITE);
+				}
 			}
 		}
 	}
