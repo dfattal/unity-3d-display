@@ -148,15 +148,16 @@ typedef struct StandaloneState {
 	void *runtime_lib;
 	PFN_xrGetInstanceProcAddr gipa;
 #if defined(_WIN32)
-	ID3D12Device *d3d12_device;
+	ID3D12Device *d3d12_device;        // Our own device (for runtime session)
 	ID3D12CommandQueue *d3d12_queue;
 	ID3D12CommandAllocator *d3d12_cmd_alloc;
 	ID3D12GraphicsCommandList *d3d12_cmd_list;
 	ID3D12Fence *d3d12_fence;
 	HANDLE d3d12_fence_event;
 	UINT64 d3d12_fence_value;
-	ID3D12Resource *d3d12_shared_texture;
-	HANDLE d3d12_shared_handle;
+	ID3D12Resource *d3d12_shared_texture;  // On our device
+	HANDLE d3d12_shared_handle;            // DXGI shared handle (cross-device)
+	ID3D12Resource *d3d12_unity_shared;    // Same texture opened on Unity's device
 #endif
 
 	XrInstance instance;
@@ -880,13 +881,11 @@ displayxr_standalone_start(const char *runtime_json_path)
 			        adapter_luid.HighPart, adapter_luid.LowPart, (unsigned)req.minFeatureLevel);
 		}
 
-		// Use Unity's D3D12 device if available (same device = same GPU = no cross-device issues).
-		if (s_unity_d3d12_device) {
-			s_sa.d3d12_device = s_unity_d3d12_device;
-			s_sa.d3d12_device->AddRef();
-			fprintf(stderr, "[DisplayXR-SA] Using Unity's D3D12 device: %p\n", (void *)s_sa.d3d12_device);
-		} else {
-			// Fallback: create our own device on the matching adapter
+		// Always create our own D3D12 device for the runtime session.
+		// Sharing Unity's device caused device removal — the runtime's compositor
+		// and Unity's renderer conflict when operating on the same device.
+		// Cross-device texture sharing is done via DXGI shared handles.
+		{
 			IDXGIFactory4 *factory = NULL;
 			CreateDXGIFactory2(0, __uuidof(IDXGIFactory4), (void **)&factory);
 			IDXGIAdapter1 *adapter = NULL;
@@ -908,7 +907,7 @@ displayxr_standalone_start(const char *runtime_json_path)
 				displayxr_standalone_stop();
 				return 0;
 			}
-			fprintf(stderr, "[DisplayXR-SA] Created own D3D12 device\n");
+			fprintf(stderr, "[DisplayXR-SA] Created own D3D12 device for runtime session\n");
 		}
 
 		// Create command queue on the device
@@ -1023,9 +1022,26 @@ displayxr_standalone_start(const char *runtime_json_path)
 
 		s_sa.tex_width = (uint32_t)td.Width;
 		s_sa.tex_height = td.Height;
-		s_sa.tex_ready = 1;
 		fprintf(stderr, "[DisplayXR-SA] D3D12 shared texture: %ux%u, handle=%p\n",
 		        (unsigned)td.Width, td.Height, s_sa.d3d12_shared_handle);
+
+		// Open the shared texture on Unity's device so C# can wrap it
+		// with CreateExternalTexture (needs an ID3D12Resource* on Unity's device).
+		if (s_unity_d3d12_device && s_sa.d3d12_shared_handle) {
+			hr = s_unity_d3d12_device->OpenSharedHandle(
+				s_sa.d3d12_shared_handle,
+				__uuidof(ID3D12Resource), (void **)&s_sa.d3d12_unity_shared);
+			if (SUCCEEDED(hr) && s_sa.d3d12_unity_shared) {
+				fprintf(stderr, "[DisplayXR-SA] Opened shared texture on Unity device: %p\n",
+				        (void *)s_sa.d3d12_unity_shared);
+				s_sa.tex_ready = 1;
+			} else {
+				fprintf(stderr, "[DisplayXR-SA] OpenSharedHandle on Unity device failed: 0x%08lx\n", hr);
+				s_sa.tex_ready = 1; // Still usable on our device
+			}
+		} else {
+			s_sa.tex_ready = 1;
+		}
 	}
 #endif
 
@@ -1158,6 +1174,7 @@ displayxr_standalone_stop(void)
 #if defined(__APPLE__)
 	displayxr_sa_metal_destroy();
 #elif defined(_WIN32)
+	if (s_sa.d3d12_unity_shared) { s_sa.d3d12_unity_shared->Release(); s_sa.d3d12_unity_shared = NULL; }
 	if (s_sa.d3d12_fence_event) { CloseHandle(s_sa.d3d12_fence_event); s_sa.d3d12_fence_event = NULL; }
 	if (s_sa.d3d12_fence) { s_sa.d3d12_fence->Release(); s_sa.d3d12_fence = NULL; }
 	if (s_sa.d3d12_cmd_list) { s_sa.d3d12_cmd_list->Release(); s_sa.d3d12_cmd_list = NULL; }
@@ -1346,50 +1363,13 @@ displayxr_standalone_submit_frame_atlas(void *atlas_tex)
 		displayxr_sa_metal_blit(atlas_tex, dst);
 	}
 #elif defined(_WIN32)
-	{
-		ID3D12Resource *dst = s_sa.atlas.images[index].texture;
-		ID3D12Resource *src = (ID3D12Resource *)atlas_tex;
-		if (src && dst && s_sa.d3d12_cmd_list) {
-			// Check device status before submitting commands
-			HRESULT dev_hr = s_sa.d3d12_device->GetDeviceRemovedReason();
-			if (FAILED(dev_hr)) {
-				fprintf(stderr, "[DisplayXR-SA] D3D12 device removed before blit: 0x%08lx\n", dev_hr);
-			} else {
-				s_sa.d3d12_cmd_alloc->Reset();
-				s_sa.d3d12_cmd_list->Reset(s_sa.d3d12_cmd_alloc, NULL);
-
-				// Both src and dst use COMMON state for cross-queue access.
-				// D3D12 implicit promotion: COMMON resources can be used as
-				// COPY_SOURCE/COPY_DEST without explicit barriers when accessed
-				// from a different queue than they were last used on.
-				D3D12_TEXTURE_COPY_LOCATION dst_loc = {};
-				dst_loc.pResource = dst;
-				dst_loc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-				dst_loc.SubresourceIndex = 0;
-
-				D3D12_TEXTURE_COPY_LOCATION src_loc = {};
-				src_loc.pResource = src;
-				src_loc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-				src_loc.SubresourceIndex = 0;
-
-				s_sa.d3d12_cmd_list->CopyTextureRegion(&dst_loc, 0, 0, 0, &src_loc, NULL);
-
-				s_sa.d3d12_cmd_list->Close();
-
-				ID3D12CommandList *lists[] = { s_sa.d3d12_cmd_list };
-				s_sa.d3d12_queue->ExecuteCommandLists(1, lists);
-
-				// Fence sync — wait for blit to complete
-				s_sa.d3d12_fence_value++;
-				s_sa.d3d12_queue->Signal(s_sa.d3d12_fence, s_sa.d3d12_fence_value);
-				if (s_sa.d3d12_fence->GetCompletedValue() < s_sa.d3d12_fence_value) {
-					s_sa.d3d12_fence->SetEventOnCompletion(s_sa.d3d12_fence_value,
-					                                        s_sa.d3d12_fence_event);
-					WaitForSingleObject(s_sa.d3d12_fence_event, INFINITE);
-				}
-			}
-		}
-	}
+	// TODO(#38): Cross-device atlas blit. Unity's atlas RT is on Unity's D3D12
+	// device, swapchain images are on our device. CopyTextureRegion can't cross
+	// devices. For now, submit the swapchain image as-is (content will be blank).
+	// The shared texture output from the runtime still works — it just won't have
+	// scene content until we solve the cross-device blit (e.g., via a staging
+	// buffer with CPU readback, or by having Unity render to a shared resource).
+	(void)atlas_tex;
 #endif
 
 	XrSwapchainImageReleaseInfo rel_info = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
@@ -1840,8 +1820,11 @@ displayxr_standalone_get_shared_texture(void **native_ptr, uint32_t *width,
 #if defined(__APPLE__)
 	*native_ptr = displayxr_sa_metal_get_texture();
 #elif defined(_WIN32)
-	// Unity's CreateExternalTexture expects ID3D12Resource* for D3D12 backend
-	*native_ptr = (void *)s_sa.d3d12_shared_texture;
+	// Return the shared texture opened on Unity's device (if available),
+	// otherwise fall back to our device's resource.
+	*native_ptr = s_sa.d3d12_unity_shared
+		? (void *)s_sa.d3d12_unity_shared
+		: (void *)s_sa.d3d12_shared_texture;
 #else
 	*native_ptr = NULL;
 #endif
