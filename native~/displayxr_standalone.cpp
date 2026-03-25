@@ -23,9 +23,9 @@
 #include <dxgi1_4.h>
 
 // D3D12 OpenXR structs (inlined to avoid requiring XR_USE_GRAPHICS_API_D3D12).
-#define XR_TYPE_GRAPHICS_BINDING_D3D12_KHR      ((XrStructureType)1000027000)
-#define XR_TYPE_SWAPCHAIN_IMAGE_D3D12_KHR       ((XrStructureType)1000027001)
-#define XR_TYPE_GRAPHICS_REQUIREMENTS_D3D12_KHR ((XrStructureType)1000027002)
+#define XR_TYPE_GRAPHICS_BINDING_D3D12_KHR      ((XrStructureType)1000028000)
+#define XR_TYPE_SWAPCHAIN_IMAGE_D3D12_KHR       ((XrStructureType)1000028001)
+#define XR_TYPE_GRAPHICS_REQUIREMENTS_D3D12_KHR ((XrStructureType)1000028002)
 
 typedef struct XrSwapchainImageD3D12KHR {
 	XrStructureType type;
