@@ -5,6 +5,15 @@ All notable changes to the DisplayXR Unity plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-03-25
+
+### Changed
+- D3D12: use separate device for runtime session, shared texture via DXGI handle for Unity (#35)
+  - Sharing Unity's D3D12 device with the runtime caused device removal
+  - Create dedicated D3D12 device for the runtime OpenXR session
+  - Use `OpenSharedHandle` on Unity's device for `CreateExternalTexture`
+  - Atlas blit skipped (cross-device TODO)
+
 ## [0.3.3] - 2026-03-25
 
 ### Fixed
