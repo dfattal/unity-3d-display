@@ -5,6 +5,14 @@ All notable changes to the DisplayXR Unity plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.5] - 2026-03-25
+
+### Changed
+- Cross-device atlas blit via DXGI shared bridge texture (#38)
+  - Unity renders atlas on its D3D12 device, then `Graphics.CopyTexture` to a bridge texture shared on both devices
+  - `CopyTextureRegion` from bridge to swapchain on the runtime's device
+  - Completes the cross-device rendering pipeline started in 0.3.4
+
 ## [0.3.4] - 2026-03-25
 
 ### Changed
