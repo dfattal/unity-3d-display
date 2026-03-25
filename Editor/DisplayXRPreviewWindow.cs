@@ -37,6 +37,7 @@ namespace DisplayXR.Editor
             var gameViewType = typeof(UnityEditor.Editor).Assembly.GetType("UnityEditor.GameView");
             var window = GetWindow<DisplayXRPreviewWindow>("DisplayXR Preview", gameViewType);
             window.minSize = new Vector2(640, 400);
+            window.Focus();
         }
 
         void OnEnable()

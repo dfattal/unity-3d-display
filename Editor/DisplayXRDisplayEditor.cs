@@ -18,6 +18,7 @@ namespace DisplayXR.Editor
 
         void OnEnable()
         {
+            if (target == null) return;
             m_IpdFactor = serializedObject.FindProperty("ipdFactor");
             m_ParallaxFactor = serializedObject.FindProperty("parallaxFactor");
             m_PerspectiveFactor = serializedObject.FindProperty("perspectiveFactor");
