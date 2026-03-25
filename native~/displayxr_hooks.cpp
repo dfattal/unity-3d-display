@@ -92,114 +92,13 @@ static PFN_xrReleaseSwapchainImage s_real_release_swapchain_image = nullptr;
 static ID3D11Device *s_d3d11_device = nullptr;
 static ID3D11DeviceContext *s_d3d11_context = nullptr;
 
-// --- D3D11 TYPELESS format fix (issue #36: geometry corruption) ---
-// Unity calls GetDesc() on swapchain textures and uses the format to create RTVs.
-// When the runtime returns TYPELESS textures (per OpenXR D3D11 spec), Unity's
-// GetDesc() returns TYPELESS → Unity fails to create proper RTVs → geometry corruption.
-// RenderDoc fixes this by wrapping the D3D11 device and reporting concrete formats.
-//
-// Solution: wrap each TYPELESS ID3D11Texture2D with a thin COM wrapper that overrides
-// GetDesc() to report the concrete format Unity originally requested. Unity renders
-// directly to the real texture — no extra copies, no extra textures.
-
-#define DISPLAYXR_MAX_SWAPCHAINS 8
-#define DISPLAYXR_MAX_IMAGES_PER_SC 4
-
-// Returns true if the DXGI format is a TYPELESS variant
-static bool dxgi_is_typeless(DXGI_FORMAT fmt) {
-	switch (fmt) {
-	case DXGI_FORMAT_R8G8B8A8_TYPELESS:     // 27
-	case DXGI_FORMAT_B8G8R8A8_TYPELESS:     // 90
-	case DXGI_FORMAT_R16G16B16A16_TYPELESS:  // 9
-	case DXGI_FORMAT_R10G10B10A2_TYPELESS:   // 23
-	case DXGI_FORMAT_R32G32B32A32_TYPELESS:  // 1
-		return true;
-	default:
-		return false;
-	}
-}
-
-// Thin COM wrapper around ID3D11Texture2D that overrides GetDesc() to report
-// a concrete format instead of TYPELESS. All other methods forward to the real texture.
-class TypedTexture2DWrapper : public ID3D11Texture2D {
-	ID3D11Texture2D *m_real;
-	DXGI_FORMAT m_typed_format;
-	volatile LONG m_ref_count;
-
-public:
-	TypedTexture2DWrapper(ID3D11Texture2D *real, DXGI_FORMAT typed_format)
-		: m_real(real), m_typed_format(typed_format), m_ref_count(1)
-	{
-		m_real->AddRef();
-	}
-	~TypedTexture2DWrapper() { m_real->Release(); }
-
-	ID3D11Texture2D *GetReal() const { return m_real; }
-
-	// IUnknown
-	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppvObject) override {
-		if (riid == __uuidof(ID3D11Texture2D) ||
-		    riid == __uuidof(ID3D11Resource) ||
-		    riid == __uuidof(ID3D11DeviceChild) ||
-		    riid == __uuidof(IUnknown)) {
-			AddRef();
-			*ppvObject = this;
-			return S_OK;
-		}
-		// Forward unknown interfaces to real texture (e.g. IDXGIResource)
-		return m_real->QueryInterface(riid, ppvObject);
-	}
-	ULONG STDMETHODCALLTYPE AddRef() override {
-		return InterlockedIncrement(&m_ref_count);
-	}
-	ULONG STDMETHODCALLTYPE Release() override {
-		ULONG ref = InterlockedDecrement(&m_ref_count);
-		if (ref == 0) delete this;
-		return ref;
-	}
-
-	// ID3D11DeviceChild
-	void STDMETHODCALLTYPE GetDevice(ID3D11Device **ppDevice) override {
-		m_real->GetDevice(ppDevice);
-	}
-	HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID guid, UINT *pDataSize, void *pData) override {
-		return m_real->GetPrivateData(guid, pDataSize, pData);
-	}
-	HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID guid, UINT DataSize, const void *pData) override {
-		return m_real->SetPrivateData(guid, DataSize, pData);
-	}
-	HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID guid, const IUnknown *pData) override {
-		return m_real->SetPrivateDataInterface(guid, pData);
-	}
-
-	// ID3D11Resource
-	void STDMETHODCALLTYPE GetType(D3D11_RESOURCE_DIMENSION *pResourceDimension) override {
-		m_real->GetType(pResourceDimension);
-	}
-	void STDMETHODCALLTYPE SetEvictionPriority(UINT EvictionPriority) override {
-		m_real->SetEvictionPriority(EvictionPriority);
-	}
-	UINT STDMETHODCALLTYPE GetEvictionPriority() override {
-		return m_real->GetEvictionPriority();
-	}
-
-	// ID3D11Texture2D — the key override
-	void STDMETHODCALLTYPE GetDesc(D3D11_TEXTURE2D_DESC *pDesc) override {
-		m_real->GetDesc(pDesc);
-		pDesc->Format = m_typed_format;  // Report concrete format, not TYPELESS
-	}
-};
-
-// Track wrappers for cleanup
-struct D3D11SwapchainWrappers {
-	XrSwapchain handle;
-	int64_t     concrete_format;
-	uint32_t    wrapper_count;
-	TypedTexture2DWrapper *wrappers[DISPLAYXR_MAX_IMAGES_PER_SC];
-};
-
-static D3D11SwapchainWrappers s_swapchain_wrappers[DISPLAYXR_MAX_SWAPCHAINS];
-static int s_swapchain_wrapper_count = 0;
+// --- D3D11 TYPELESS workaround attempts (issue #36) ---
+// Runtime creates TYPELESS textures per OpenXR D3D11 spec. Unity has geometry
+// corruption with TYPELESS but crashes with ANY texture pointer substitution
+// (proxy textures crash, COM wrappers crash). Both approaches cause GPU TDR
+// because D3D11 runtime rejects non-original objects in rendering calls.
+// Leaving textures as TYPELESS (corruption but no crash) and exploring
+// synchronization-based fixes instead.
 #endif
 
 static XrInstance s_instance = XR_NULL_HANDLE;
@@ -924,19 +823,6 @@ hooked_xrCreateSwapchain(XrSession session,
 	if (XR_SUCCEEDED(result)) {
 		displayxr_log( "[DisplayXR] xrCreateSwapchain: OK swapchain=%p\n",
 		        (void *)(uintptr_t)*swapchain);
-#if defined(_WIN32)
-		// Register swapchain for TYPELESS→concrete wrapper (D3D11 only)
-		if (s_d3d11_device && s_swapchain_wrapper_count < DISPLAYXR_MAX_SWAPCHAINS) {
-			D3D11SwapchainWrappers *sw = &s_swapchain_wrappers[s_swapchain_wrapper_count];
-			sw->handle = *swapchain;
-			sw->concrete_format = createInfo->format;
-			sw->wrapper_count = 0;
-			memset(sw->wrappers, 0, sizeof(sw->wrappers));
-			s_swapchain_wrapper_count++;
-			displayxr_log("[DisplayXR] Registered swapchain %p for TYPELESS wrap (format=%lld)\n",
-			              (void *)(uintptr_t)*swapchain, (long long)createInfo->format);
-		}
-#endif
 	} else {
 		displayxr_log( "[DisplayXR] xrCreateSwapchain: FAILED result=%d\n", result);
 	}
@@ -990,25 +876,6 @@ hooked_xrEnumerateSwapchainImages(XrSwapchain swapchain,
 						displayxr_log( " [SHARED_NTHANDLE]");
 					if (desc.MiscFlags & D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX)
 						displayxr_log( " [KEYED_MUTEX]");
-
-					// Wrap TYPELESS texture with concrete-format COM wrapper
-					if (dxgi_is_typeless(desc.Format)) {
-						D3D11SwapchainWrappers *sw = nullptr;
-						for (int j = 0; j < s_swapchain_wrapper_count; j++) {
-							if (s_swapchain_wrappers[j].handle == swapchain) {
-								sw = &s_swapchain_wrappers[j]; break;
-							}
-						}
-						if (sw && i < DISPLAYXR_MAX_IMAGES_PER_SC) {
-							DXGI_FORMAT typed = (DXGI_FORMAT)sw->concrete_format;
-							TypedTexture2DWrapper *wrapper = new TypedTexture2DWrapper(tex, typed);
-							sw->wrappers[i] = wrapper;
-							sw->wrapper_count = i + 1;
-							d3d_images[i].texture = wrapper;  // Unity sees wrapper with concrete format
-							displayxr_log(" [WRAP fmt=%u->%u]",
-							              (unsigned)desc.Format, (unsigned)typed);
-						}
-					}
 				}
 				displayxr_log( "\n");
 			}
@@ -1117,16 +984,6 @@ hooked_xrDestroyInstance(XrInstance instance)
 	s_real_wait_swapchain_image = nullptr;
 	s_real_release_swapchain_image = nullptr;
 #if defined(_WIN32)
-	// Release TYPELESS wrappers before releasing the D3D11 context
-	for (int j = 0; j < s_swapchain_wrapper_count; j++) {
-		for (uint32_t k = 0; k < s_swapchain_wrappers[j].wrapper_count; k++) {
-			if (s_swapchain_wrappers[j].wrappers[k]) {
-				s_swapchain_wrappers[j].wrappers[k]->Release();
-				s_swapchain_wrappers[j].wrappers[k] = nullptr;
-			}
-		}
-	}
-	s_swapchain_wrapper_count = 0;
 	if (s_d3d11_context) { s_d3d11_context->Release(); s_d3d11_context = nullptr; }
 	s_d3d11_device = nullptr; // Not owned by us — don't Release
 #endif
