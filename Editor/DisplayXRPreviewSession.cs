@@ -463,7 +463,7 @@ namespace DisplayXR.Editor
                 $"({s_ViewCount} views, {s_TileColumns}x{s_TileRows} tiles, {s_ViewWidth}x{s_ViewHeight} per view)");
 
             // Create single atlas RenderTexture
-            s_AtlasRT = new RenderTexture((int)s_AtlasWidth, (int)s_AtlasHeight, 24, RenderTextureFormat.ARGB32);
+            s_AtlasRT = new RenderTexture((int)s_AtlasWidth, (int)s_AtlasHeight, 24, RenderTextureFormat.BGRA32);
             s_AtlasRT.name = "DisplayXR_SA_Atlas";
             s_AtlasRT.Create();
 
