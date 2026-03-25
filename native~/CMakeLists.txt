@@ -69,7 +69,7 @@ endif()
 if(WIN32)
     list(APPEND SOURCES displayxr_win32.c)
     list(APPEND HEADERS displayxr_win32.h)
-    link_libraries(d3d11 dxgi)
+    link_libraries(d3d11 d3d12 dxgi)
 endif()
 
 # --- Build shared library ---

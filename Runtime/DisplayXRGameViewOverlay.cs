@@ -108,8 +108,12 @@ namespace DisplayXR
                 drawRect = new Rect(0, (screenRect.height - h) * 0.5f, screenRect.width, h);
             }
 
-            // Metal textures are Y-flipped; crop to canvas UV region
+            // Metal textures are Y-flipped; D3D12/D3D11 are not
+#if UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX
             GUI.DrawTextureWithTexCoords(drawRect, tex, new Rect(0, vMax, uMax, -vMax));
+#else
+            GUI.DrawTextureWithTexCoords(drawRect, tex, new Rect(0, 0, uMax, vMax));
+#endif
 
             // Status label
             string modeName = GetCurrentModeName();

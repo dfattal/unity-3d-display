@@ -244,11 +244,10 @@ namespace DisplayXR.Editor
 
             Debug.Log($"[DisplayXR-SA] Starting with runtime: {runtimeJson}");
 
-            // Pass Unity's D3D11 device to native before session creation.
+            // Pass Unity's graphics device to native before session creation.
             // This ensures all textures (Unity RTs, swapchain images, shared texture)
-            // are on the same D3D11 device, avoiding cross-device CopyResource failures.
+            // are on the same device, avoiding cross-device copy failures.
 #if UNITY_EDITOR_WIN
-            if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Direct3D11)
             {
                 var tempRT = new RenderTexture(4, 4, 0, RenderTextureFormat.BGRA32);
                 tempRT.Create(); // Force native resource allocation
