@@ -250,10 +250,12 @@ namespace DisplayXR.Editor
 #if UNITY_EDITOR_WIN
             if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Direct3D11)
             {
-                var tempRT = RenderTexture.GetTemporary(1, 1);
+                var tempRT = new RenderTexture(4, 4, 0, RenderTextureFormat.BGRA32);
+                tempRT.Create(); // Force native resource allocation
                 var texPtr = tempRT.GetNativeTexturePtr();
                 DisplayXRNative.displayxr_standalone_set_unity_device(texPtr);
-                RenderTexture.ReleaseTemporary(tempRT);
+                tempRT.Release();
+                Object.DestroyImmediate(tempRT);
             }
 #endif
 
