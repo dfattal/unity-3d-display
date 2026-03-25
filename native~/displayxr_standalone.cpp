@@ -919,7 +919,7 @@ displayxr_standalone_start(const char *runtime_json_path)
 		desc.Height = s_sa.display_info.display_pixel_height;
 		desc.MipLevels = 1;
 		desc.ArraySize = 1;
-		desc.Format = DXGI_FORMAT_B8G8R8A8_TYPELESS;
+		desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
 		desc.SampleDesc.Count = 1;
 		desc.Usage = D3D11_USAGE_DEFAULT;
 		desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
