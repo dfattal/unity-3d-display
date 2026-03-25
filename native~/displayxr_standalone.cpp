@@ -158,6 +158,10 @@ typedef struct StandaloneState {
 	ID3D12Resource *d3d12_shared_texture;  // On our device
 	HANDLE d3d12_shared_handle;            // DXGI shared handle (cross-device)
 	ID3D12Resource *d3d12_unity_shared;    // Same texture opened on Unity's device
+	// Atlas bridge: shared texture for cross-device atlas blit
+	ID3D12Resource *d3d12_atlas_bridge;       // On our device, SHARED
+	HANDLE d3d12_atlas_bridge_handle;         // DXGI shared handle
+	ID3D12Resource *d3d12_unity_atlas_bridge; // Opened on Unity's device
 #endif
 
 	XrInstance instance;
@@ -501,6 +505,11 @@ get_render_tiling(const XrDisplayRenderingModeInfoEXT *mode,
 }
 
 
+#if defined(_WIN32)
+// Forward declaration — defined in the public API section below.
+static ID3D12Device *s_unity_d3d12_device;
+#endif
+
 // ============================================================================
 // Swapchain management (single atlas)
 // ============================================================================
@@ -607,6 +616,51 @@ create_atlas_swapchain(void)
 	        atlas_w, atlas_h, count);
 
 	s_sa.atlas_created = 1;
+
+#if defined(_WIN32)
+	// Create atlas bridge shared texture (same dimensions as swapchain atlas).
+	// This bridges Unity's device and our device for cross-device atlas blit.
+	if (s_unity_d3d12_device && s_sa.d3d12_device) {
+		D3D12_HEAP_PROPERTIES heap = {};
+		heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+		D3D12_RESOURCE_DESC bd = {};
+		bd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+		bd.Width = atlas_w;
+		bd.Height = atlas_h;
+		bd.DepthOrArraySize = 1;
+		bd.MipLevels = 1;
+		bd.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+		bd.SampleDesc.Count = 1;
+		bd.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+		bd.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+		HRESULT hr = s_sa.d3d12_device->CreateCommittedResource(
+			&heap, D3D12_HEAP_FLAG_SHARED, &bd,
+			D3D12_RESOURCE_STATE_COMMON, NULL,
+			__uuidof(ID3D12Resource), (void **)&s_sa.d3d12_atlas_bridge);
+		if (FAILED(hr)) {
+			fprintf(stderr, "[DisplayXR-SA] Atlas bridge CreateCommittedResource failed: 0x%08lx\n", hr);
+		} else {
+			hr = s_sa.d3d12_device->CreateSharedHandle(
+				s_sa.d3d12_atlas_bridge, NULL, GENERIC_ALL, NULL,
+				&s_sa.d3d12_atlas_bridge_handle);
+			if (SUCCEEDED(hr) && s_sa.d3d12_atlas_bridge_handle) {
+				hr = s_unity_d3d12_device->OpenSharedHandle(
+					s_sa.d3d12_atlas_bridge_handle,
+					__uuidof(ID3D12Resource), (void **)&s_sa.d3d12_unity_atlas_bridge);
+				if (SUCCEEDED(hr) && s_sa.d3d12_unity_atlas_bridge) {
+					fprintf(stderr, "[DisplayXR-SA] Atlas bridge: %ux%u, handle=%p, unity_res=%p\n",
+					        atlas_w, atlas_h, s_sa.d3d12_atlas_bridge_handle,
+					        (void *)s_sa.d3d12_unity_atlas_bridge);
+				} else {
+					fprintf(stderr, "[DisplayXR-SA] Atlas bridge OpenSharedHandle failed: 0x%08lx\n", hr);
+				}
+			}
+		}
+	}
+#endif
+
 	return 1;
 }
 
@@ -626,9 +680,10 @@ destroy_atlas_swapchain(void)
 // ============================================================================
 
 #if defined(_WIN32)
-// Unity's D3D12 device, extracted from a native texture pointer via GetDevice().
+// Unity's D3D12 device — forward-declared above, initialized here.
+// Extracted from a native texture pointer via GetDevice().
 // Set by C# before calling displayxr_standalone_start().
-static ID3D12Device *s_unity_d3d12_device = NULL;
+// (declaration is above create_atlas_swapchain which uses it)
 #endif
 
 void
@@ -1174,6 +1229,9 @@ displayxr_standalone_stop(void)
 #if defined(__APPLE__)
 	displayxr_sa_metal_destroy();
 #elif defined(_WIN32)
+	if (s_sa.d3d12_unity_atlas_bridge) { s_sa.d3d12_unity_atlas_bridge->Release(); s_sa.d3d12_unity_atlas_bridge = NULL; }
+	if (s_sa.d3d12_atlas_bridge_handle) { CloseHandle(s_sa.d3d12_atlas_bridge_handle); s_sa.d3d12_atlas_bridge_handle = NULL; }
+	if (s_sa.d3d12_atlas_bridge) { s_sa.d3d12_atlas_bridge->Release(); s_sa.d3d12_atlas_bridge = NULL; }
 	if (s_sa.d3d12_unity_shared) { s_sa.d3d12_unity_shared->Release(); s_sa.d3d12_unity_shared = NULL; }
 	if (s_sa.d3d12_fence_event) { CloseHandle(s_sa.d3d12_fence_event); s_sa.d3d12_fence_event = NULL; }
 	if (s_sa.d3d12_fence) { s_sa.d3d12_fence->Release(); s_sa.d3d12_fence = NULL; }
@@ -1363,13 +1421,42 @@ displayxr_standalone_submit_frame_atlas(void *atlas_tex)
 		displayxr_sa_metal_blit(atlas_tex, dst);
 	}
 #elif defined(_WIN32)
-	// TODO(#38): Cross-device atlas blit. Unity's atlas RT is on Unity's D3D12
-	// device, swapchain images are on our device. CopyTextureRegion can't cross
-	// devices. For now, submit the swapchain image as-is (content will be blank).
-	// The shared texture output from the runtime still works — it just won't have
-	// scene content until we solve the cross-device blit (e.g., via a staging
-	// buffer with CPU readback, or by having Unity render to a shared resource).
-	(void)atlas_tex;
+	{
+		// Cross-device atlas blit via shared bridge texture.
+		// C# copies Unity's atlas RT → bridge (Unity device, via Graphics.CopyTexture).
+		// We copy bridge → swapchain image (our device, same device).
+		ID3D12Resource *bridge = s_sa.d3d12_atlas_bridge;
+		ID3D12Resource *dst = s_sa.atlas.images[index].texture;
+		if (bridge && dst && s_sa.d3d12_cmd_list) {
+			s_sa.d3d12_cmd_alloc->Reset();
+			s_sa.d3d12_cmd_list->Reset(s_sa.d3d12_cmd_alloc, NULL);
+
+			D3D12_TEXTURE_COPY_LOCATION dst_loc = {};
+			dst_loc.pResource = dst;
+			dst_loc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+			dst_loc.SubresourceIndex = 0;
+
+			D3D12_TEXTURE_COPY_LOCATION src_loc = {};
+			src_loc.pResource = bridge;
+			src_loc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+			src_loc.SubresourceIndex = 0;
+
+			s_sa.d3d12_cmd_list->CopyTextureRegion(&dst_loc, 0, 0, 0, &src_loc, NULL);
+			s_sa.d3d12_cmd_list->Close();
+
+			ID3D12CommandList *lists[] = { s_sa.d3d12_cmd_list };
+			s_sa.d3d12_queue->ExecuteCommandLists(1, lists);
+
+			s_sa.d3d12_fence_value++;
+			s_sa.d3d12_queue->Signal(s_sa.d3d12_fence, s_sa.d3d12_fence_value);
+			if (s_sa.d3d12_fence->GetCompletedValue() < s_sa.d3d12_fence_value) {
+				s_sa.d3d12_fence->SetEventOnCompletion(s_sa.d3d12_fence_value,
+				                                        s_sa.d3d12_fence_event);
+				WaitForSingleObject(s_sa.d3d12_fence_event, INFINITE);
+			}
+		}
+		(void)atlas_tex; // Unused — C# copies to bridge via Graphics.CopyTexture
+	}
 #endif
 
 	XrSwapchainImageReleaseInfo rel_info = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
@@ -1810,6 +1897,23 @@ displayxr_standalone_get_eye_positions(float *lx, float *ly, float *lz,
 	*ry = s_sa.right_eye[1];
 	*rz = s_sa.right_eye[2];
 	*is_tracked = s_sa.is_tracked;
+}
+
+
+void
+displayxr_standalone_get_atlas_bridge_texture(void **native_ptr,
+                                               uint32_t *width, uint32_t *height)
+{
+#if defined(_WIN32)
+	*native_ptr = s_sa.d3d12_unity_atlas_bridge
+		? (void *)s_sa.d3d12_unity_atlas_bridge : NULL;
+	*width = s_sa.atlas.width;
+	*height = s_sa.atlas.height;
+#else
+	*native_ptr = NULL;
+	*width = 0;
+	*height = 0;
+#endif
 }
 
 

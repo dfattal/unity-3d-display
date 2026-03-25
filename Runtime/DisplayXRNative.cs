@@ -188,6 +188,10 @@ namespace DisplayXR
         internal static extern void displayxr_standalone_get_shared_texture(
             out IntPtr nativePtr, out uint width, out uint height, out int ready);
 
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void displayxr_standalone_get_atlas_bridge_texture(
+            out IntPtr nativePtr, out uint width, out uint height);
+
         /// <summary>
         /// Set the canvas output rect for shared texture compositing (standalone session).
         /// Tells the runtime where the content should be rendered within the IOSurface.

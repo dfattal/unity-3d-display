@@ -145,6 +145,11 @@ DISPLAYXR_EXPORT void displayxr_standalone_get_eye_positions(
 DISPLAYXR_EXPORT void displayxr_standalone_get_shared_texture(
     void **native_ptr, uint32_t *width, uint32_t *height, int *ready);
 
+/// (Windows D3D12 only) Get the atlas bridge texture opened on Unity's device.
+/// C# uses Graphics.CopyTexture to copy the atlas RT into this each frame.
+DISPLAYXR_EXPORT void displayxr_standalone_get_atlas_bridge_texture(
+    void **native_ptr, uint32_t *width, uint32_t *height);
+
 /// Set the canvas output rect for shared texture compositing.
 /// Calls xrSetSharedTextureOutputRectEXT on the runtime session.
 /// @param x Left edge in client-area pixels.

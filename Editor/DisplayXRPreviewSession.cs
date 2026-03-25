@@ -57,6 +57,9 @@ namespace DisplayXR.Editor
         private static float s_NearZ = 0.3f;
         private static float s_FarZ = 1000f;
 
+        // Atlas bridge (Windows D3D12: cross-device shared texture for atlas blit)
+        private static Texture2D s_AtlasBridgeTex;
+
         // Current mode tiling info (cached from native)
         private static uint s_ViewCount = 2;
         private static uint s_TileColumns = 2;
@@ -267,6 +270,7 @@ namespace DisplayXR.Editor
                 StartPolling();
                 RefreshDisplayInfo();
                 CreateRenderRig();
+                CreateAtlasBridge();
                 return true;
             }
 
@@ -300,6 +304,7 @@ namespace DisplayXR.Editor
             s_IsRunning = false;
 
             StopPolling();
+            CleanupAtlasBridge();
             DestroyRenderRig();
 
             try
@@ -413,6 +418,11 @@ namespace DisplayXR.Editor
                         (int)s_ViewWidth, (int)s_ViewHeight);
                 }
 
+                // Copy atlas RT → bridge texture (Unity device, GPU copy).
+                // Native then copies bridge → swapchain (our device, same device).
+                if (s_AtlasBridgeTex != null)
+                    Graphics.CopyTexture(s_AtlasRT, s_AtlasBridgeTex);
+
                 IntPtr atlasNative = s_AtlasRT.GetNativeTexturePtr();
                 DisplayXRNative.displayxr_standalone_submit_frame_atlas(atlasNative);
             }
@@ -474,6 +484,30 @@ namespace DisplayXR.Editor
 
             // Restore camera selection (reads from SessionState) and clone settings
             RestoreSelection();
+        }
+
+        private static void CreateAtlasBridge()
+        {
+#if UNITY_EDITOR_WIN
+            DisplayXRNative.displayxr_standalone_get_atlas_bridge_texture(
+                out IntPtr bridgePtr, out uint bw, out uint bh);
+            if (bridgePtr != IntPtr.Zero && bw > 0 && bh > 0)
+            {
+                s_AtlasBridgeTex = Texture2D.CreateExternalTexture(
+                    (int)bw, (int)bh, TextureFormat.BGRA32, false, true, bridgePtr);
+                s_AtlasBridgeTex.name = "DisplayXR_AtlasBridge";
+                Debug.Log($"[DisplayXR-SA] Atlas bridge texture: {bw}x{bh}");
+            }
+#endif
+        }
+
+        private static void CleanupAtlasBridge()
+        {
+            if (s_AtlasBridgeTex != null)
+            {
+                UnityEngine.Object.DestroyImmediate(s_AtlasBridgeTex);
+                s_AtlasBridgeTex = null;
+            }
         }
 
         private static void DestroyRenderRig()
