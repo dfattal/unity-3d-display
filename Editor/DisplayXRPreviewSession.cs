@@ -543,12 +543,15 @@ namespace DisplayXR.Editor
             view.m22 = -view.m22;
             view.m32 = -view.m32;
 
-            // Flip projection Y: Metal RenderTextures are Y-inverted and Unity
-            // doesn't auto-correct when projectionMatrix is set manually.
+            // Flip projection Y on macOS only: Metal RenderTextures are Y-inverted
+            // and Unity doesn't auto-correct when projectionMatrix is set manually.
+            // On D3D12/D3D11, the native memory layout matches without this flip.
+#if UNITY_EDITOR_OSX
             proj.m10 = -proj.m10;
             proj.m11 = -proj.m11;
             proj.m12 = -proj.m12;
             proj.m13 = -proj.m13;
+#endif
 
             // Reset matrices first so Unity recalculates internal lighting state
             // from the Transform (shadows, light culling, shader built-ins).
