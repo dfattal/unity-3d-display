@@ -1448,14 +1448,17 @@ displayxr_standalone_submit_frame_atlas(void *atlas_tex)
 	}
 #elif defined(_WIN32)
 	{
-		// Cross-device atlas blit via shared bridge texture.
-		// C# copies Unity's atlas RT → bridge (Unity device, via Graphics.CopyTexture).
-		// We copy bridge → swapchain image (our device, same device).
+		// Cross-device atlas blit via shared bridge texture with Y-flip.
+		// Unity RenderTextures on D3D12 are Y-flipped in native memory.
+		// Copy row-by-row in reverse order to flip vertically.
 		ID3D12Resource *bridge = s_sa.d3d12_atlas_bridge;
 		ID3D12Resource *dst = s_sa.atlas.images[index].texture;
 		if (bridge && dst && s_sa.d3d12_cmd_list) {
 			s_sa.d3d12_cmd_alloc->Reset();
 			s_sa.d3d12_cmd_list->Reset(s_sa.d3d12_cmd_alloc, NULL);
+
+			D3D12_RESOURCE_DESC desc = bridge->GetDesc();
+			uint32_t h = (uint32_t)desc.Height;
 
 			D3D12_TEXTURE_COPY_LOCATION dst_loc = {};
 			dst_loc.pResource = dst;
@@ -1467,7 +1470,20 @@ displayxr_standalone_submit_frame_atlas(void *atlas_tex)
 			src_loc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
 			src_loc.SubresourceIndex = 0;
 
-			s_sa.d3d12_cmd_list->CopyTextureRegion(&dst_loc, 0, 0, 0, &src_loc, NULL);
+			// Copy each row from src row y → dst row (h-1-y) for Y-flip
+			for (uint32_t y = 0; y < h; y++) {
+				D3D12_BOX box = {};
+				box.left = 0;
+				box.top = y;
+				box.front = 0;
+				box.right = (UINT)desc.Width;
+				box.bottom = y + 1;
+				box.back = 1;
+				s_sa.d3d12_cmd_list->CopyTextureRegion(
+					&dst_loc, 0, h - 1 - y, 0,
+					&src_loc, &box);
+			}
+
 			s_sa.d3d12_cmd_list->Close();
 
 			ID3D12CommandList *lists[] = { s_sa.d3d12_cmd_list };
