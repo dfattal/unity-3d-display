@@ -5,6 +5,13 @@ All notable changes to the DisplayXR Unity plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-03-25
+
+### Fixed
+- Fix D3D12 Y-flip: blit atlas with vertical flip before copying to bridge texture (#41)
+  - Unity RenderTextures on D3D12 are Y-flipped in native memory
+  - Use `Graphics.Blit` with `scale(1,-1)` to flip before bridge copy
+
 ## [0.4.2] - 2026-03-25
 
 ### Fixed
