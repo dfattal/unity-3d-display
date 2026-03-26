@@ -59,6 +59,7 @@ namespace DisplayXR.Editor
 
         // Atlas bridge (Windows D3D12: cross-device shared texture for atlas blit)
         private static Texture2D s_AtlasBridgeTex;
+        private static RenderTexture s_FlippedAtlasRT; // Y-flipped copy for D3D12
 
         // Current mode tiling info (cached from native)
         private static uint s_ViewCount = 2;
@@ -418,10 +419,17 @@ namespace DisplayXR.Editor
                         (int)s_ViewWidth, (int)s_ViewHeight);
                 }
 
-                // Copy atlas RT → bridge texture (Unity device, GPU copy).
-                // Native then copies bridge → swapchain (our device, same device).
-                if (s_AtlasBridgeTex != null)
-                    Graphics.CopyTexture(s_AtlasRT, s_AtlasBridgeTex);
+                // Copy atlas RT → bridge texture with Y-flip (D3D12 convention).
+                // Unity RenderTextures on D3D12 are Y-flipped in native memory.
+                // Blit with scale(1,-1) flips Y, then CopyTexture to bridge.
+                if (s_AtlasBridgeTex != null && s_FlippedAtlasRT != null)
+                {
+                    GL.PushMatrix();
+                    GL.LoadPixelMatrix(0, s_FlippedAtlasRT.width, 0, s_FlippedAtlasRT.height);
+                    Graphics.Blit(s_AtlasRT, s_FlippedAtlasRT, new Vector2(1, -1), new Vector2(0, 1));
+                    GL.PopMatrix();
+                    Graphics.CopyTexture(s_FlippedAtlasRT, s_AtlasBridgeTex);
+                }
 
                 IntPtr atlasNative = s_AtlasRT.GetNativeTexturePtr();
                 DisplayXRNative.displayxr_standalone_submit_frame_atlas(atlasNative);
@@ -496,6 +504,12 @@ namespace DisplayXR.Editor
                 s_AtlasBridgeTex = Texture2D.CreateExternalTexture(
                     (int)bw, (int)bh, TextureFormat.RGBA32, false, true, bridgePtr);
                 s_AtlasBridgeTex.name = "DisplayXR_AtlasBridge";
+
+                // Intermediate RT for Y-flip blit (D3D12 native memory is Y-flipped vs Unity)
+                s_FlippedAtlasRT = new RenderTexture((int)bw, (int)bh, 0, RenderTextureFormat.ARGB32);
+                s_FlippedAtlasRT.name = "DisplayXR_FlippedAtlas";
+                s_FlippedAtlasRT.Create();
+
                 Debug.Log($"[DisplayXR-SA] Atlas bridge texture: {bw}x{bh}");
             }
 #endif
@@ -503,6 +517,12 @@ namespace DisplayXR.Editor
 
         private static void CleanupAtlasBridge()
         {
+            if (s_FlippedAtlasRT != null)
+            {
+                s_FlippedAtlasRT.Release();
+                UnityEngine.Object.DestroyImmediate(s_FlippedAtlasRT);
+                s_FlippedAtlasRT = null;
+            }
             if (s_AtlasBridgeTex != null)
             {
                 UnityEngine.Object.DestroyImmediate(s_AtlasBridgeTex);
