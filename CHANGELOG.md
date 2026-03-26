@@ -5,6 +5,13 @@ All notable changes to the DisplayXR Unity plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.9] - 2026-03-25
+
+### Fixed
+- Set Per-Monitor DPI Awareness V2 before runtime init for correct weaving (#41)
+  - `SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)` ensures `GetClientRect` returns physical pixels
+  - Fixes Leia SR weaver interlacing mismatch on DPI-scaled Windows displays
+
 ## [0.4.8] - 2026-03-25
 
 ### Fixed
