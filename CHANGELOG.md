@@ -5,6 +5,13 @@ All notable changes to the DisplayXR Unity plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-03-26
+
+### Fixed
+- Make projection Y-flip macOS-only — D3D12 native memory doesn't need it (#41)
+  - The Y-flip was for Metal RenderTexture convention; on D3D12, removing it produces right-side-up content matching the reference test app
+  - The weaver now receives correctly oriented atlas content on Windows
+
 ## [0.5.0] - 2026-03-25
 
 ### Fixed
