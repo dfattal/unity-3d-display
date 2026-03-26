@@ -421,13 +421,10 @@ namespace DisplayXR.Editor
 
                 // Copy atlas RT → bridge texture with Y-flip (D3D12 convention).
                 // Unity RenderTextures on D3D12 are Y-flipped in native memory.
-                // Blit with scale(1,-1) flips Y, then CopyTexture to bridge.
+                // Blit with scale(1,-1) flips, then CopyTexture to shared bridge.
                 if (s_AtlasBridgeTex != null && s_FlippedAtlasRT != null)
                 {
-                    GL.PushMatrix();
-                    GL.LoadPixelMatrix(0, s_FlippedAtlasRT.width, 0, s_FlippedAtlasRT.height);
                     Graphics.Blit(s_AtlasRT, s_FlippedAtlasRT, new Vector2(1, -1), new Vector2(0, 1));
-                    GL.PopMatrix();
                     Graphics.CopyTexture(s_FlippedAtlasRT, s_AtlasBridgeTex);
                 }
 
