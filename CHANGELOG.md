@@ -5,6 +5,13 @@ All notable changes to the DisplayXR Unity plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.8] - 2026-03-25
+
+### Fixed
+- Revert display Y-flip (separate issue), add canvas/texture size diagnostics (#41)
+  - Native `set_canvas_rect` now logs exact pixel values sent to runtime
+  - Game View overlay shows canvas/surface/UV/screen/scale/draw sizes for debugging
+
 ## [0.4.7] - 2026-03-25
 
 ### Fixed
