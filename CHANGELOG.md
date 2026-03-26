@@ -5,6 +5,13 @@ All notable changes to the DisplayXR Unity plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.5] - 2026-03-25
+
+### Fixed
+- Revert to Graphics.CopyTexture — Graphics.Blit Y-flip broke rendering (#41)
+  - Reverts to the working v0.4.2 atlas copy path
+  - Y-flip will be handled separately (native D3D12 blit or projection matrix)
+
 ## [0.4.4] - 2026-03-25
 
 ### Fixed
