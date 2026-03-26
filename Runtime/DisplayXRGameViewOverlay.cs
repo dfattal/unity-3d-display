@@ -74,26 +74,18 @@ namespace DisplayXR
             Texture tex = UpdateSharedTexture();
             if (tex == null) return;
 
-            // Canvas rect: HWND client-area pixels per spec.
-            // On macOS, Screen.width/height are in points — multiply by backing scale for pixels.
-            // On Windows (DPI-aware Unity), Screen.width/height ARE client-area logical pixels.
+            // Canvas = Game View size in physical pixels
             float backingScale = DisplayXRNative.displayxr_get_backing_scale_factor();
-#if UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX
             uint canvasW = (uint)(Screen.width * backingScale);
             uint canvasH = (uint)(Screen.height * backingScale);
-#else
-            uint canvasW = (uint)Screen.width;
-            uint canvasH = (uint)Screen.height;
-#endif
 
-            // Tell the runtime the canvas rect (per spec: HWND client-area pixels)
+            // Tell the runtime the canvas rect in physical pixels
             DisplayXRNative.displayxr_standalone_set_canvas_rect(0, 0, canvasW, canvasH);
 
             uint surfW = (uint)tex.width;
             uint surfH = (uint)tex.height;
 
-            // UV crop: use canvas in physical pixels for texture sampling
-            // (the runtime writes canvasW×canvasH pixels to the shared texture)
+            // UV crop: canvas portion of shared texture
             float uMax = (canvasW > 0 && surfW > 0) ? (float)canvasW / surfW : 1f;
             float vMax = (canvasH > 0 && surfH > 0) ? (float)canvasH / surfH : 1f;
 
