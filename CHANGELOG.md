@@ -5,6 +5,14 @@ All notable changes to the DisplayXR Unity plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-03-25
+
+### Fixed
+- Fix canvas rect DPI: send logical pixels on Windows, backing pixels on macOS (#41)
+  - `xrSetSharedTextureOutputRectEXT` takes HWND client-area pixels per spec
+  - On DPI-aware Windows (Unity 6), `Screen.width` is already logical pixels
+  - On macOS, `Screen.width` is in points — multiply by backing scale factor
+
 ## [0.4.0] - 2026-03-25
 
 ### Fixed
