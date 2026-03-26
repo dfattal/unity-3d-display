@@ -459,7 +459,7 @@ namespace DisplayXR.Editor
                 m_SharedTexture = Texture2D.CreateExternalTexture(
                     (int)w, (int)h, TextureFormat.RGBA32, false, true, nativePtr);
                 m_SharedTexture.name = "DisplayXR_SA_Preview";
-                m_SharedTexture.filterMode = FilterMode.Bilinear;
+                m_SharedTexture.filterMode = FilterMode.Point; // No interpolation — preserves interlacing
                 m_SharedNativePtr = nativePtr;
             }
             else
