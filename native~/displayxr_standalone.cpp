@@ -1987,6 +1987,13 @@ displayxr_get_backing_scale_factor(void)
 void
 displayxr_standalone_set_canvas_rect(int32_t x, int32_t y, uint32_t w, uint32_t h)
 {
+	static uint32_t log_count = 0;
+	if (log_count < 5 || (w != s_sa.canvas_width || h != s_sa.canvas_height)) {
+		fprintf(stderr, "[DisplayXR-SA] set_canvas_rect: x=%d y=%d w=%u h=%u "
+		        "(shared_tex=%ux%u)\n",
+		        x, y, w, h, s_sa.tex_width, s_sa.tex_height);
+		log_count++;
+	}
 	s_sa.canvas_width = w;
 	s_sa.canvas_height = h;
 	if (s_sa.pfn_set_output_rect && s_sa.session != XR_NULL_HANDLE)

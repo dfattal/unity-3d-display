@@ -261,8 +261,12 @@ namespace DisplayXR.Editor
                         previewRect.width, h);
                 }
 
-                // Shared texture content is Y-flipped on all platforms
+                // macOS Metal: Y-flipped. Windows D3D12: not flipped.
+#if UNITY_EDITOR_OSX
                 GUI.DrawTextureWithTexCoords(drawRect, tex, new Rect(0, vMax, uMax, -vMax));
+#else
+                GUI.DrawTextureWithTexCoords(drawRect, tex, new Rect(0, 0, uMax, vMax));
+#endif
 
                 var labelRect = new Rect(drawRect.x + 4, drawRect.y + 4, 300, 20);
                 GUI.Label(labelRect, $"Canvas: {canvasW}x{canvasH}  Surface: {surfW}x{surfH}",

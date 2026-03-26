@@ -108,15 +108,20 @@ namespace DisplayXR
                 drawRect = new Rect(0, (screenRect.height - h) * 0.5f, screenRect.width, h);
             }
 
-            // Shared texture content is Y-flipped on all platforms:
-            // macOS Metal convention + Windows Unity D3D12 RenderTexture convention.
+            // macOS Metal: Y-flipped. Windows D3D12: not flipped (TODO: handle atlas Y-flip separately)
+#if UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX
             GUI.DrawTextureWithTexCoords(drawRect, tex, new Rect(0, vMax, uMax, -vMax));
+#else
+            GUI.DrawTextureWithTexCoords(drawRect, tex, new Rect(0, 0, uMax, vMax));
+#endif
 
-            // Status label
+            // Diagnostic status label
             string modeName = GetCurrentModeName();
             string camName = DisplayXRRigManager.ActiveCameraName ?? "—";
-            GUI.Label(new Rect(drawRect.x + 4, drawRect.y + 4, 800, 20),
-                $"Canvas: {canvasW}x{canvasH}  Surface: {surfW}x{surfH}  Mode: {modeName}  Camera: {camName}",
+            GUI.Label(new Rect(drawRect.x + 4, drawRect.y + 4, 900, 40),
+                $"Canvas: {canvasW}x{canvasH}  Surface: {surfW}x{surfH}  UV: {uMax:F3}x{vMax:F3}  " +
+                $"Screen: {Screen.width}x{Screen.height}  Scale: {backingScale:F2}  Draw: {drawRect.width:F0}x{drawRect.height:F0}  " +
+                $"Mode: {modeName}  Camera: {camName}",
                 GUI.skin.label);
         }
 
