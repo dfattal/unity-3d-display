@@ -573,10 +573,16 @@ namespace DisplayXR.Editor
             cam.pixelRect = new Rect(vpX, vpY, vpW, vpH);
 
             // The view matrix Z-flip reverses the determinant, flipping triangle
-            // winding order. Invert culling so front faces render correctly.
+            // winding order. On macOS, the projection Y-flip reverses it again,
+            // plus Metal's RT Y-inversion adds a third flip → need invertCulling.
+            // On Windows D3D12, only the Z-flip applies → normal culling is correct.
+#if UNITY_EDITOR_OSX
             GL.invertCulling = true;
+#endif
             cam.Render();
+#if UNITY_EDITOR_OSX
             GL.invertCulling = false;
+#endif
 
             // Reset matrices after rendering so cam.fieldOfView returns the
             // original value on the next frame. Without this, the Y-flipped
