@@ -731,6 +731,12 @@ displayxr_standalone_start(const char *runtime_json_path)
 
 	memset(&s_sa, 0, sizeof(s_sa));
 
+#if defined(_WIN32)
+	// Set Per-Monitor DPI Awareness V2 so the Leia SR weaver sees physical
+	// pixels from GetClientRect(), matching our canvas rect dimensions.
+	SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+#endif
+
 	fprintf(stderr, "[DisplayXR-SA] Starting with runtime: %s\n", runtime_json_path);
 
 	// --- Step 1: Load the runtime library ---
