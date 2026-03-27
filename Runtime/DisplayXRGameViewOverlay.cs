@@ -74,10 +74,12 @@ namespace DisplayXR
             Texture tex = UpdateSharedTexture();
             if (tex == null) return;
 
-            // Canvas = Game View size in physical pixels
+            // Canvas = Game View actual rendering size.
+            // In Play Mode, ppp=1.0 means Game View backbuffer is at logical resolution.
+            // backingScale is NOT applied — Screen.width IS the actual pixel count.
             float backingScale = DisplayXRNative.displayxr_get_backing_scale_factor();
-            uint canvasW = (uint)(Screen.width * backingScale);
-            uint canvasH = (uint)(Screen.height * backingScale);
+            uint canvasW = (uint)Screen.width;
+            uint canvasH = (uint)Screen.height;
 
             // Tell the runtime the canvas rect in physical pixels
             DisplayXRNative.displayxr_standalone_set_canvas_rect(0, 0, canvasW, canvasH);
