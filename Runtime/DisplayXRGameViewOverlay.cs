@@ -115,13 +115,22 @@ namespace DisplayXR
             GUI.DrawTextureWithTexCoords(drawRect, tex, new Rect(0, 0, uMax, vMax));
 #endif
 
-            // Diagnostic status label
+            // Diagnostic status label — all relevant sizes for debugging weaving
             string modeName = GetCurrentModeName();
             string camName = DisplayXRRigManager.ActiveCameraName ?? "—";
-            GUI.Label(new Rect(drawRect.x + 4, drawRect.y + 4, 900, 40),
-                $"Canvas: {canvasW}x{canvasH}  Surface: {surfW}x{surfH}  UV: {uMax:F3}x{vMax:F3}  " +
-                $"Screen: {Screen.width}x{Screen.height}  Scale: {backingScale:F2}  Draw: {drawRect.width:F0}x{drawRect.height:F0}  " +
-                $"Mode: {modeName}  Camera: {camName}",
+            float ppp = 1f;
+#if UNITY_EDITOR
+            ppp = UnityEditor.EditorGUIUtility.pixelsPerPoint;
+#endif
+            uint physDrawW = (uint)(drawRect.width * ppp);
+            uint physDrawH = (uint)(drawRect.height * ppp);
+            GUI.Label(new Rect(drawRect.x + 4, drawRect.y + 4, drawRect.width - 8, 60),
+                $"CanvasRect(sent to runtime): {canvasW}x{canvasH}  SharedTex: {surfW}x{surfH}\n" +
+                $"UV: {uMax:F3}x{vMax:F3}  Screen(logical): {Screen.width}x{Screen.height}  " +
+                $"BackingScale: {backingScale:F2}  ppp: {ppp:F2}\n" +
+                $"DrawRect(logical): {drawRect.width:F0}x{drawRect.height:F0}  " +
+                $"DrawRect(physical): {physDrawW}x{physDrawH}  " +
+                $"Mode: {modeName}  Cam: {camName}",
                 GUI.skin.label);
         }
 

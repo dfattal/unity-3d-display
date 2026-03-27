@@ -1983,6 +1983,12 @@ displayxr_get_backing_scale_factor(void)
 	return displayxr_sa_metal_get_backing_scale();
 #elif defined(_WIN32)
 	UINT dpi = GetDpiForSystem();
+	static int logged = 0;
+	if (!logged) {
+		fprintf(stderr, "[DisplayXR-SA] GetDpiForSystem=%u, backingScale=%.2f\n",
+		        dpi, (float)dpi / 96.0f);
+		logged = 1;
+	}
 	return (float)dpi / 96.0f;
 #else
 	return 1.0f;
@@ -1996,8 +2002,11 @@ displayxr_standalone_set_canvas_rect(int32_t x, int32_t y, uint32_t w, uint32_t 
 	static uint32_t log_count = 0;
 	if (log_count < 5 || (w != s_sa.canvas_width || h != s_sa.canvas_height)) {
 		fprintf(stderr, "[DisplayXR-SA] set_canvas_rect: x=%d y=%d w=%u h=%u "
-		        "(shared_tex=%ux%u)\n",
-		        x, y, w, h, s_sa.tex_width, s_sa.tex_height);
+		        "(shared_tex=%ux%u, atlas=%ux%u, display=%ux%u)\n",
+		        x, y, w, h, s_sa.tex_width, s_sa.tex_height,
+		        s_sa.atlas.width, s_sa.atlas.height,
+		        s_sa.display_info.display_pixel_width,
+		        s_sa.display_info.display_pixel_height);
 		log_count++;
 	}
 	s_sa.canvas_width = w;
