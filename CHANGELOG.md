@@ -5,6 +5,14 @@ All notable changes to the DisplayXR Unity plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.7] - 2026-03-27
+
+### Fixed
+- Revert UV to canvas/surface crop — weaver respects viewport (#41)
+  - UV=1.0 test confirmed: weaver writes to dp_target viewport (2203x1147),
+    NOT the full 3840x2160 surface. Content is at bottom-left in UV space.
+  - Restoring canvas/surface UV crop which samples that exact region.
+
 ## [0.5.6] - 2026-03-27
 
 ### Changed
