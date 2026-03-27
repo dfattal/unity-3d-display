@@ -5,6 +5,14 @@ All notable changes to the DisplayXR Unity plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.6] - 2026-03-27
+
+### Changed
+- Test: use full UV range (1.0) for shared texture sampling (#41)
+  - If the weaver renders to the full 3840x2160 shared texture (ignoring viewport),
+    the previous UV crop clipped to only the canvas portion, showing a zoomed/cropped view
+  - Testing with UV=1.0 to confirm whether full-texture sampling resolves this
+
 ## [0.5.5] - 2026-03-27
 
 ### Fixed
