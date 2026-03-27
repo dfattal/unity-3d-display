@@ -5,6 +5,14 @@ All notable changes to the DisplayXR Unity plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.4] - 2026-03-27
+
+### Fixed
+- Use Screen.width/height directly for canvas size in Play Mode (#41)
+  - Unity Game View has pixelsPerPoint=1.0, so the backbuffer is at logical resolution
+  - Multiplying by backingScale (2.5) sent oversized dimensions to the weaver
+  - Now sends Screen.width/height directly, matching actual Game View size
+
 ## [0.5.3] - 2026-03-27
 
 ### Added
