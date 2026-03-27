@@ -86,9 +86,12 @@ namespace DisplayXR
             uint surfW = (uint)tex.width;
             uint surfH = (uint)tex.height;
 
-            // UV crop: canvas portion of shared texture
-            float uMax = (canvasW > 0 && surfW > 0) ? (float)canvasW / surfW : 1f;
-            float vMax = (canvasH > 0 && surfH > 0) ? (float)canvasH / surfH : 1f;
+            // UV crop: the weaver may render to the full shared texture (3840x2160)
+            // regardless of our canvas viewport. Use full UV range and let drawRect
+            // handle the display sizing. The weaver receives canvas dims via
+            // xrSetSharedTextureOutputRectEXT for its internal viewport.
+            float uMax = 1f;
+            float vMax = 1f;
 
             // Letterbox by canvas aspect (not IOSurface aspect)
             Rect screenRect = new Rect(0, 0, Screen.width, Screen.height);
