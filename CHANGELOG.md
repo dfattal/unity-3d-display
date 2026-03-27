@@ -5,6 +5,11 @@ All notable changes to the DisplayXR Unity plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.8] - 2026-03-27
+
+### Fixed
+- Center diagnostic text in Game View for visibility at all DPI (#41)
+
 ## [0.5.7] - 2026-03-27
 
 ### Fixed
