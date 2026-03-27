@@ -125,14 +125,18 @@ namespace DisplayXR
 #endif
             uint physDrawW = (uint)(drawRect.width * ppp);
             uint physDrawH = (uint)(drawRect.height * ppp);
-            GUI.Label(new Rect(drawRect.x + 4, drawRect.y + 4, drawRect.width - 8, 60),
-                $"CanvasRect(sent to runtime): {canvasW}x{canvasH}  SharedTex: {surfW}x{surfH}\n" +
-                $"UV: {uMax:F3}x{vMax:F3}  Screen(logical): {Screen.width}x{Screen.height}  " +
-                $"BackingScale: {backingScale:F2}  ppp: {ppp:F2}\n" +
-                $"DrawRect(logical): {drawRect.width:F0}x{drawRect.height:F0}  " +
-                $"DrawRect(physical): {physDrawW}x{physDrawH}  " +
-                $"Mode: {modeName}  Cam: {camName}",
-                GUI.skin.label);
+            // Center the diagnostic text so it's visible even if content is shifted
+            var diagStyle = new GUIStyle(GUI.skin.label);
+            diagStyle.alignment = TextAnchor.MiddleCenter;
+            diagStyle.fontSize = 16;
+            diagStyle.normal.textColor = Color.yellow;
+            string diagText =
+                $"Canvas: {canvasW}x{canvasH}  Surf: {surfW}x{surfH}  UV: {uMax:F3}x{vMax:F3}\n" +
+                $"Screen: {Screen.width}x{Screen.height}  Scale: {backingScale:F2}  ppp: {ppp:F2}\n" +
+                $"Draw(log): {drawRect.width:F0}x{drawRect.height:F0}  " +
+                $"Draw(phys): {physDrawW}x{physDrawH}  {modeName}";
+            GUI.Label(new Rect(drawRect.x, drawRect.y + drawRect.height * 0.4f,
+                drawRect.width, drawRect.height * 0.2f), diagText, diagStyle);
         }
 
         // ================================================================
