@@ -5,6 +5,13 @@ All notable changes to the DisplayXR Unity plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-03-27
+
+### Added
+- Comprehensive texture size diagnostics for weaving debug (#41)
+  - Native: log GetDpiForSystem, atlas size, display size in set_canvas_rect
+  - C#: show canvas, shared tex, UV, Screen, backingScale, pixelsPerPoint, drawRect logical+physical, mode, camera in Game View overlay
+
 ## [0.5.2] - 2026-03-26
 
 ### Fixed
