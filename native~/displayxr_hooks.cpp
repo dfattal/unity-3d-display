@@ -190,6 +190,7 @@ hooked_xrLocateViews(XrSession session,
 	// Window-relative Kooima (ADR-012): screen = actual window physical size,
 	// eye positions shifted by window-center offset on monitor.
 	Display3DScreen screen = {di->display_width_meters, di->display_height_meters};
+	float eyeOffX_h = 0, eyeOffY_h = 0;
 	if (state->viewport_width > 0 && state->viewport_height > 0 &&
 	    di->display_pixel_width > 0 && di->display_pixel_height > 0) {
 		float px_size_x = di->display_width_meters / (float)di->display_pixel_width;
@@ -202,17 +203,37 @@ hooked_xrLocateViews(XrSession session,
 		float winCenterY = (float)state->viewport_y + (float)state->viewport_height * 0.5f;
 		float dispCenterX = (float)di->display_pixel_width * 0.5f;
 		float dispCenterY = (float)di->display_pixel_height * 0.5f;
-		float eyeOffsetX = (winCenterX - dispCenterX) * px_size_x;
-		float eyeOffsetY = (winCenterY - dispCenterY) * px_size_y;
+		eyeOffX_h = (winCenterX - dispCenterX) * px_size_x;
+		eyeOffY_h = (winCenterY - dispCenterY) * px_size_y;
 #ifdef _WIN32
-		eyeOffsetY = -eyeOffsetY; // Win32 Y is top-down, eye coords are Y-up
+		eyeOffY_h = -eyeOffY_h; // Win32 Y is top-down, eye coords are Y-up
 #endif
-		raw_left.x -= eyeOffsetX;
-		raw_left.y -= eyeOffsetY;
-		raw_right.x -= eyeOffsetX;
-		raw_right.y -= eyeOffsetY;
-		nominal.x -= eyeOffsetX;
-		nominal.y -= eyeOffsetY;
+		raw_left.x -= eyeOffX_h;
+		raw_left.y -= eyeOffY_h;
+		raw_right.x -= eyeOffX_h;
+		raw_right.y -= eyeOffY_h;
+		nominal.x -= eyeOffX_h;
+		nominal.y -= eyeOffY_h;
+	}
+
+	// Throttled Kooima diagnostic (every 60 frames)
+	{
+		static int s_kooima_log_counter = 0;
+		if (++s_kooima_log_counter >= 60) {
+			s_kooima_log_counter = 0;
+			displayxr_log("[DisplayXR] Kooima hooks: vp=%ux%u@(%d,%d) disp=%ux%u "
+			              "screen=%.4fx%.4fm eyeOff=(%.4f,%.4f) "
+			              "rawL=(%.4f,%.4f,%.4f) rawR=(%.4f,%.4f,%.4f) "
+			              "nom=(%.4f,%.4f,%.4f)\n",
+			              state->viewport_width, state->viewport_height,
+			              state->viewport_x, state->viewport_y,
+			              di->display_pixel_width, di->display_pixel_height,
+			              screen.width_m, screen.height_m,
+			              eyeOffX_h, eyeOffY_h,
+			              raw_left.x, raw_left.y, raw_left.z,
+			              raw_right.x, raw_right.y, raw_right.z,
+			              nominal.x, nominal.y, nominal.z);
+		}
 	}
 
 	// Build pose from scene transform (Unity camera/display world pose).
