@@ -5,6 +5,14 @@ All notable changes to the DisplayXR Unity plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.9] - 2026-03-27
+
+### Changed
+- Window-relative Kooima projection: replace viewport-scale factor with actual
+  window physical dimensions and window-center eye offset (ADR-012) (#41)
+- Native WM_SIZE handler now captures HWND screen position via ClientToScreen
+  for correct off-center window perspective on Windows
+
 ## [0.5.8] - 2026-03-27
 
 ### Fixed
