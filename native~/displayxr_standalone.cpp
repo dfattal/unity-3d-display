@@ -1672,28 +1672,22 @@ displayxr_standalone_compute_stereo_views(float near_z, float far_z,
 		screen.height_m = s_sa.display_info.display_height_meters;
 	}
 
-	// Throttled Kooima diagnostic (every 60 frames)
+	// Log Kooima params on canvas resize/move
 	{
-		static int s_sa_kooima_log = 0;
-		if (++s_sa_kooima_log >= 60) {
-			s_sa_kooima_log = 0;
-			float offX = 0, offY = 0;
-			if (s_sa.canvas_width > 0 && s_sa.display_info.display_pixel_width > 0) {
-				float pxX = s_sa.display_info.display_width_meters / (float)s_sa.display_info.display_pixel_width;
-				float pxY = s_sa.display_info.display_height_meters / (float)s_sa.display_info.display_pixel_height;
-				offX = ((float)s_sa.canvas_x + s_sa.canvas_width * 0.5f - s_sa.display_info.display_pixel_width * 0.5f) * pxX;
-				offY = ((float)s_sa.canvas_y + s_sa.canvas_height * 0.5f - s_sa.display_info.display_pixel_height * 0.5f) * pxY;
-			}
+		static uint32_t s_prev_cw = 0, s_prev_ch = 0;
+		static int32_t s_prev_cx = 0, s_prev_cy = 0;
+		if (s_sa.canvas_width != s_prev_cw || s_sa.canvas_height != s_prev_ch ||
+		    s_sa.canvas_x != s_prev_cx || s_sa.canvas_y != s_prev_cy) {
+			s_prev_cw = s_sa.canvas_width;
+			s_prev_ch = s_sa.canvas_height;
+			s_prev_cx = s_sa.canvas_x;
+			s_prev_cy = s_sa.canvas_y;
 			fprintf(stderr, "[DisplayXR-SA] Kooima stereo: canvas=%ux%u@(%d,%d) disp=%ux%u "
-			        "screen=%.4fx%.4fm eyeOff=(%.4f,%.4f) "
-			        "rawL=(%.4f,%.4f,%.4f) rawR=(%.4f,%.4f,%.4f) "
-			        "nom=(%.4f,%.4f,%.4f)\n",
+			        "screen=%.4fx%.4fm nom=(%.4f,%.4f,%.4f)\n",
 			        s_sa.canvas_width, s_sa.canvas_height,
 			        s_sa.canvas_x, s_sa.canvas_y,
 			        s_sa.display_info.display_pixel_width, s_sa.display_info.display_pixel_height,
-			        screen.width_m, screen.height_m, offX, offY,
-			        raw_left.x, raw_left.y, raw_left.z,
-			        raw_right.x, raw_right.y, raw_right.z,
+			        screen.width_m, screen.height_m,
 			        nominal.x, nominal.y, nominal.z);
 		}
 	}
