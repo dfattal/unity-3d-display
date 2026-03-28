@@ -142,8 +142,9 @@ namespace DisplayXR
 
             m_Feature.SetTunables(tunables);
 
-            // Push viewport size so Kooima screen dims match window aspect ratio
-            m_Feature.SetViewportSize(Screen.width, Screen.height);
+            // Push viewport size and screen position for window-relative Kooima.
+            // On Windows, native WM_SIZE handler overrides with accurate HWND position.
+            m_Feature.SetViewportSize(Screen.width, Screen.height, 0, 0);
 
             // Send camera world pose + scale to native
             m_Feature.SetSceneTransform(

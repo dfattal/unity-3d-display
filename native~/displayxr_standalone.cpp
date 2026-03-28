@@ -243,6 +243,8 @@ typedef struct StandaloneState {
 	PFN_xrSetSharedTextureOutputRectEXT pfn_set_output_rect;
 	uint32_t canvas_width;
 	uint32_t canvas_height;
+	int32_t canvas_x;
+	int32_t canvas_y;
 	int has_display_mode_ext;
 } StandaloneState;
 
@@ -1639,20 +1641,32 @@ displayxr_standalone_compute_stereo_views(float near_z, float far_z,
 		s_sa.display_info.nominal_viewer_z
 	};
 
-	// Scale Kooima screen to canvas aspect (matches reference app pattern):
-	// canvas pixels → meters → scale so min dim matches physical display min dim
+	// Window-relative Kooima (ADR-012): screen = actual window physical size,
+	// eye positions shifted by window-center offset on monitor.
 	Display3DScreen screen;
 	if (s_sa.canvas_width > 0 && s_sa.canvas_height > 0 &&
 	    s_sa.display_info.display_pixel_width > 0 && s_sa.display_info.display_pixel_height > 0) {
 		float pxSizeX = s_sa.display_info.display_width_meters / (float)s_sa.display_info.display_pixel_width;
 		float pxSizeY = s_sa.display_info.display_height_meters / (float)s_sa.display_info.display_pixel_height;
-		float winW_m = (float)s_sa.canvas_width * pxSizeX;
-		float winH_m = (float)s_sa.canvas_height * pxSizeY;
-		float minDisp = fminf(s_sa.display_info.display_width_meters, s_sa.display_info.display_height_meters);
-		float minWin  = fminf(winW_m, winH_m);
-		float vs = minDisp / minWin;
-		screen.width_m = winW_m * vs;
-		screen.height_m = winH_m * vs;
+		screen.width_m = (float)s_sa.canvas_width * pxSizeX;
+		screen.height_m = (float)s_sa.canvas_height * pxSizeY;
+
+		// Shift eyes from display-center to window-center coordinates
+		float winCenterX = (float)s_sa.canvas_x + (float)s_sa.canvas_width * 0.5f;
+		float winCenterY = (float)s_sa.canvas_y + (float)s_sa.canvas_height * 0.5f;
+		float dispCenterX = (float)s_sa.display_info.display_pixel_width * 0.5f;
+		float dispCenterY = (float)s_sa.display_info.display_pixel_height * 0.5f;
+		float eyeOffsetX = (winCenterX - dispCenterX) * pxSizeX;
+		float eyeOffsetY = (winCenterY - dispCenterY) * pxSizeY;
+#ifdef _WIN32
+		eyeOffsetY = -eyeOffsetY; // Win32 Y is top-down, eye coords are Y-up
+#endif
+		raw_left.x -= eyeOffsetX;
+		raw_left.y -= eyeOffsetY;
+		raw_right.x -= eyeOffsetX;
+		raw_right.y -= eyeOffsetY;
+		nominal.x -= eyeOffsetX;
+		nominal.y -= eyeOffsetY;
 	} else {
 		screen.width_m = s_sa.display_info.display_width_meters;
 		screen.height_m = s_sa.display_info.display_height_meters;
@@ -1715,19 +1729,27 @@ displayxr_standalone_compute_views(
 	*valid = 0;
 	if (!s_sa.display_info.is_valid || view_count == 0) return;
 
-	// Scale Kooima screen to canvas aspect (matches reference app pattern)
+	// Window-relative Kooima (ADR-012): screen = actual window physical size,
+	// eye positions shifted by window-center offset on monitor.
 	Display3DScreen screen;
+	float eyeOffsetX_mv = 0.0f, eyeOffsetY_mv = 0.0f;
 	if (s_sa.canvas_width > 0 && s_sa.canvas_height > 0 &&
 	    s_sa.display_info.display_pixel_width > 0 && s_sa.display_info.display_pixel_height > 0) {
 		float pxSizeX = s_sa.display_info.display_width_meters / (float)s_sa.display_info.display_pixel_width;
 		float pxSizeY = s_sa.display_info.display_height_meters / (float)s_sa.display_info.display_pixel_height;
-		float winW_m = (float)s_sa.canvas_width * pxSizeX;
-		float winH_m = (float)s_sa.canvas_height * pxSizeY;
-		float minDisp = fminf(s_sa.display_info.display_width_meters, s_sa.display_info.display_height_meters);
-		float minWin  = fminf(winW_m, winH_m);
-		float vs = minDisp / minWin;
-		screen.width_m = winW_m * vs;
-		screen.height_m = winH_m * vs;
+		screen.width_m = (float)s_sa.canvas_width * pxSizeX;
+		screen.height_m = (float)s_sa.canvas_height * pxSizeY;
+
+		// Shift eyes from display-center to window-center coordinates
+		float winCenterX = (float)s_sa.canvas_x + (float)s_sa.canvas_width * 0.5f;
+		float winCenterY = (float)s_sa.canvas_y + (float)s_sa.canvas_height * 0.5f;
+		float dispCenterX = (float)s_sa.display_info.display_pixel_width * 0.5f;
+		float dispCenterY = (float)s_sa.display_info.display_pixel_height * 0.5f;
+		eyeOffsetX_mv = (winCenterX - dispCenterX) * pxSizeX;
+		eyeOffsetY_mv = (winCenterY - dispCenterY) * pxSizeY;
+#ifdef _WIN32
+		eyeOffsetY_mv = -eyeOffsetY_mv; // Win32 Y is top-down, eye coords are Y-up
+#endif
 	} else {
 		screen.width_m = s_sa.display_info.display_width_meters;
 		screen.height_m = s_sa.display_info.display_height_meters;
@@ -1740,8 +1762,8 @@ displayxr_standalone_compute_views(
 	XrPosef *pose_ptr = s_sa.display_pose_set ? &s_sa.display_pose : NULL;
 
 	XrVector3f nominal = {
-		s_sa.display_info.nominal_viewer_x,
-		s_sa.display_info.nominal_viewer_y,
+		s_sa.display_info.nominal_viewer_x - eyeOffsetX_mv,
+		s_sa.display_info.nominal_viewer_y - eyeOffsetY_mv,
 		s_sa.display_info.nominal_viewer_z
 	};
 
@@ -1755,8 +1777,8 @@ displayxr_standalone_compute_views(
 
 	for (uint32_t i = 0; i < n; i++) {
 		uint32_t src = (i < s_sa.located_view_count) ? i : 0;
-		raw_eyes[i].x = s_sa.eye_positions[src][0];
-		raw_eyes[i].y = s_sa.eye_positions[src][1];
+		raw_eyes[i].x = s_sa.eye_positions[src][0] - eyeOffsetX_mv;
+		raw_eyes[i].y = s_sa.eye_positions[src][1] - eyeOffsetY_mv;
 		raw_eyes[i].z = s_sa.eye_positions[src][2];
 	}
 
@@ -2011,6 +2033,8 @@ displayxr_standalone_set_canvas_rect(int32_t x, int32_t y, uint32_t w, uint32_t 
 	}
 	s_sa.canvas_width = w;
 	s_sa.canvas_height = h;
+	s_sa.canvas_x = x;
+	s_sa.canvas_y = y;
 	if (s_sa.pfn_set_output_rect && s_sa.session != XR_NULL_HANDLE)
 		s_sa.pfn_set_output_rect(s_sa.session, x, y, w, h);
 }

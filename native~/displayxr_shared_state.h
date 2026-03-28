@@ -132,9 +132,11 @@ typedef struct DisplayXRState {
     // Editor mode flag: skip window auto-detection (use IOSurface instead)
     uint8_t editor_mode;
 
-    // Viewport (window) size for aspect-ratio-correct Kooima
+    // Viewport (window) size and screen position for window-relative Kooima
     uint32_t viewport_width;
     uint32_t viewport_height;
+    int32_t viewport_x;
+    int32_t viewport_y;
 
     // Extension support flags
     uint8_t has_display_info_ext;

@@ -187,25 +187,32 @@ hooked_xrLocateViews(XrSession session,
 	XrVector3f raw_right = views[1].pose.position;
 	XrVector3f nominal = {di->nominal_viewer_x, di->nominal_viewer_y, di->nominal_viewer_z};
 
-	// Adjust Kooima screen dimensions to match the viewport (window) aspect ratio.
-	// Without this, resizing the window stretches the scene because the Kooima frustum
-	// always uses the physical display's aspect ratio. The test app does the same
-	// adjustment: converts window pixels to meters, then normalizes so the min
-	// dimension matches the display's min dimension.
+	// Window-relative Kooima (ADR-012): screen = actual window physical size,
+	// eye positions shifted by window-center offset on monitor.
 	Display3DScreen screen = {di->display_width_meters, di->display_height_meters};
 	if (state->viewport_width > 0 && state->viewport_height > 0 &&
 	    di->display_pixel_width > 0 && di->display_pixel_height > 0) {
 		float px_size_x = di->display_width_meters / (float)di->display_pixel_width;
 		float px_size_y = di->display_height_meters / (float)di->display_pixel_height;
-		float vp_w_m = (float)state->viewport_width * px_size_x;
-		float vp_h_m = (float)state->viewport_height * px_size_y;
-		float min_disp = fminf(di->display_width_meters, di->display_height_meters);
-		float min_vp = fminf(vp_w_m, vp_h_m);
-		if (min_vp > 0.0001f) {
-			float vs = min_disp / min_vp;
-			screen.width_m = vp_w_m * vs;
-			screen.height_m = vp_h_m * vs;
-		}
+		screen.width_m = (float)state->viewport_width * px_size_x;
+		screen.height_m = (float)state->viewport_height * px_size_y;
+
+		// Shift eyes from display-center to window-center coordinates
+		float winCenterX = (float)state->viewport_x + (float)state->viewport_width * 0.5f;
+		float winCenterY = (float)state->viewport_y + (float)state->viewport_height * 0.5f;
+		float dispCenterX = (float)di->display_pixel_width * 0.5f;
+		float dispCenterY = (float)di->display_pixel_height * 0.5f;
+		float eyeOffsetX = (winCenterX - dispCenterX) * px_size_x;
+		float eyeOffsetY = (winCenterY - dispCenterY) * px_size_y;
+#ifdef _WIN32
+		eyeOffsetY = -eyeOffsetY; // Win32 Y is top-down, eye coords are Y-up
+#endif
+		raw_left.x -= eyeOffsetX;
+		raw_left.y -= eyeOffsetY;
+		raw_right.x -= eyeOffsetX;
+		raw_right.y -= eyeOffsetY;
+		nominal.x -= eyeOffsetX;
+		nominal.y -= eyeOffsetY;
 	}
 
 	// Build pose from scene transform (Unity camera/display world pose).
@@ -1271,22 +1278,28 @@ displayxr_set_editor_mode(int enabled)
 static int s_native_viewport_active = 0;
 
 void
-displayxr_set_viewport_size(uint32_t width, uint32_t height)
+displayxr_set_viewport_size(uint32_t width, uint32_t height,
+                            int32_t screen_x, int32_t screen_y)
 {
 	if (s_native_viewport_active)
 		return; // WM_SIZE is driving viewport — ignore C# push
 	DisplayXRState *state = displayxr_get_state();
 	state->viewport_width = width;
 	state->viewport_height = height;
+	state->viewport_x = screen_x;
+	state->viewport_y = screen_y;
 }
 
 void
-displayxr_set_viewport_size_native(uint32_t width, uint32_t height)
+displayxr_set_viewport_size_native(uint32_t width, uint32_t height,
+                                   int32_t screen_x, int32_t screen_y)
 {
 	s_native_viewport_active = 1;
 	DisplayXRState *state = displayxr_get_state();
 	state->viewport_width = width;
 	state->viewport_height = height;
+	state->viewport_x = screen_x;
+	state->viewport_y = screen_y;
 }
 
 int

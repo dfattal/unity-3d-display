@@ -424,13 +424,14 @@ namespace DisplayXR
         }
 
         /// <summary>
-        /// Set the viewport (window) size so native Kooima screen dimensions are adjusted
-        /// to match the window aspect ratio. Prevents scene stretching on window resize.
+        /// Set the viewport (window) size and screen position for window-relative
+        /// Kooima projection. Screen position enables correct eye offset computation
+        /// when the window is not centered on the display.
         /// </summary>
-        public void SetViewportSize(int width, int height)
+        public void SetViewportSize(int width, int height, int screenX, int screenY)
         {
             if (!m_HooksInstalled) return;
-            DisplayXRNative.displayxr_set_viewport_size((uint)width, (uint)height);
+            DisplayXRNative.displayxr_set_viewport_size((uint)width, (uint)height, screenX, screenY);
         }
 
         /// <summary>

@@ -80,13 +80,15 @@ DISPLAYXR_EXPORT void displayxr_set_window_handle(void *handle);
 
 DISPLAYXR_EXPORT void displayxr_set_editor_mode(int enabled);
 
-DISPLAYXR_EXPORT void displayxr_set_viewport_size(uint32_t width, uint32_t height);
+DISPLAYXR_EXPORT void displayxr_set_viewport_size(uint32_t width, uint32_t height,
+                                                  int32_t screen_x, int32_t screen_y);
 
 /// Same as displayxr_set_viewport_size but marks native (WM_SIZE) as the
 /// authoritative source, causing subsequent C# displayxr_set_viewport_size
 /// calls to become no-ops.  Prevents stale Screen.width/height from
 /// overwriting correct values during resize/fullscreen transitions.
-DISPLAYXR_EXPORT void displayxr_set_viewport_size_native(uint32_t width, uint32_t height);
+DISPLAYXR_EXPORT void displayxr_set_viewport_size_native(uint32_t width, uint32_t height,
+                                                         int32_t screen_x, int32_t screen_y);
 
 DISPLAYXR_EXPORT int displayxr_request_display_mode(int mode_3d);
 

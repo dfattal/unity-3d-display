@@ -40,8 +40,14 @@ parent_subclass_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		int w = LOWORD(lParam);
 		int h = HIWORD(lParam);
 		SetWindowPos(s_overlay_hwnd, HWND_TOP, 0, 0, w, h, SWP_NOZORDER);
-		if (w > 0 && h > 0)
-			displayxr_set_viewport_size_native((uint32_t)w, (uint32_t)h);
+		if (w > 0 && h > 0) {
+			// Query window screen position for window-relative Kooima
+			POINT client_origin = {0, 0};
+			ClientToScreen(hwnd, &client_origin);
+			displayxr_set_viewport_size_native(
+				(uint32_t)w, (uint32_t)h,
+				(int32_t)client_origin.x, (int32_t)client_origin.y);
+		}
 	}
 	return CallWindowProcW(s_original_wndproc, hwnd, msg, wParam, lParam);
 }

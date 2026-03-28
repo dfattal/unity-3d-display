@@ -85,12 +85,13 @@ namespace DisplayXR
         internal static extern void displayxr_set_editor_mode(int enabled);
 
         /// <summary>
-        /// Set the viewport (window) size so native Kooima computation can adjust
-        /// screen dimensions to match the window aspect ratio, preventing stretching
-        /// on window resize.
+        /// Set the viewport (window) size and screen position for window-relative
+        /// Kooima projection. Screen position is needed to compute the window-center
+        /// eye offset on the physical display.
         /// </summary>
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void displayxr_set_viewport_size(uint width, uint height);
+        internal static extern void displayxr_set_viewport_size(uint width, uint height,
+            int screenX, int screenY);
 
         /// <summary>
         /// Request 2D or 3D display mode.
