@@ -5,6 +5,13 @@ All notable changes to the DisplayXR Unity plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-03-27
+
+### Changed
+- Log Kooima params only on viewport resize instead of every 60 frames (#41)
+  - Reduces log noise by triggering diagnostic output only when the viewport
+    dimensions actually change
+
 ## [0.6.1] - 2026-03-27
 
 ### Added
