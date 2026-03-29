@@ -1672,25 +1672,6 @@ displayxr_standalone_compute_stereo_views(float near_z, float far_z,
 		screen.height_m = s_sa.display_info.display_height_meters;
 	}
 
-	// Log Kooima params on canvas resize/move
-	{
-		static uint32_t s_prev_cw = 0, s_prev_ch = 0;
-		static int32_t s_prev_cx = 0, s_prev_cy = 0;
-		if (s_sa.canvas_width != s_prev_cw || s_sa.canvas_height != s_prev_ch ||
-		    s_sa.canvas_x != s_prev_cx || s_sa.canvas_y != s_prev_cy) {
-			s_prev_cw = s_sa.canvas_width;
-			s_prev_ch = s_sa.canvas_height;
-			s_prev_cx = s_sa.canvas_x;
-			s_prev_cy = s_sa.canvas_y;
-			fprintf(stderr, "[DisplayXR-SA] Kooima stereo: canvas=%ux%u@(%d,%d) disp=%ux%u "
-			        "screen=%.4fx%.4fm nom=(%.4f,%.4f,%.4f)\n",
-			        s_sa.canvas_width, s_sa.canvas_height,
-			        s_sa.canvas_x, s_sa.canvas_y,
-			        s_sa.display_info.display_pixel_width, s_sa.display_info.display_pixel_height,
-			        screen.width_m, screen.height_m,
-			        nominal.x, nominal.y, nominal.z);
-		}
-	}
 
 	// Use stored tunables (from C# DisplayXRDisplay/Camera) or defaults
 	Display3DTunables tunables = s_sa.tunables_set

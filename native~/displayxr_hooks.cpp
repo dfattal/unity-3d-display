@@ -216,27 +216,7 @@ hooked_xrLocateViews(XrSession session,
 		nominal.y -= eyeOffY_h;
 	}
 
-	// Log Kooima params on viewport resize
-	{
-		static uint32_t s_prev_vp_w = 0, s_prev_vp_h = 0;
-		static int32_t s_prev_vp_x = 0, s_prev_vp_y = 0;
-		if (state->viewport_width != s_prev_vp_w || state->viewport_height != s_prev_vp_h ||
-		    state->viewport_x != s_prev_vp_x || state->viewport_y != s_prev_vp_y) {
-			s_prev_vp_w = state->viewport_width;
-			s_prev_vp_h = state->viewport_height;
-			s_prev_vp_x = state->viewport_x;
-			s_prev_vp_y = state->viewport_y;
-			displayxr_log("[DisplayXR] Kooima hooks: vp=%ux%u@(%d,%d) disp=%ux%u "
-			              "screen=%.4fx%.4fm eyeOff=(%.4f,%.4f) "
-			              "nom=(%.4f,%.4f,%.4f)\n",
-			              state->viewport_width, state->viewport_height,
-			              state->viewport_x, state->viewport_y,
-			              di->display_pixel_width, di->display_pixel_height,
-			              screen.width_m, screen.height_m,
-			              eyeOffX_h, eyeOffY_h,
-			              nominal.x, nominal.y, nominal.z);
-		}
-	}
+
 
 	// Build pose from scene transform (Unity camera/display world pose).
 	// Convert Unity coords (left-hand, +Z forward) to OpenXR (right-hand, -Z forward):
