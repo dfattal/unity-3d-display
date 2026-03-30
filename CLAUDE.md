@@ -46,13 +46,19 @@ native~/build-mac.sh
 ```
 Builds Universal binary (x86_64 + arm64) → `Runtime/Plugins/macOS/displayxr_unity.bundle`.
 
+**Windows (native MSVC, produces shipping binary):**
+```bat
+native~\build-win.bat
+```
+Builds x64 DLL with MSVC → `Runtime/Plugins/Windows/x64/displayxr_unity.dll`. Requires Visual Studio 2022 (or Build Tools) with the "Desktop development with C++" workload. Run from a Developer Command Prompt or any shell with MSVC on PATH.
+
 **Windows (MinGW cross-compile, compile check only):**
 ```bash
 native~/build-win.sh
 ```
-Verifies the code compiles for Windows but the DLL stays in `build-win/` (MinGW ABI, not shipped). The real Windows DLL comes from CI (MSVC-built) and is downloaded automatically by `/ci-monitor` after a successful build.
+Verifies the code compiles for Windows but the DLL stays in `build-win/` (MinGW ABI, not shipped). For native Windows builds, use `build-win.bat` instead.
 
-**Claude Code: After modifying any file in `native~/`, always run `native~/build-mac.sh` to update the local macOS binary, then run `native~/build-win.sh` as a compile check. Use `/ci-monitor` to commit, push, build via CI, and download the MSVC-built Windows DLL into `Runtime/Plugins/Windows/x64/`.**
+**Claude Code: After modifying any file in `native~/`, always run the local build script for the current platform — `native~/build-mac.sh` on macOS or `native~\build-win.bat` on Windows — to update the shipping binary. On macOS, also run `native~/build-win.sh` as a cross-compile check. Use `/ci-monitor` to commit, push, and verify CI builds both platforms.**
 
 ## Key Architecture
 

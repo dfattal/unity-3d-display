@@ -1,7 +1,7 @@
 #!/bin/bash
 # Cross-compile native plugin for Windows using MinGW on macOS.
 # This is a COMPILE CHECK ONLY — the output DLL stays in build-win/.
-# Use CI artifacts (MSVC-built) for the actual plugin binary.
+# For native Windows MSVC builds, use build-win.bat instead.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
