@@ -115,37 +115,19 @@ displayxr_metal_get_texture(void)
 }
 
 // ---------------------------------------------------------------------------
-// Overlay NSView — sits on top of Unity's contentView with its own CAMetalLayer.
-// Unity renders underneath (mirror blit); compositor renders on top via this layer.
-// hitTest: returns nil so all input passes through to Unity.
+// Find Unity's main window and return its contentView directly.
+// The runtime uses this NSView for compositor output.
 // ---------------------------------------------------------------------------
 
-@interface DisplayXROverlayView : NSView
-@end
-
-@implementation DisplayXROverlayView
-
-- (NSView *)hitTest:(NSPoint)point
-{
-	return nil; // Pass all input through to Unity's contentView
-}
-
-- (BOOL)wantsUpdateLayer
-{
-	return YES;
-}
-
-@end
-
-static NSView *s_overlay_view = nil;
+static NSView *s_main_view = nil;
 
 void *
 displayxr_get_app_main_view(void)
 {
 	@try {
-		// Return existing overlay if already created
-		if (s_overlay_view != nil && [s_overlay_view window] != nil)
-			return (__bridge void *)s_overlay_view;
+		// Return cached view if still valid
+		if (s_main_view != nil && [s_main_view window] != nil)
+			return (__bridge void *)s_main_view;
 
 		NSWindow *window = [[NSApplication sharedApplication] mainWindow];
 		if (window == nil)
@@ -162,24 +144,14 @@ displayxr_get_app_main_view(void)
 		if (window == nil)
 			return NULL;
 
-		NSView *contentView = [window contentView];
+		s_main_view = [window contentView];
 
-		// Create overlay view with its own CAMetalLayer
-		DisplayXROverlayView *overlay = [[DisplayXROverlayView alloc]
-		    initWithFrame:[contentView bounds]];
-		overlay.wantsLayer = YES;
-		overlay.layer = [CAMetalLayer layer];
-		overlay.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+		fprintf(stderr, "[DisplayXR] Found main window '%s' contentView (%dx%d)\n",
+		        [[window title] UTF8String],
+		        (int)[s_main_view bounds].size.width,
+		        (int)[s_main_view bounds].size.height);
 
-		[contentView addSubview:overlay];
-		s_overlay_view = overlay;
-
-		fprintf(stderr, "[DisplayXR] Created overlay NSView (%dx%d) on window '%s'\n",
-		        (int)[contentView bounds].size.width,
-		        (int)[contentView bounds].size.height,
-		        [[window title] UTF8String]);
-
-		return (__bridge void *)overlay;
+		return (__bridge void *)s_main_view;
 	} @catch (NSException *e) {
 		fprintf(stderr, "[DisplayXR] Exception getting main view: %s\n",
 		        [[e reason] UTF8String]);

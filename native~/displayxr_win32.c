@@ -1,10 +1,9 @@
 // Copyright 2024-2026, DisplayXR contributors
 // SPDX-License-Identifier: BSL-1.0
 //
-// Win32 overlay child window for built app compositor output.
-// Creates a transparent child HWND on top of Unity's main window.
-// The D3D11 compositor creates its DXGI swap chain on this child HWND,
-// presenting on top of Unity's rendering.
+// Win32 window detection for built app compositor output.
+// Finds Unity's top-level main window and subclasses it for resize tracking.
+// The HWND is passed to the runtime via XR_EXT_win32_window_binding.
 
 #ifdef _WIN32
 
@@ -15,31 +14,16 @@
 #include <stdio.h>
 #include "displayxr_hooks.h"
 
-static HWND s_overlay_hwnd = NULL;
+static HWND s_main_hwnd = NULL;
 static WNDPROC s_original_wndproc = NULL;
-static const wchar_t OVERLAY_CLASS_NAME[] = L"DisplayXROverlay";
-static int s_class_registered = 0;
 
+// Subclassed wndproc for Unity's main window — tracks resize and screen position
 static LRESULT CALLBACK
-overlay_wnd_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+main_wnd_subclass_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
-	switch (msg) {
-	case WM_NCHITTEST:
-		// Pass all input through to the parent window
-		return HTTRANSPARENT;
-	default:
-		return DefWindowProcW(hwnd, msg, wParam, lParam);
-	}
-}
-
-// Subclassed wndproc for Unity's parent window — resizes the overlay child
-static LRESULT CALLBACK
-parent_subclass_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-	if (msg == WM_SIZE && s_overlay_hwnd != NULL && IsWindow(s_overlay_hwnd)) {
+	if (msg == WM_SIZE) {
 		int w = LOWORD(lParam);
 		int h = HIWORD(lParam);
-		SetWindowPos(s_overlay_hwnd, HWND_TOP, 0, 0, w, h, SWP_NOZORDER);
 		if (w > 0 && h > 0) {
 			// Query window screen position for window-relative Kooima
 			POINT client_origin = {0, 0};
@@ -52,35 +36,12 @@ parent_subclass_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	return CallWindowProcW(s_original_wndproc, hwnd, msg, wParam, lParam);
 }
 
-static int
-register_overlay_class(void)
-{
-	if (s_class_registered)
-		return 1;
-
-	WNDCLASSEXW wc = {0};
-	wc.cbSize = sizeof(wc);
-	wc.lpfnWndProc = overlay_wnd_proc;
-	wc.hInstance = GetModuleHandleW(NULL);
-	wc.lpszClassName = OVERLAY_CLASS_NAME;
-	wc.style = CS_OWNDC;
-
-	if (RegisterClassExW(&wc) == 0) {
-		fprintf(stderr, "[DisplayXR] Failed to register overlay window class: %lu\n",
-		        GetLastError());
-		return 0;
-	}
-
-	s_class_registered = 1;
-	return 1;
-}
-
 void *
 displayxr_get_app_main_view(void)
 {
-	// Return existing overlay if still valid
-	if (s_overlay_hwnd != NULL && IsWindow(s_overlay_hwnd))
-		return (void *)s_overlay_hwnd;
+	// Return cached HWND if still valid
+	if (s_main_hwnd != NULL && IsWindow(s_main_hwnd))
+		return (void *)s_main_hwnd;
 
 	// Find Unity's main window: the foreground window belonging to our process
 	DWORD our_pid = GetCurrentProcessId();
@@ -117,45 +78,29 @@ displayxr_get_app_main_view(void)
 		return NULL;
 	}
 
-	// Register window class
-	if (!register_overlay_class())
-		return NULL;
+	// Subclass Unity's window to track resize events and screen position
+	s_original_wndproc = (WNDPROC)SetWindowLongPtrW(
+	    unity_hwnd, GWLP_WNDPROC, (LONG_PTR)main_wnd_subclass_proc);
 
-	// Get client area size
+	// Push initial viewport size
 	RECT client_rc;
 	GetClientRect(unity_hwnd, &client_rc);
 	int w = client_rc.right - client_rc.left;
 	int h = client_rc.bottom - client_rc.top;
-
-	// Create child window overlay
-	// WS_CHILD: child of Unity's window (moves/resizes with parent)
-	// WS_VISIBLE: immediately visible
-	// WS_EX_TRANSPARENT: input passes through to parent
-	s_overlay_hwnd = CreateWindowExW(
-	    WS_EX_TRANSPARENT,
-	    OVERLAY_CLASS_NAME,
-	    L"DisplayXR Overlay",
-	    WS_CHILD | WS_VISIBLE,
-	    0, 0, w, h,
-	    unity_hwnd,
-	    NULL,
-	    GetModuleHandleW(NULL),
-	    NULL);
-
-	if (s_overlay_hwnd == NULL) {
-		fprintf(stderr, "[DisplayXR] Failed to create overlay window: %lu\n",
-		        GetLastError());
-		return NULL;
+	if (w > 0 && h > 0) {
+		POINT client_origin = {0, 0};
+		ClientToScreen(unity_hwnd, &client_origin);
+		displayxr_set_viewport_size_native(
+			(uint32_t)w, (uint32_t)h,
+			(int32_t)client_origin.x, (int32_t)client_origin.y);
 	}
 
-	// Subclass Unity's window to track resize events
-	s_original_wndproc = (WNDPROC)SetWindowLongPtrW(
-	    unity_hwnd, GWLP_WNDPROC, (LONG_PTR)parent_subclass_proc);
+	s_main_hwnd = unity_hwnd;
 
-	fprintf(stderr, "[DisplayXR] Created overlay HWND (%dx%d) on Unity window %p\n",
-	        w, h, (void *)unity_hwnd);
+	fprintf(stderr, "[DisplayXR] Found main window HWND %p (%dx%d)\n",
+	        (void *)unity_hwnd, w, h);
 
-	return (void *)s_overlay_hwnd;
+	return (void *)s_main_hwnd;
 }
 
 #endif // _WIN32

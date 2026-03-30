@@ -540,26 +540,26 @@ hooked_xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInf
 			}
 		}
 
-		// Auto-detect the app's main window and create an overlay view/HWND.
+		// Auto-detect the app's main window (contentView on macOS).
 		// Only for built apps (not editor mode) — the editor uses IOSurface
 		// for zero-copy preview and doesn't need window auto-detection.
 		if (state->window_handle == nullptr && !state->editor_mode) {
 			void *view = displayxr_get_app_main_view();
 			if (view != nullptr) {
 				state->window_handle = view;
-				displayxr_log( "[DisplayXR] Auto-detected main window (overlay): %p\n", view);
+				displayxr_log( "[DisplayXR] Auto-detected main window view: %p\n", view);
 			} else {
 				displayxr_log( "[DisplayXR] No main window found — offscreen mode\n");
 			}
 		}
 #elif defined(_WIN32)
-		// Auto-detect Unity's main HWND and create an overlay child window.
+		// Auto-detect Unity's top-level main window HWND.
 		// Only for built apps — editor uses shared texture mode.
 		if (state->window_handle == nullptr && !state->editor_mode) {
 			void *hwnd = displayxr_get_app_main_view();
 			if (hwnd != nullptr) {
 				state->window_handle = hwnd;
-				displayxr_log( "[DisplayXR] Auto-detected main window HWND (overlay): %p\n", hwnd);
+				displayxr_log( "[DisplayXR] Auto-detected main window HWND: %p\n", hwnd);
 			} else {
 				displayxr_log( "[DisplayXR] No main window HWND found — compositor will create own window\n");
 			}
