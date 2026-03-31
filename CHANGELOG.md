@@ -5,6 +5,17 @@ All notable changes to the DisplayXR Unity plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.4] - 2026-03-30
+
+### Fixed
+- Restore child window overlay for built apps (dfattal/openxr-3d-display#107)
+  - Reverts top-level HWND pass-through which caused D3D12 swapchain conflict
+    (`E_ACCESSDENIED`) because Unity already owns the swapchain on that window
+  - Child window gives the runtime its own HWND for presentation
+
+### Added
+- Local Windows MSVC build script `native~/build-win.bat` (#42)
+
 ## [0.6.3] - 2026-03-27
 
 ### Changed
