@@ -160,10 +160,11 @@ If no native files changed, report to the user:
 "Pushed successfully, but no native code changed — the build-native.yml workflow won't trigger. Only C# and editor changes were committed."
 Then STOP (no build to monitor).
 
-### Step 1.6: Push to Remote
-Run: `cd /Users/david.fattal/Documents/GitHub/unity-3d-display && git push origin HEAD`
+### Step 1.6: Push to Both Remotes
+Run: `cd /Users/david.fattal/Documents/GitHub/unity-3d-display && git push origin HEAD && git push displayxr HEAD`
 - Note the branch name from output
-- If push fails, report the error and STOP
+- If push to origin fails, report the error and STOP
+- If push to displayxr fails, report a warning but continue (origin is primary)
 
 ---
 
@@ -389,8 +390,8 @@ EOF
 )"
 ```
 
-### Step 3.6: Push the Fix
-Run: `cd /Users/david.fattal/Documents/GitHub/unity-3d-display && git push origin HEAD`
+### Step 3.6: Push the Fix to Both Remotes
+Run: `cd /Users/david.fattal/Documents/GitHub/unity-3d-display && git push origin HEAD && git push displayxr HEAD`
 
 ### Step 3.7: Re-monitor
 - Increment fix_attempt
