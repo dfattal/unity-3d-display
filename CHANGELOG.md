@@ -5,6 +5,16 @@ All notable changes to the DisplayXR Unity plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-03-31
+
+### Fixed
+- Fix window-relative Kooima projection not responding to window drag (#41)
+  - Added `WM_MOVE` handler so viewport position updates when the window is
+    dragged, not just on resize (`WM_SIZE`)
+  - Set initial viewport position on overlay creation so projection is correct
+    from frame 1
+  - Re-added viewport-change diagnostic logging for verification
+
 ## [0.6.5] - 2026-03-30
 
 ### Fixed

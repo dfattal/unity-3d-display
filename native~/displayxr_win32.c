@@ -14,6 +14,7 @@
 #include <windows.h>
 #include <stdio.h>
 #include "displayxr_hooks.h"
+#include "displayxr_shared_state.h"
 
 static HWND s_overlay_hwnd = NULL;
 static WNDPROC s_original_wndproc = NULL;
@@ -46,6 +47,17 @@ parent_subclass_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			ClientToScreen(hwnd, &client_origin);
 			displayxr_set_viewport_size_native(
 				(uint32_t)w, (uint32_t)h,
+				(int32_t)client_origin.x, (int32_t)client_origin.y);
+		}
+	}
+	if (msg == WM_MOVE) {
+		// Window moved — update screen position for window-relative Kooima
+		POINT client_origin = {0, 0};
+		ClientToScreen(hwnd, &client_origin);
+		DisplayXRState *state = displayxr_get_state();
+		if (state->viewport_width > 0) {
+			displayxr_set_viewport_size_native(
+				state->viewport_width, state->viewport_height,
 				(int32_t)client_origin.x, (int32_t)client_origin.y);
 		}
 	}
@@ -154,6 +166,15 @@ displayxr_get_app_main_view(void)
 
 	fprintf(stderr, "[DisplayXR] Created overlay HWND (%dx%d) on Unity window %p\n",
 	        w, h, (void *)unity_hwnd);
+
+	// Set initial viewport size and position for window-relative Kooima
+	{
+		POINT client_origin = {0, 0};
+		ClientToScreen(unity_hwnd, &client_origin);
+		displayxr_set_viewport_size_native(
+			(uint32_t)w, (uint32_t)h,
+			(int32_t)client_origin.x, (int32_t)client_origin.y);
+	}
 
 	return (void *)s_overlay_hwnd;
 }
