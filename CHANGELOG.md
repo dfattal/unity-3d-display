@@ -5,17 +5,6 @@ All notable changes to the DisplayXR Unity plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.4] - 2026-03-30
-
-### Changed
-- Remove child window overlay — pass top-level HWND/NSView to runtime
-  - Win32: no longer creates a transparent `WS_CHILD` overlay; passes Unity's
-    top-level window directly to the weaver via `XR_EXT_win32_window_binding`
-  - macOS: returns `contentView` directly instead of creating an overlay subview
-  - Fixes black screen with Leia SR runtime 1.36.0+ which expected a top-level window
-  - Simplifies native code (−83 lines) with no functional loss — resize tracking
-    and screen position updates are preserved via window subclassing
-
 ## [0.6.3] - 2026-03-27
 
 ### Changed
