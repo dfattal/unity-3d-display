@@ -167,17 +167,14 @@ namespace DisplayXR
                     canvasH = atlas.height;
                 }
 
-                if (Event.current.type == EventType.Repaint)
-                    Debug.Log($"[GV] screen={sw}x{sh} atlas={atlas.width}x{atlas.height} " +
-                              $"hwnd={hwndSize.x}x{hwndSize.y} tile=({tileCols},{tileRows},{viewW},{viewH}) " +
-                              $"valid={tileInfoValid} canvas={canvasW}x{canvasH}");
-
                 float uWidthFrac = Mathf.Min(canvasW / atlas.width,  1f);
                 float vMax       = Mathf.Min(canvasH / atlas.height, 1f);
 
-                Rect uvRect = m_GameViewMode == 2 ? new Rect(uWidthFrac * 0.5f, 0f, uWidthFrac * 0.5f, vMax)
-                            : m_GameViewMode == 1 ? new Rect(0f,                0f, uWidthFrac * 0.5f, vMax)
-                            :                       new Rect(0f,                0f, uWidthFrac,         vMax);
+                // Atlas is Y-flipped (projection flip corrects weaver input on D3D12).
+                // Compensate by sampling from vMax downward (negative height = V flip).
+                Rect uvRect = m_GameViewMode == 2 ? new Rect(uWidthFrac * 0.5f, vMax, uWidthFrac * 0.5f, -vMax)
+                            : m_GameViewMode == 1 ? new Rect(0f,                vMax, uWidthFrac * 0.5f, -vMax)
+                            :                       new Rect(0f,                vMax, uWidthFrac,         -vMax);
 
                 float displayW      = m_GameViewMode == 0 ? canvasW : canvasW * 0.5f;
                 float contentAspect = displayW / canvasH;
