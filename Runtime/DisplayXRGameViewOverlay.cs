@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BSL-1.0
 
 using System;
+using System.Runtime.InteropServices;
 using UnityEngine;
 #if HAS_INPUT_SYSTEM
 using UnityEngine.InputSystem;
@@ -37,6 +38,9 @@ namespace DisplayXR
 
         // Game View display mode: 0=L+R, 1=L only, 2=R only
         private int m_GameViewMode = 0;
+
+        // Last known-good tile layout (cached so windowed mode can reuse fullscreen values)
+        private uint m_CachedTileCols, m_CachedTileRows, m_CachedViewW, m_CachedViewH;
 
         void OnDisable()
         {
@@ -97,32 +101,91 @@ namespace DisplayXR
             GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), Texture2D.whiteTexture);
             GUI.color = Color.white;
 
-            // AtlasPreviewTexture is the atlas RenderTexture rendered by Unity cameras.
-            // Unity's GUI system handles D3D12/Metal orientation automatically for
-            // RenderTextures, so no manual Y-flip is needed here.
             Texture atlas = AtlasPreviewTexture;
-            if (atlas != null)
+            if (atlas != null && atlas.width > 0 && atlas.height > 0)
             {
                 float sw = Screen.width, sh = Screen.height;
 
-                if (m_GameViewMode == 0)
-                {
-                    // L+R: ScaleToFit letterboxes and centers using the atlas aspect ratio.
-                    GUI.DrawTexture(new Rect(0, 0, sw, sh), atlas, ScaleMode.ScaleToFit);
-                }
-                else
-                {
-                    // Single eye: half the atlas width gives the single-eye aspect ratio.
-                    float aspect = (atlas.width * 0.5f) / atlas.height;
-                    float rw, rh, rx, ry;
-                    if (sw / sh > aspect) { rh = sh; rw = rh * aspect; rx = (sw - rw) * 0.5f; ry = 0; }
-                    else                  { rw = sw; rh = rw / aspect; rx = 0;                ry = (sh - rh) * 0.5f; }
+                // Query tile layout for logging — not used for UV yet.
+                DisplayXRNative.displayxr_standalone_get_current_mode_info(
+                    out uint viewCount, out uint tileCols, out uint tileRows,
+                    out uint viewW, out uint viewH,
+                    out float viewScaleX, out float viewScaleY, out int hw3d);
 
-                    // UV: left half (L) or right half (R) of atlas.
-                    Rect uv = m_GameViewMode == 1 ? new Rect(0, 0, 0.5f, 1)
-                                                  : new Rect(0.5f, 0, 0.5f, 1);
-                    GUI.DrawTextureWithTexCoords(new Rect(rx, ry, rw, rh), atlas, uv);
+                // Crop UV to the active tile region: tileRows*viewH rows from the bottom.
+                // Tiles are rendered at pixelRect.y=0 (Unity screen-bottom), so content
+                // lives at UV v=0..vMax. Drawing only this band avoids blank atlas space.
+                // Guard: tileCols*viewW must equal atlas.width to confirm valid mode info
+                // (avoids treating startup placeholder values like 250×250 as real dims).
+                // In windowed mode the runtime reports 250×250 placeholders — use cached values.
+                bool tileInfoValid = tileRows > 0 && tileCols > 0 && viewW > 0 && viewH > 0
+                    && tileCols * viewW == (uint)atlas.width;
+                if (tileInfoValid)
+                {
+                    m_CachedTileCols = tileCols;
+                    m_CachedTileRows = tileRows;
+                    m_CachedViewW    = viewW;
+                    m_CachedViewH    = viewH;
                 }
+                else if (m_CachedTileCols > 0 && m_CachedTileRows > 0
+                         && m_CachedTileCols * m_CachedViewW == (uint)atlas.width)
+                {
+                    tileCols = m_CachedTileCols;
+                    tileRows = m_CachedTileRows;
+                    viewW    = m_CachedViewW;
+                    viewH    = m_CachedViewH;
+                    tileInfoValid = true;
+                }
+                // In windowed mode the HWND canvas is sc_w × sc_h (≈ disp_w/2 × disp_h/2),
+                // so the rendered view dims are viewW=sc_w/tileCols, viewH=sc_h/tileRows —
+                // different from the cached fullscreen values. Query the HWND client rect
+                // (no native plugin change needed) to derive the correct effective dims.
+                uint effectiveViewW = viewW;
+                uint effectiveViewH = viewH;
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+                if (!m_FullscreenShown && tileInfoValid && tileCols > 0 && tileRows > 0)
+                {
+                    Vector2Int hwndSize = GetDisplayXRWindowClientSize();
+                    if (hwndSize.x > 0 && hwndSize.y > 0)
+                    {
+                        effectiveViewW = (uint)(hwndSize.x / tileCols);
+                        effectiveViewH = (uint)(hwndSize.y / tileRows);
+                    }
+                }
+#endif
+                float vMax = tileInfoValid
+                    ? Mathf.Min(tileRows * effectiveViewH / (float)atlas.height, 1f)
+                    : 1f;
+                float uWidthFrac = tileInfoValid
+                    ? Mathf.Min(tileCols * effectiveViewW / (float)atlas.width, 1f)
+                    : 1f;
+
+                Rect uvRect = m_GameViewMode == 2 ? new Rect(uWidthFrac * 0.5f, 0f, uWidthFrac * 0.5f, vMax)
+                            : m_GameViewMode == 1 ? new Rect(0f,                0f, uWidthFrac * 0.5f, vMax)
+                            :                       new Rect(0f,                0f, uWidthFrac,         vMax);
+
+                float contentH = tileInfoValid
+                    ? tileRows * effectiveViewH
+                    : atlas.height;
+                float contentAspect = m_GameViewMode == 0
+                    ? (float)(tileCols * effectiveViewW) / contentH
+                    : (float)(tileCols * effectiveViewW) * 0.5f / contentH;
+
+                // object-fit: contain — scale to fit sw×sh, preserve aspect, center.
+                float rw, rh;
+                if (sw / sh > contentAspect) { rh = sh; rw = rh * contentAspect; }
+                else                         { rw = sw; rh = rw / contentAspect; }
+                float rx = (sw - rw) * 0.5f;
+                float ry = (sh - rh) * 0.5f;
+
+                if (Event.current.type == EventType.Repaint)
+                    Debug.Log($"[GV] screen={sw}x{sh} atlas={atlas.width}x{atlas.height} " +
+                              $"tileCols={tileCols} tileRows={tileRows} " +
+                              $"effViewW={effectiveViewW} effViewH={effectiveViewH} " +
+                              $"valid={tileInfoValid} vMax={vMax:F2} aspect={contentAspect:F2} " +
+                              $"draw=({rx:F0},{ry:F0},{rw:F0},{rh:F0})");
+
+                GUI.DrawTextureWithTexCoords(new Rect(rx, ry, rw, rh), atlas, uvRect);
             }
 
             // HUD: colored mode buttons + render mode + camera name
@@ -306,6 +369,32 @@ namespace DisplayXR
         }
 #else
         private static bool GetKeyDown(KeyCode k) => Input.GetKeyDown(k);
+#endif
+
+        // ================================================================
+        // Windowed HWND size query (Windows only, no native plugin changes)
+        // ================================================================
+
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT { public int Left, Top, Right, Bottom; }
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr FindWindowW(string lpClassName, string lpWindowName);
+
+        [DllImport("user32.dll")]
+        private static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
+
+        // Returns the DisplayXR fullscreen window's client area, or (0,0) if not found.
+        private static Vector2Int GetDisplayXRWindowClientSize()
+        {
+            IntPtr hwnd = FindWindowW("DisplayXR_Fullscreen", null);
+            if (hwnd == IntPtr.Zero) return Vector2Int.zero;
+            if (!GetClientRect(hwnd, out RECT r)) return Vector2Int.zero;
+            int w = r.Right  - r.Left;
+            int h = r.Bottom - r.Top;
+            return w > 0 && h > 0 ? new Vector2Int(w, h) : Vector2Int.zero;
+        }
 #endif
     }
 }
