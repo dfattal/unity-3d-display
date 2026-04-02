@@ -28,10 +28,6 @@ namespace DisplayXR
         // Unity's GUI handles D3D12 orientation automatically for RenderTextures.
         internal static Texture AtlasPreviewTexture;
 
-        // Shared texture handle (kept for cleanup only — not drawn in Game View)
-        private Texture2D m_SharedTexture;
-        private IntPtr m_SharedNativePtr;
-
         // Rendering mode state
         private string[] m_RenderingModeNames;
         private int m_CurrentRenderingMode = 1;
@@ -50,7 +46,6 @@ namespace DisplayXR
                 m_FullscreenShown = false;
             }
             AtlasPreviewTexture = null;
-            CleanupSharedTexture();
             m_RenderingModeNames = null;
         }
 
@@ -106,11 +101,10 @@ namespace DisplayXR
             {
                 float sw = Screen.width, sh = Screen.height;
 
-                // Query tile layout for logging — not used for UV yet.
                 DisplayXRNative.displayxr_standalone_get_current_mode_info(
-                    out uint viewCount, out uint tileCols, out uint tileRows,
+                    out _, out uint tileCols, out uint tileRows,
                     out uint viewW, out uint viewH,
-                    out float viewScaleX, out float viewScaleY, out int hw3d);
+                    out _, out _, out _);
 
                 // Get HWND client size early — needed for windowed tileInfoValid check.
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
@@ -192,8 +186,7 @@ namespace DisplayXR
             // HUD: colored mode buttons + render mode + camera name
             string camName  = DisplayXRRigManager.ActiveCameraName ?? "—";
             string modeName = GetCurrentModeName();
-            GUIStyle hudStyle = new GUIStyle(GUI.skin.label);
-            hudStyle.fontSize = 16;
+            GUIStyle hudStyle = new GUIStyle(GUI.skin.label) { fontSize = 16 };
             float lx = 8f, ly = 6f;
             string[] viewLabels = { "SBS (1)", "Left (2)", "Right (3)" };
             float[] viewWidths  = { 72f, 68f, 72f };
@@ -207,46 +200,6 @@ namespace DisplayXR
             GUI.Label(new Rect(lx + 4, ly, Screen.width - lx - 12, 24),
                 $"•  Mode: {modeName}  •  Cam: {camName}",
                 hudStyle);
-        }
-
-        // ================================================================
-        // Shared texture (IOSurface) for Game View rendering
-        // ================================================================
-
-        private Texture UpdateSharedTexture()
-        {
-            DisplayXRNative.displayxr_standalone_get_shared_texture(
-                out IntPtr nativePtr, out uint w, out uint h, out int ready);
-
-            if (ready == 0 || nativePtr == IntPtr.Zero)
-                return null;
-
-            if (m_SharedTexture == null || m_SharedNativePtr != nativePtr ||
-                m_SharedTexture.width != (int)w || m_SharedTexture.height != (int)h)
-            {
-                CleanupSharedTexture();
-                m_SharedTexture = Texture2D.CreateExternalTexture(
-                    (int)w, (int)h, TextureFormat.RGBA32, false, true, nativePtr);
-                m_SharedTexture.name = "DisplayXR_GameView";
-                m_SharedTexture.filterMode = FilterMode.Point; // No interpolation — preserves interlacing
-                m_SharedNativePtr = nativePtr;
-            }
-            else
-            {
-                m_SharedTexture.UpdateExternalTexture(nativePtr);
-            }
-
-            return m_SharedTexture;
-        }
-
-        private void CleanupSharedTexture()
-        {
-            if (m_SharedTexture != null)
-            {
-                Destroy(m_SharedTexture);
-                m_SharedTexture = null;
-            }
-            m_SharedNativePtr = IntPtr.Zero;
         }
 
         private void HandleFullscreen()
