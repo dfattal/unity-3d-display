@@ -4,7 +4,10 @@
       "Bash(grep:*)",
       "Bash(cmd:*)",
       "Bash(cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release)",
-      "Bash(cmake --build build --config Release)"
+      "Bash(cmake --build build --config Release)",
+      "Bash(Get-Content \"C:\\\\Users\\\\SukiSamra\\\\AppData\\\\Local\\\\Unity\\\\Editor\\\\Editor.log\")",
+      "Bash(Select-String \"\\\\[GV\\\\]\")",
+      "Bash(Select-Object -Last 30)"
     ]
   }
 }

@@ -112,14 +112,21 @@ namespace DisplayXR
                     out uint viewW, out uint viewH,
                     out float viewScaleX, out float viewScaleY, out int hw3d);
 
-                // Crop UV to the active tile region: tileRows*viewH rows from the bottom.
-                // Tiles are rendered at pixelRect.y=0 (Unity screen-bottom), so content
-                // lives at UV v=0..vMax. Drawing only this band avoids blank atlas space.
-                // Guard: tileCols*viewW must equal atlas.width to confirm valid mode info
-                // (avoids treating startup placeholder values like 250×250 as real dims).
-                // In windowed mode the runtime reports 250×250 placeholders — use cached values.
+                // Get HWND client size early — needed for windowed tileInfoValid check.
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+                Vector2Int hwndSize = GetDisplayXRWindowClientSize();
+#else
+                Vector2Int hwndSize = Vector2Int.zero;
+#endif
+
+                // Tile info is valid when the tile layout matches either:
+                //   (a) atlas.width — fullscreen, content fills the full atlas width
+                //   (b) hwndSize.x  — windowed, atlas is always full display size but
+                //       Unity cameras only render into the HWND-sized region
+                // The 250×250 startup placeholders never satisfy either condition.
                 bool tileInfoValid = tileRows > 0 && tileCols > 0 && viewW > 0 && viewH > 0
-                    && tileCols * viewW == (uint)atlas.width;
+                    && (tileCols * viewW == (uint)atlas.width
+                        || (hwndSize.x > 0 && (int)(tileCols * viewW) == hwndSize.x));
                 if (tileInfoValid)
                 {
                     m_CachedTileCols = tileCols;
@@ -128,7 +135,8 @@ namespace DisplayXR
                     m_CachedViewH    = viewH;
                 }
                 else if (m_CachedTileCols > 0 && m_CachedTileRows > 0
-                         && m_CachedTileCols * m_CachedViewW == (uint)atlas.width)
+                         && (m_CachedTileCols * m_CachedViewW == (uint)atlas.width
+                             || (hwndSize.x > 0 && (int)(m_CachedTileCols * m_CachedViewW) == hwndSize.x)))
                 {
                     tileCols = m_CachedTileCols;
                     tileRows = m_CachedTileRows;
@@ -136,40 +144,43 @@ namespace DisplayXR
                     viewH    = m_CachedViewH;
                     tileInfoValid = true;
                 }
-                // In windowed mode the HWND canvas is sc_w × sc_h (≈ disp_w/2 × disp_h/2),
-                // so the rendered view dims are viewW=sc_w/tileCols, viewH=sc_h/tileRows —
-                // different from the cached fullscreen values. Query the HWND client rect
-                // (no native plugin change needed) to derive the correct effective dims.
-                uint effectiveViewW = viewW;
-                uint effectiveViewH = viewH;
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
-                if (!m_FullscreenShown && tileInfoValid && tileCols > 0 && tileRows > 0)
+
+                // Canvas = the tile region Unity cameras actually rendered into the atlas.
+                // Use tile dims (not HWND) so only the real content rows are sampled —
+                // the HWND can be taller than one tile row when the compositor uses
+                // additional rows for its own purposes.
+                float canvasW, canvasH;
+                if (tileInfoValid)
                 {
-                    Vector2Int hwndSize = GetDisplayXRWindowClientSize();
-                    if (hwndSize.x > 0 && hwndSize.y > 0)
-                    {
-                        effectiveViewW = (uint)(hwndSize.x / tileCols);
-                        effectiveViewH = (uint)(hwndSize.y / tileRows);
-                    }
+                    canvasW = tileCols * viewW;
+                    canvasH = tileRows * viewH;
                 }
-#endif
-                float vMax = tileInfoValid
-                    ? Mathf.Min(tileRows * effectiveViewH / (float)atlas.height, 1f)
-                    : 1f;
-                float uWidthFrac = tileInfoValid
-                    ? Mathf.Min(tileCols * effectiveViewW / (float)atlas.width, 1f)
-                    : 1f;
+                else if (hwndSize.x > 0 && hwndSize.y > 0)
+                {
+                    // Tile info unavailable — fall back to HWND as best estimate
+                    canvasW = hwndSize.x;
+                    canvasH = hwndSize.y;
+                }
+                else
+                {
+                    canvasW = atlas.width;
+                    canvasH = atlas.height;
+                }
+
+                if (Event.current.type == EventType.Repaint)
+                    Debug.Log($"[GV] screen={sw}x{sh} atlas={atlas.width}x{atlas.height} " +
+                              $"hwnd={hwndSize.x}x{hwndSize.y} tile=({tileCols},{tileRows},{viewW},{viewH}) " +
+                              $"valid={tileInfoValid} canvas={canvasW}x{canvasH}");
+
+                float uWidthFrac = Mathf.Min(canvasW / atlas.width,  1f);
+                float vMax       = Mathf.Min(canvasH / atlas.height, 1f);
 
                 Rect uvRect = m_GameViewMode == 2 ? new Rect(uWidthFrac * 0.5f, 0f, uWidthFrac * 0.5f, vMax)
                             : m_GameViewMode == 1 ? new Rect(0f,                0f, uWidthFrac * 0.5f, vMax)
                             :                       new Rect(0f,                0f, uWidthFrac,         vMax);
 
-                float contentH = tileInfoValid
-                    ? tileRows * effectiveViewH
-                    : atlas.height;
-                float contentAspect = m_GameViewMode == 0
-                    ? (float)(tileCols * effectiveViewW) / contentH
-                    : (float)(tileCols * effectiveViewW) * 0.5f / contentH;
+                float displayW      = m_GameViewMode == 0 ? canvasW : canvasW * 0.5f;
+                float contentAspect = displayW / canvasH;
 
                 // object-fit: contain — scale to fit sw×sh, preserve aspect, center.
                 float rw, rh;
@@ -178,31 +189,27 @@ namespace DisplayXR
                 float rx = (sw - rw) * 0.5f;
                 float ry = (sh - rh) * 0.5f;
 
-                if (Event.current.type == EventType.Repaint)
-                    Debug.Log($"[GV] screen={sw}x{sh} atlas={atlas.width}x{atlas.height} " +
-                              $"tileCols={tileCols} tileRows={tileRows} " +
-                              $"effViewW={effectiveViewW} effViewH={effectiveViewH} " +
-                              $"valid={tileInfoValid} vMax={vMax:F2} aspect={contentAspect:F2} " +
-                              $"draw=({rx:F0},{ry:F0},{rw:F0},{rh:F0})");
-
                 GUI.DrawTextureWithTexCoords(new Rect(rx, ry, rw, rh), atlas, uvRect);
             }
 
             // HUD: colored mode buttons + render mode + camera name
             string camName  = DisplayXRRigManager.ActiveCameraName ?? "—";
             string modeName = GetCurrentModeName();
-            float lx = 8f, ly = 8f;
-            string[] viewLabels = { "1:L+R", "2:L", "3:R" };
+            GUIStyle hudStyle = new GUIStyle(GUI.skin.label);
+            hudStyle.fontSize = 16;
+            float lx = 8f, ly = 6f;
+            string[] viewLabels = { "SBS (1)", "Left (2)", "Right (3)" };
+            float[] viewWidths  = { 72f, 68f, 72f };
             for (int i = 0; i < viewLabels.Length; i++)
             {
                 GUI.color = (i == m_GameViewMode) ? Color.yellow : new Color(1, 1, 1, 0.6f);
-                GUI.Label(new Rect(lx, ly, 52, 20), viewLabels[i], GUI.skin.label);
-                lx += 54;
+                GUI.Label(new Rect(lx, ly, viewWidths[i], 24), viewLabels[i], hudStyle);
+                lx += viewWidths[i] + 4;
             }
             GUI.color = Color.white;
-            GUI.Label(new Rect(lx + 4, ly, Screen.width - lx - 12, 20),
-                $"•  Mode: {modeName}  •  Cam: {camName}  •  Esc to stop",
-                GUI.skin.label);
+            GUI.Label(new Rect(lx + 4, ly, Screen.width - lx - 12, 24),
+                $"•  Mode: {modeName}  •  Cam: {camName}",
+                hudStyle);
         }
 
         // ================================================================
