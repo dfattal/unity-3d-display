@@ -424,7 +424,6 @@ namespace DisplayXR.Editor
 
                 // Copy atlas RT → bridge texture (Unity device, GPU copy).
                 // Native then copies bridge → swapchain (our device, same device).
-                // TODO(#41): Content is Y-flipped on D3D12 — handle in native blit.
                 if (s_AtlasBridgeTex != null)
                     Graphics.CopyTexture(s_AtlasRT, s_AtlasBridgeTex);
 
@@ -551,10 +550,13 @@ namespace DisplayXR.Editor
             view.m22 = -view.m22;
             view.m32 = -view.m32;
 
-            // Flip projection Y on macOS only: Metal RenderTextures are Y-inverted
-            // and Unity doesn't auto-correct when projectionMatrix is set manually.
-            // On D3D12/D3D11, the native memory layout matches without this flip.
-#if UNITY_EDITOR_OSX
+            // Flip projection Y to correct render-texture Y convention mismatch:
+            //   macOS/Metal: RenderTextures are Y-inverted; Unity doesn't auto-correct
+            //                when projectionMatrix is set manually.
+            //   Windows/D3D12: the weaver expects Y-up (OpenGL/Vulkan convention) but
+            //                  D3D12 textures are Y-down — flip the input so the weaver
+            //                  receives right-side-up content.
+#if UNITY_EDITOR_OSX || UNITY_EDITOR_WIN
             proj.m10 = -proj.m10;
             proj.m11 = -proj.m11;
             proj.m12 = -proj.m12;
@@ -580,15 +582,14 @@ namespace DisplayXR.Editor
             cam.targetTexture = atlas;
             cam.pixelRect = new Rect(vpX, vpY, vpW, vpH);
 
-            // The view matrix Z-flip reverses the determinant, flipping triangle
-            // winding order. On macOS, the projection Y-flip reverses it again,
-            // plus Metal's RT Y-inversion adds a third flip → need invertCulling.
-            // On Windows D3D12, only the Z-flip applies → normal culling is correct.
-#if UNITY_EDITOR_OSX
+            // Winding analysis:
+            //   macOS:   Z-flip + proj Y-flip + Metal RT Y-inversion = 3 flips (odd) → invertCulling
+            //   Windows: Z-flip (no effect on D3D winding) + proj Y-flip = 1 flip → invertCulling
+#if UNITY_EDITOR_OSX || UNITY_EDITOR_WIN
             GL.invertCulling = true;
 #endif
             cam.Render();
-#if UNITY_EDITOR_OSX
+#if UNITY_EDITOR_OSX || UNITY_EDITOR_WIN
             GL.invertCulling = false;
 #endif
 
