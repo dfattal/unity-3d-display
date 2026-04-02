@@ -267,6 +267,8 @@ static HANDLE                   s_fw_fence_event;
 static uint64_t                 s_fw_fence_value;
 static bool                     s_fw_is_fullscreen;
 static RECT                     s_fw_windowed_rect; // saved windowed pos/size
+static uint32_t                 s_fw_sc_w;          // current swap chain width
+static uint32_t                 s_fw_sc_h;          // current swap chain height
 #endif
 
 // (displayxr_standalone_fullscreen_window_hide declared in displayxr_standalone.h)
@@ -2180,15 +2182,32 @@ displayxr_standalone_enumerate_rendering_modes(
 
 #if defined(_WIN32)
 
-static void fw_toggle_fullscreen(void); // forward decl
+static void fw_toggle_fullscreen(void);              // forward decl
+static void fw_resize_swapchain(uint32_t w, uint32_t h); // forward decl
 
 static LRESULT CALLBACK
 fw_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
-	(void)hwnd; (void)lp;
-	if (msg == WM_KEYDOWN && wp == VK_ESCAPE) { s_fw_escape_pressed = 1; return 0; }
-	if (msg == WM_KEYDOWN && wp == VK_F11)    { fw_toggle_fullscreen(); return 0; }
-	if (msg == WM_CLOSE)                       { s_fw_escape_pressed = 1; return 0; }
+	if (msg == WM_KEYDOWN && wp == VK_ESCAPE)  { s_fw_escape_pressed = 1; return 0; }
+	if (msg == WM_KEYDOWN && wp == VK_F11)     { fw_toggle_fullscreen(); return 0; }
+	if (msg == WM_CLOSE)                        { s_fw_escape_pressed = 1; return 0; }
+	if (msg == WM_SIZE && wp != SIZE_MINIMIZED) {
+		uint32_t w = LOWORD(lp);
+		uint32_t h = HIWORD(lp);
+		if (w > 0 && h > 0) fw_resize_swapchain(w, h);
+		return 0;
+	}
+	if (msg == WM_GETMINMAXINFO) {
+		MINMAXINFO *mmi = (MINMAXINFO *)lp;
+		// Enforce minimum 500×500 client area, adjusted for window decorations.
+		RECT rc = { 0, 0, 500, 500 };
+		DWORD style   = (DWORD)GetWindowLongW(hwnd, GWL_STYLE);
+		DWORD exstyle = (DWORD)GetWindowLongW(hwnd, GWL_EXSTYLE);
+		AdjustWindowRectEx(&rc, style, FALSE, exstyle);
+		mmi->ptMinTrackSize.x = rc.right  - rc.left;
+		mmi->ptMinTrackSize.y = rc.bottom - rc.top;
+		return 0;
+	}
 	return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
@@ -2245,8 +2264,8 @@ fw_toggle_fullscreen(void)
 	if (!s_fw_hwnd) return;
 
 	if (s_fw_is_fullscreen) {
-		// Go windowed: restore title-bar style and saved rect
-		SetWindowLongW(s_fw_hwnd, GWL_STYLE,   WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE);
+		// Go windowed: restore resizable style and saved rect
+		SetWindowLongW(s_fw_hwnd, GWL_STYLE,   WS_OVERLAPPEDWINDOW | WS_VISIBLE);
 		SetWindowLongW(s_fw_hwnd, GWL_EXSTYLE, WS_EX_APPWINDOW);
 		SetWindowPos(s_fw_hwnd, HWND_TOP,
 		             s_fw_windowed_rect.left,
@@ -2255,6 +2274,12 @@ fw_toggle_fullscreen(void)
 		             s_fw_windowed_rect.bottom - s_fw_windowed_rect.top,
 		             SWP_FRAMECHANGED | SWP_NOACTIVATE);
 		s_fw_is_fullscreen = false;
+		// Resize swap chain to match restored windowed client area
+		RECT client = {};
+		GetClientRect(s_fw_hwnd, &client);
+		uint32_t cw = (uint32_t)(client.right  - client.left);
+		uint32_t ch = (uint32_t)(client.bottom - client.top);
+		if (cw > 0 && ch > 0) fw_resize_swapchain(cw, ch);
 		fprintf(stderr, "[DisplayXR-FW] toggle: windowed\n");
 	} else {
 		// Go fullscreen: save current rect, find 3D monitor, cover it
@@ -2280,6 +2305,10 @@ fw_toggle_fullscreen(void)
 		             mr.right - mr.left, mr.bottom - mr.top,
 		             SWP_FRAMECHANGED | SWP_NOACTIVATE);
 		s_fw_is_fullscreen = true;
+		// Resize swap chain to full display dimensions
+		uint32_t disp_w2 = s_sa.display_info.display_pixel_width;
+		uint32_t disp_h2 = s_sa.display_info.display_pixel_height;
+		if (disp_w2 > 0 && disp_h2 > 0) fw_resize_swapchain(disp_w2, disp_h2);
 		fprintf(stderr, "[DisplayXR-FW] toggle: fullscreen on (%ld,%ld)\n",
 		        mr.left, mr.top);
 	}
@@ -2323,17 +2352,16 @@ fw_destroy_swapchain(void)
 	if (s_fw_fence)     { s_fw_fence->Release();     s_fw_fence     = NULL; }
 	if (s_fw_fence_event) { CloseHandle(s_fw_fence_event); s_fw_fence_event = NULL; }
 	s_fw_fence_value = 0;
+	s_fw_sc_w = 0;
+	s_fw_sc_h = 0;
 }
 
-// Create the DXGI swap chain on s_fw_hwnd using s_sa.d3d12_device.
+// Create the DXGI swap chain on s_fw_hwnd at the given pixel dimensions.
 // Called from fullscreen_window_show() after display info is available.
 static bool
-fw_create_swapchain(void)
+fw_create_swapchain(uint32_t w, uint32_t h)
 {
 	if (!s_sa.d3d12_device || !s_sa.d3d12_queue || !s_fw_hwnd) return false;
-
-	uint32_t w = s_sa.display_info.display_pixel_width;
-	uint32_t h = s_sa.display_info.display_pixel_height;
 
 	IDXGIFactory4 *factory = NULL;
 	if (FAILED(CreateDXGIFactory2(0, __uuidof(IDXGIFactory4), (void **)&factory))) {
@@ -2378,8 +2406,46 @@ fw_create_swapchain(void)
 	    __uuidof(ID3D12Fence), (void **)&s_fw_fence);
 	s_fw_fence_event = CreateEventW(NULL, FALSE, FALSE, NULL);
 
+	s_fw_sc_w = w;
+	s_fw_sc_h = h;
 	fprintf(stderr, "[DisplayXR-FW] D3D12 swap chain created: %ux%u\n", w, h);
 	return true;
+}
+
+// Resize swap chain back buffers after a window resize.
+// GPU must be idle before calling (ensured by present()'s fence wait).
+static void
+fw_resize_swapchain(uint32_t w, uint32_t h)
+{
+	if (!s_fw_swapchain) return;
+	if (w == s_fw_sc_w && h == s_fw_sc_h) return;
+
+	// Release back buffer references before ResizeBuffers
+	if (s_fw_bb[0]) { s_fw_bb[0]->Release(); s_fw_bb[0] = NULL; }
+	if (s_fw_bb[1]) { s_fw_bb[1]->Release(); s_fw_bb[1] = NULL; }
+
+	HRESULT hr = s_fw_swapchain->ResizeBuffers(
+	    2, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, 0);
+	if (FAILED(hr)) {
+		fprintf(stderr, "[DisplayXR-FW] ResizeBuffers failed: 0x%08lx\n", hr);
+		return;
+	}
+
+	for (UINT i = 0; i < 2; i++)
+		s_fw_swapchain->GetBuffer(i, __uuidof(ID3D12Resource), (void **)&s_fw_bb[i]);
+
+	s_fw_sc_w = w;
+	s_fw_sc_h = h;
+
+	// Update canvas so the runtime weaves at the new size
+	uint32_t disp_w = s_sa.display_info.display_pixel_width;
+	uint32_t disp_h = s_sa.display_info.display_pixel_height;
+	// Clamp to display dimensions (can't weave larger than the shared texture)
+	uint32_t cw = (w <= disp_w) ? w : disp_w;
+	uint32_t ch = (h <= disp_h) ? h : disp_h;
+	displayxr_standalone_set_canvas_rect(0, 0, cw, ch);
+	fprintf(stderr, "[DisplayXR-FW] resized swap chain: %ux%u canvas: %ux%u\n",
+	        w, h, cw, ch);
 }
 
 #endif // _WIN32
@@ -2447,6 +2513,9 @@ displayxr_standalone_fullscreen_window_show(void)
 
 	int monitor_count = fw_count_monitors();
 
+	// sw_w/sw_h = swap chain / canvas dimensions for this mode
+	uint32_t sc_w, sc_h;
+
 	if (monitor_count > 1) {
 		// Multiple monitors: open fullscreen on the 3D display.
 		// Match by display pixel dimensions; fall back to non-primary.
@@ -2470,33 +2539,39 @@ displayxr_standalone_fullscreen_window_show(void)
 			        mr.right - mr.left, mr.bottom - mr.top);
 		}
 		s_fw_is_fullscreen = true;
+		sc_w = disp_w;
+		sc_h = disp_h;
 	} else {
-		// Single monitor: open windowed at half display size, centered.
+		// Single monitor: open resizable windowed window at half display size, centered.
 		uint32_t win_w = disp_w / 2;
 		uint32_t win_h = disp_h / 2;
 		int cx = GetSystemMetrics(SM_CXSCREEN);
 		int cy = GetSystemMetrics(SM_CYSCREEN);
 		int x  = (cx - (int)win_w) / 2;
 		int y  = (cy - (int)win_h) / 2;
-		SetWindowLongW(s_fw_hwnd, GWL_STYLE,   WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE);
+		SetWindowLongW(s_fw_hwnd, GWL_STYLE,   WS_OVERLAPPEDWINDOW | WS_VISIBLE);
 		SetWindowLongW(s_fw_hwnd, GWL_EXSTYLE, WS_EX_APPWINDOW);
 		SetWindowPos(s_fw_hwnd, HWND_TOP, x, y, (int)win_w, (int)win_h,
 		             SWP_FRAMECHANGED | SWP_NOACTIVATE);
 		GetWindowRect(s_fw_hwnd, &s_fw_windowed_rect);
 		s_fw_is_fullscreen = false;
-		fprintf(stderr, "[DisplayXR-FW] show: windowed %ux%u at (%d,%d)\n",
-		        win_w, win_h, x, y);
+		// Use client area for swap chain dimensions
+		RECT client = {};
+		GetClientRect(s_fw_hwnd, &client);
+		sc_w = (uint32_t)(client.right  - client.left);
+		sc_h = (uint32_t)(client.bottom - client.top);
+		fprintf(stderr, "[DisplayXR-FW] show: windowed client=%ux%u\n", sc_w, sc_h);
 	}
 
-	// Create D3D12 swap chain if not already created (idempotent).
+	// Create D3D12 swap chain sized to the initial window client area.
 	if (!s_fw_swapchain) {
-		if (!fw_create_swapchain()) {
+		if (!fw_create_swapchain(sc_w, sc_h)) {
 			fprintf(stderr, "[DisplayXR-FW] show: swap chain creation failed\n");
 			return 0;
 		}
 	}
 
-	displayxr_standalone_set_canvas_rect(0, 0, disp_w, disp_h);
+	displayxr_standalone_set_canvas_rect(0, 0, sc_w, sc_h);
 	ShowWindow(s_fw_hwnd, SW_SHOW);
 	SetForegroundWindow(s_fw_hwnd);
 	fprintf(stderr, "[DisplayXR-FW] show: canvas=%ux%u\n", disp_w, disp_h);
@@ -2564,7 +2639,24 @@ displayxr_standalone_fullscreen_window_present(void)
 	barriers[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
 
 	s_fw_cmd_list->ResourceBarrier(2, barriers);
-	s_fw_cmd_list->CopyResource(bb, s_sa.d3d12_shared_texture);
+
+	// Copy only the canvas-sized content region from the shared texture.
+	// The shared texture is always disp_w×disp_h but the runtime only writes
+	// in the top-left s_fw_sc_w×s_fw_sc_h area (= current canvas).
+	{
+		D3D12_TEXTURE_COPY_LOCATION src = {};
+		src.pResource        = s_sa.d3d12_shared_texture;
+		src.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+		src.SubresourceIndex = 0;
+
+		D3D12_TEXTURE_COPY_LOCATION dst = {};
+		dst.pResource        = bb;
+		dst.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+		dst.SubresourceIndex = 0;
+
+		D3D12_BOX box = { 0, 0, 0, s_fw_sc_w, s_fw_sc_h, 1 };
+		s_fw_cmd_list->CopyTextureRegion(&dst, 0, 0, 0, &src, &box);
+	}
 
 	barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
 	barriers[0].Transition.StateAfter  = D3D12_RESOURCE_STATE_COMMON;
