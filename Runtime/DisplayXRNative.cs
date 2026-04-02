@@ -236,6 +236,28 @@ namespace DisplayXR
         internal static extern void displayxr_standalone_end_frame_empty();
 
         // ====================================================================
+        // Fullscreen window on 3D display (play mode)
+        // ====================================================================
+
+        /// <summary>Opens a borderless fullscreen window on the 3D monitor and sets
+        /// canvas_rect to the full display. Returns 1 on success.</summary>
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int displayxr_standalone_fullscreen_window_show();
+
+        /// <summary>Destroys the fullscreen window and releases its D3D12 resources.</summary>
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void displayxr_standalone_fullscreen_window_hide();
+
+        /// <summary>Blits the standalone shared texture to the fullscreen window and presents.
+        /// Call once per frame after submit_frame_atlas.</summary>
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void displayxr_standalone_fullscreen_window_present();
+
+        /// <summary>Returns 1 (and clears the flag) if Escape was pressed in the fullscreen window.</summary>
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int displayxr_standalone_fullscreen_window_escape_pressed();
+
+        // ====================================================================
         // Standalone stereo views (Kooima projection via display3d library)
         // ====================================================================
 

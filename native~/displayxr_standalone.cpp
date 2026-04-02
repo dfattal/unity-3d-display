@@ -250,6 +250,19 @@ typedef struct StandaloneState {
 
 static StandaloneState s_sa = {};
 
+#if defined(_WIN32)
+// Fullscreen window state — play mode output on the 3D display
+static HWND                       s_fw_hwnd;
+static IDXGISwapChain3           *s_fw_swapchain;
+static ID3D12DescriptorHeap      *s_fw_rtv_heap;
+static ID3D12Resource            *s_fw_rtvs[2];
+static ID3D12CommandAllocator    *s_fw_cmd_alloc;
+static ID3D12GraphicsCommandList *s_fw_cmd_list;
+static volatile int               s_fw_escape_pressed;
+#endif
+
+// (displayxr_standalone_fullscreen_window_hide declared in displayxr_standalone.h)
+
 // ============================================================================
 // JSON parsing helper (minimal, no external deps)
 // ============================================================================
@@ -1224,6 +1237,7 @@ displayxr_standalone_start(const char *runtime_json_path)
 void
 displayxr_standalone_stop(void)
 {
+	displayxr_standalone_fullscreen_window_hide(); // clean up play mode window if showing
 	fprintf(stderr, "[DisplayXR-SA] Stopping standalone session\n");
 	s_sa.running = 0;
 	s_sa.session_ready = 0;
@@ -2140,4 +2154,282 @@ displayxr_standalone_enumerate_rendering_modes(
 		if (hardware_display_3d) hardware_display_3d[i] = (int)s_sa.rendering_modes[i].hardwareDisplay3D;
 	}
 	return 1;
+}
+
+
+// ============================================================================
+// Public API: Fullscreen window on 3D display (play mode)
+// Opens a borderless fullscreen Win32 window on the Leia monitor and blits
+// the standalone session's shared texture (weaved output) to it each frame.
+// The window covers the full display so the SR weaver has correct pixel alignment.
+// ============================================================================
+
+#if defined(_WIN32)
+
+static LRESULT CALLBACK
+fw_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+{
+	(void)hwnd; (void)lp;
+	if (msg == WM_KEYDOWN && wp == VK_ESCAPE) { s_fw_escape_pressed = 1; return 0; }
+	if (msg == WM_CLOSE)                       { s_fw_escape_pressed = 1; return 0; }
+	return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+struct FWMonitorFind {
+	uint32_t target_w, target_h;
+	HMONITOR found;
+	RECT     found_rect;
+};
+
+static BOOL CALLBACK
+fw_find_monitor_cb(HMONITOR hm, HDC, LPRECT, LPARAM lp)
+{
+	FWMonitorFind *f = (FWMonitorFind *)lp;
+	MONITORINFO mi = { sizeof(mi) };
+	if (!GetMonitorInfo(hm, &mi)) return TRUE;
+	LONG mw = mi.rcMonitor.right  - mi.rcMonitor.left;
+	LONG mh = mi.rcMonitor.bottom - mi.rcMonitor.top;
+	if ((uint32_t)mw != f->target_w || (uint32_t)mh != f->target_h) return TRUE;
+	// Prefer non-primary — Unity editor is typically on the primary monitor
+	bool is_primary = (mi.dwFlags & MONITORINFOF_PRIMARY) != 0;
+	if (!f->found || !is_primary) {
+		f->found      = hm;
+		f->found_rect = mi.rcMonitor;
+	}
+	return TRUE; // keep enumerating to find a non-primary match
+}
+
+#endif // _WIN32
+
+
+DISPLAYXR_EXPORT int
+displayxr_standalone_fullscreen_window_show(void)
+{
+#if defined(_WIN32)
+	if (s_fw_hwnd) return 1;
+
+	if (!s_sa.d3d12_device || !s_sa.d3d12_queue) {
+		fprintf(stderr, "[DisplayXR-FW] show: session not running\n");
+		return 0;
+	}
+
+	uint32_t disp_w = s_sa.display_info.display_pixel_width;
+	uint32_t disp_h = s_sa.display_info.display_pixel_height;
+	if (disp_w == 0 || disp_h == 0) {
+		fprintf(stderr, "[DisplayXR-FW] show: display info not available yet\n");
+		return 0;
+	}
+
+	// Find 3D monitor by matching display resolution; prefer non-primary
+	FWMonitorFind finder = { disp_w, disp_h, NULL, {} };
+	EnumDisplayMonitors(NULL, NULL, fw_find_monitor_cb, (LPARAM)&finder);
+	if (!finder.found) {
+		POINT pt = {0, 0};
+		finder.found = MonitorFromPoint(pt, MONITOR_DEFAULTTOPRIMARY);
+		MONITORINFO mi = { sizeof(mi) };
+		GetMonitorInfo(finder.found, &mi);
+		finder.found_rect = mi.rcMonitor;
+		fprintf(stderr, "[DisplayXR-FW] show: no %ux%u monitor, using primary\n",
+		        disp_w, disp_h);
+	}
+
+	RECT mr    = finder.found_rect;
+	int  win_w = mr.right  - mr.left;
+	int  win_h = mr.bottom - mr.top;
+	fprintf(stderr, "[DisplayXR-FW] show: monitor (%ld,%ld) %dx%d\n",
+	        mr.left, mr.top, win_w, win_h);
+
+	WNDCLASSEXW wc    = { sizeof(wc) };
+	wc.lpfnWndProc    = fw_wndproc;
+	wc.hInstance      = GetModuleHandleW(NULL);
+	wc.lpszClassName  = L"DisplayXR_Fullscreen";
+	wc.hCursor        = LoadCursor(NULL, IDC_ARROW);
+	wc.hbrBackground  = (HBRUSH)GetStockObject(BLACK_BRUSH);
+	RegisterClassExW(&wc); // ignore CLASSALREADYEXISTS
+
+	SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+	s_fw_hwnd = CreateWindowExW(
+		WS_EX_TOPMOST | WS_EX_APPWINDOW,
+		L"DisplayXR_Fullscreen", L"DisplayXR 3D",
+		WS_POPUP | WS_VISIBLE,
+		mr.left, mr.top, win_w, win_h,
+		NULL, NULL, GetModuleHandleW(NULL), NULL);
+	if (!s_fw_hwnd) {
+		fprintf(stderr, "[DisplayXR-FW] show: CreateWindowEx failed (%lu)\n",
+		        GetLastError());
+		return 0;
+	}
+	SetForegroundWindow(s_fw_hwnd);
+
+	IDXGIFactory4 *factory = NULL;
+	if (FAILED(CreateDXGIFactory2(0, __uuidof(IDXGIFactory4), (void **)&factory)) || !factory) {
+		DestroyWindow(s_fw_hwnd); s_fw_hwnd = NULL;
+		return 0;
+	}
+	// Prevent DXGI from intercepting Alt+Enter on this window
+	factory->MakeWindowAssociation(s_fw_hwnd, DXGI_MWA_NO_ALT_ENTER);
+
+	DXGI_SWAP_CHAIN_DESC1 scd = {};
+	scd.Width        = (UINT)win_w;
+	scd.Height       = (UINT)win_h;
+	scd.Format       = DXGI_FORMAT_R8G8B8A8_UNORM;
+	scd.BufferCount  = 2;
+	scd.BufferUsage  = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+	scd.SwapEffect   = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+	scd.SampleDesc.Count = 1;
+
+	IDXGISwapChain1 *sc1 = NULL;
+	HRESULT hr = factory->CreateSwapChainForHwnd(
+		s_sa.d3d12_queue, s_fw_hwnd, &scd, NULL, NULL, &sc1);
+	factory->Release();
+	if (FAILED(hr)) {
+		DestroyWindow(s_fw_hwnd); s_fw_hwnd = NULL;
+		fprintf(stderr, "[DisplayXR-FW] CreateSwapChainForHwnd failed: 0x%08lx\n", hr);
+		return 0;
+	}
+	sc1->QueryInterface(__uuidof(IDXGISwapChain3), (void **)&s_fw_swapchain);
+	sc1->Release();
+
+	D3D12_DESCRIPTOR_HEAP_DESC rtvd = {};
+	rtvd.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+	rtvd.NumDescriptors = 2;
+	s_sa.d3d12_device->CreateDescriptorHeap(&rtvd, __uuidof(ID3D12DescriptorHeap),
+	                                          (void **)&s_fw_rtv_heap);
+
+	UINT rtv_inc = s_sa.d3d12_device->GetDescriptorHandleIncrementSize(
+		D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+	D3D12_CPU_DESCRIPTOR_HANDLE rtv_h =
+		s_fw_rtv_heap->GetCPUDescriptorHandleForHeapStart();
+	for (int i = 0; i < 2; i++) {
+		s_fw_swapchain->GetBuffer(i, __uuidof(ID3D12Resource), (void **)&s_fw_rtvs[i]);
+		s_sa.d3d12_device->CreateRenderTargetView(s_fw_rtvs[i], NULL, rtv_h);
+		rtv_h.ptr += rtv_inc;
+	}
+
+	// Dedicated command allocator/list so we don't interfere with the atlas blit
+	s_sa.d3d12_device->CreateCommandAllocator(
+		D3D12_COMMAND_LIST_TYPE_DIRECT,
+		__uuidof(ID3D12CommandAllocator), (void **)&s_fw_cmd_alloc);
+	s_sa.d3d12_device->CreateCommandList(
+		0, D3D12_COMMAND_LIST_TYPE_DIRECT, s_fw_cmd_alloc, NULL,
+		__uuidof(ID3D12GraphicsCommandList), (void **)&s_fw_cmd_list);
+	s_fw_cmd_list->Close();
+
+	s_fw_escape_pressed = 0;
+
+	// Tell the runtime the canvas covers the full display (correct lenticular alignment)
+	displayxr_standalone_set_canvas_rect(0, 0, disp_w, disp_h);
+
+	fprintf(stderr, "[DisplayXR-FW] Fullscreen window ready\n");
+	return 1;
+#else
+	return 0;
+#endif
+}
+
+
+DISPLAYXR_EXPORT void
+displayxr_standalone_fullscreen_window_hide(void)
+{
+#if defined(_WIN32)
+	if (s_fw_cmd_list)  { s_fw_cmd_list->Release();  s_fw_cmd_list  = NULL; }
+	if (s_fw_cmd_alloc) { s_fw_cmd_alloc->Release(); s_fw_cmd_alloc = NULL; }
+	for (int i = 0; i < 2; i++) {
+		if (s_fw_rtvs[i]) { s_fw_rtvs[i]->Release(); s_fw_rtvs[i] = NULL; }
+	}
+	if (s_fw_rtv_heap)  { s_fw_rtv_heap->Release();  s_fw_rtv_heap  = NULL; }
+	if (s_fw_swapchain) { s_fw_swapchain->Release(); s_fw_swapchain = NULL; }
+	if (s_fw_hwnd) {
+		MSG msg;
+		while (PeekMessage(&msg, s_fw_hwnd, 0, 0, PM_REMOVE)) DispatchMessage(&msg);
+		DestroyWindow(s_fw_hwnd);
+		s_fw_hwnd = NULL;
+	}
+	s_fw_escape_pressed = 0;
+	fprintf(stderr, "[DisplayXR-FW] Fullscreen window destroyed\n");
+#endif
+}
+
+
+DISPLAYXR_EXPORT void
+displayxr_standalone_fullscreen_window_present(void)
+{
+#if defined(_WIN32)
+	if (!s_fw_hwnd || !s_fw_swapchain || !s_fw_cmd_list) return;
+	if (!s_sa.d3d12_shared_texture || !s_sa.tex_ready)   return;
+
+	// Pump window messages so Escape/close are caught
+	MSG msg;
+	while (PeekMessage(&msg, s_fw_hwnd, 0, 0, PM_REMOVE)) {
+		TranslateMessage(&msg);
+		DispatchMessage(&msg);
+	}
+
+	UINT             back_idx = s_fw_swapchain->GetCurrentBackBufferIndex();
+	ID3D12Resource  *backbuf  = s_fw_rtvs[back_idx];
+
+	s_fw_cmd_alloc->Reset();
+	s_fw_cmd_list->Reset(s_fw_cmd_alloc, NULL);
+
+	// Transition: backbuffer PRESENT→COPY_DEST, shared texture COMMON→COPY_SOURCE
+	D3D12_RESOURCE_BARRIER b[2] = {};
+	b[0].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+	b[0].Transition.pResource   = backbuf;
+	b[0].Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+	b[0].Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_DEST;
+	b[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+	b[1].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+	b[1].Transition.pResource   = s_sa.d3d12_shared_texture;
+	b[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+	b[1].Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_SOURCE;
+	b[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+	s_fw_cmd_list->ResourceBarrier(2, b);
+
+	D3D12_TEXTURE_COPY_LOCATION src = {}, dst = {};
+	src.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+	src.pResource        = s_sa.d3d12_shared_texture;
+	src.SubresourceIndex = 0;
+	dst.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+	dst.pResource        = backbuf;
+	dst.SubresourceIndex = 0;
+	uint32_t cw = s_sa.canvas_width  ? s_sa.canvas_width  : s_sa.tex_width;
+	uint32_t ch = s_sa.canvas_height ? s_sa.canvas_height : s_sa.tex_height;
+	// Y-flip: the SR runtime stores the weaved output bottom-up (Unity's GUI corrects
+	// for this silently; we must do it explicitly when blitting to the swap chain).
+	for (uint32_t row = 0; row < ch; row++) {
+		D3D12_BOX src_row = { 0, row, 0, cw, row + 1, 1 };
+		s_fw_cmd_list->CopyTextureRegion(&dst, 0, ch - 1 - row, 0, &src, &src_row);
+	}
+
+	// Restore barrier states
+	b[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+	b[0].Transition.StateAfter  = D3D12_RESOURCE_STATE_PRESENT;
+	b[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+	b[1].Transition.StateAfter  = D3D12_RESOURCE_STATE_COMMON;
+	s_fw_cmd_list->ResourceBarrier(2, b);
+	s_fw_cmd_list->Close();
+
+	ID3D12CommandList *lists[] = { (ID3D12CommandList *)s_fw_cmd_list };
+	s_sa.d3d12_queue->ExecuteCommandLists(1, lists);
+
+	// GPU sync before Present
+	s_sa.d3d12_fence_value++;
+	s_sa.d3d12_queue->Signal(s_sa.d3d12_fence, s_sa.d3d12_fence_value);
+	if (s_sa.d3d12_fence->GetCompletedValue() < s_sa.d3d12_fence_value) {
+		s_sa.d3d12_fence->SetEventOnCompletion(s_sa.d3d12_fence_value,
+		                                        s_sa.d3d12_fence_event);
+		WaitForSingleObject(s_sa.d3d12_fence_event, INFINITE);
+	}
+
+	s_fw_swapchain->Present(0, 0); // no vsync — frame pacing handled by xrWaitFrame
+#endif
+}
+
+
+DISPLAYXR_EXPORT int
+displayxr_standalone_fullscreen_window_escape_pressed(void)
+{
+	int v = s_fw_escape_pressed;
+	s_fw_escape_pressed = 0;
+	return v;
 }

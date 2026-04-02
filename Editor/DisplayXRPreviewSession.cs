@@ -302,6 +302,7 @@ namespace DisplayXR.Editor
         {
             s_Stopping = true;
             s_IsRunning = false;
+            DisplayXRGameViewOverlay.AtlasPreviewTexture = null;
 
             StopPolling();
             CleanupAtlasBridge();
@@ -423,6 +424,10 @@ namespace DisplayXR.Editor
                 // TODO(#41): Content is Y-flipped on D3D12 — handle in native blit.
                 if (s_AtlasBridgeTex != null)
                     Graphics.CopyTexture(s_AtlasRT, s_AtlasBridgeTex);
+
+                // Share the atlas RT directly — Unity handles D3D12 orientation
+                // automatically for RenderTextures in GUI, avoiding UV-flip issues.
+                DisplayXRGameViewOverlay.AtlasPreviewTexture = s_AtlasRT;
 
                 IntPtr atlasNative = s_AtlasRT.GetNativeTexturePtr();
                 DisplayXRNative.displayxr_standalone_submit_frame_atlas(atlasNative);

@@ -214,6 +214,21 @@ DISPLAYXR_EXPORT int displayxr_standalone_enumerate_rendering_modes(
     float *view_scale_x, float *view_scale_y,
     int *hardware_display_3d);
 
+/// Open a borderless fullscreen window on the 3D monitor for play mode output.
+/// Sets canvas_rect to the full display so the weaver aligns correctly.
+/// Returns 1 on success, 0 on failure (session not running, display info not ready).
+DISPLAYXR_EXPORT int  displayxr_standalone_fullscreen_window_show(void);
+
+/// Close the fullscreen window and release its D3D12 resources.
+DISPLAYXR_EXPORT void displayxr_standalone_fullscreen_window_hide(void);
+
+/// Blit the standalone shared texture (weaved output) to the fullscreen window.
+/// Call once per frame after submit_frame_atlas. No-op if window not shown.
+DISPLAYXR_EXPORT void displayxr_standalone_fullscreen_window_present(void);
+
+/// Returns 1 (and clears the flag) if Escape was pressed in the fullscreen window.
+DISPLAYXR_EXPORT int  displayxr_standalone_fullscreen_window_escape_pressed(void);
+
 #ifdef __cplusplus
 }
 #endif

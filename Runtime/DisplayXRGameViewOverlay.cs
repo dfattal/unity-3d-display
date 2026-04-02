@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: BSL-1.0
 
 using System;
-using System.Collections.Generic;
 using UnityEngine;
 #if HAS_INPUT_SYSTEM
 using UnityEngine.InputSystem;
@@ -11,26 +10,24 @@ using UnityEngine.InputSystem;
 namespace DisplayXR
 {
     /// <summary>
-    /// Renders the DisplayXR composited preview texture in the Game View during Play Mode.
-    /// Suppresses scene camera rendering while the standalone preview is running and draws
-    /// the shared texture (IOSurface) via OnGUI. Only one instance needed in the scene.
+    /// During Play Mode, opens a fullscreen window on the 3D monitor and blits the
+    /// standalone session's weaved output to it each frame for correct lenticular alignment.
+    /// Suppresses scene camera rendering in the Game View while the window is active.
+    /// Escape key or stopping/pausing Play closes the window.
     /// Camera management (ActiveCamera, cycling) lives in DisplayXRRigManager.
     /// </summary>
     [AddComponentMenu("DisplayXR/Game View Overlay")]
     public class DisplayXRGameViewOverlay : MonoBehaviour
     {
-        private struct SuppressedCamera
-        {
-            public Camera camera;
-            public int originalCullingMask;
-            public CameraClearFlags originalClearFlags;
-            public Color originalBackgroundColor;
-        }
+        private bool m_FullscreenShown;
 
-        private List<SuppressedCamera> m_SuppressedCameras = new List<SuppressedCamera>();
-        private bool m_Suppressing;
+        // Set each frame by DisplayXRPreviewSession (Editor) to the atlas RenderTexture.
+        // Contains both eye views side-by-side at the current eye-tracked positions.
+        // Using Texture (not Texture2D) so a RenderTexture can be assigned directly —
+        // Unity's GUI handles D3D12 orientation automatically for RenderTextures.
+        internal static Texture AtlasPreviewTexture;
 
-        // Shared texture for OnGUI drawing
+        // Shared texture handle (kept for cleanup only — not drawn in Game View)
         private Texture2D m_SharedTexture;
         private IntPtr m_SharedNativePtr;
 
@@ -38,9 +35,17 @@ namespace DisplayXR
         private string[] m_RenderingModeNames;
         private int m_CurrentRenderingMode = 1;
 
+        // Game View display mode: 0=L+R, 1=L only, 2=R only
+        private int m_GameViewMode = 0;
+
         void OnDisable()
         {
-            RestoreAllCameras();
+            if (m_FullscreenShown)
+            {
+                DisplayXRNative.displayxr_standalone_fullscreen_window_hide();
+                m_FullscreenShown = false;
+            }
+            AtlasPreviewTexture = null;
             CleanupSharedTexture();
             m_RenderingModeNames = null;
         }
@@ -49,15 +54,31 @@ namespace DisplayXR
         {
             bool running = DisplayXRNative.displayxr_standalone_is_running() != 0;
 
-            if (running && !m_Suppressing)
+            // Fullscreen window lifecycle
+            if (running && !m_FullscreenShown)
             {
-                SuppressSceneRendering();
-                m_Suppressing = true;
+                if (DisplayXRNative.displayxr_standalone_fullscreen_window_show() != 0)
+                    m_FullscreenShown = true;
             }
-            else if (!running && m_Suppressing)
+            else if (!running && m_FullscreenShown)
             {
-                RestoreAllCameras();
-                m_Suppressing = false;
+                DisplayXRNative.displayxr_standalone_fullscreen_window_hide();
+                m_FullscreenShown = false;
+            }
+
+            // Per-frame: blit shared texture to fullscreen window
+            if (m_FullscreenShown)
+            {
+                DisplayXRNative.displayxr_standalone_fullscreen_window_present();
+
+                if (DisplayXRNative.displayxr_standalone_fullscreen_window_escape_pressed() != 0)
+                {
+#if UNITY_EDITOR
+                    UnityEditor.EditorApplication.ExitPlaymode();
+#else
+                    Application.Quit();
+#endif
+                }
             }
 
             if (running)
@@ -71,104 +92,54 @@ namespace DisplayXR
             if (DisplayXRNative.displayxr_standalone_is_running() == 0)
                 return;
 
-            Texture tex = UpdateSharedTexture();
-            if (tex == null) return;
+            // Black background — covers any scene camera output
+            GUI.color = Color.black;
+            GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), Texture2D.whiteTexture);
+            GUI.color = Color.white;
 
-            // Canvas = Game View size in physical pixels for pixel-precise interlacing.
-            // The weaver must output at physical resolution for correct lenticular 3D.
-            float backingScale = DisplayXRNative.displayxr_get_backing_scale_factor();
-            uint canvasW = (uint)(Screen.width * backingScale);
-            uint canvasH = (uint)(Screen.height * backingScale);
-
-            // Tell the runtime the canvas rect in physical pixels
-            DisplayXRNative.displayxr_standalone_set_canvas_rect(0, 0, canvasW, canvasH);
-
-            uint surfW = (uint)tex.width;
-            uint surfH = (uint)tex.height;
-
-            // UV crop: canvas portion of shared texture.
-            float uMax = (canvasW > 0 && surfW > 0) ? (float)canvasW / surfW : 1f;
-            float vMax = (canvasH > 0 && surfH > 0) ? (float)canvasH / surfH : 1f;
-
-            // Letterbox by canvas aspect (not IOSurface aspect)
-            Rect screenRect = new Rect(0, 0, Screen.width, Screen.height);
-            float texAspect = (canvasW > 0 && canvasH > 0)
-                ? (float)canvasW / canvasH
-                : (float)surfW / surfH;
-            float screenAspect = screenRect.width / screenRect.height;
-
-            Rect drawRect;
-            if (screenAspect > texAspect)
+            // AtlasPreviewTexture is the atlas RenderTexture rendered by Unity cameras.
+            // Unity's GUI system handles D3D12/Metal orientation automatically for
+            // RenderTextures, so no manual Y-flip is needed here.
+            Texture atlas = AtlasPreviewTexture;
+            if (atlas != null)
             {
-                float w = screenRect.height * texAspect;
-                drawRect = new Rect((screenRect.width - w) * 0.5f, 0, w, screenRect.height);
-            }
-            else
-            {
-                float h = screenRect.width / texAspect;
-                drawRect = new Rect(0, (screenRect.height - h) * 0.5f, screenRect.width, h);
-            }
+                float sw = Screen.width, sh = Screen.height;
 
-            // macOS Metal: Y-flipped. Windows D3D12: not flipped (TODO: handle atlas Y-flip separately)
-#if UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX
-            GUI.DrawTextureWithTexCoords(drawRect, tex, new Rect(0, vMax, uMax, -vMax));
-#else
-            GUI.DrawTextureWithTexCoords(drawRect, tex, new Rect(0, 0, uMax, vMax));
-#endif
-
-            // Diagnostic status label — all relevant sizes for debugging weaving
-            string modeName = GetCurrentModeName();
-            string camName = DisplayXRRigManager.ActiveCameraName ?? "—";
-            float ppp = 1f;
-#if UNITY_EDITOR
-            ppp = UnityEditor.EditorGUIUtility.pixelsPerPoint;
-#endif
-            uint physDrawW = (uint)(drawRect.width * ppp);
-            uint physDrawH = (uint)(drawRect.height * ppp);
-            string modeLine = $"Canvas: {canvasW}x{canvasH}  Surface: {surfW}x{surfH}  UV: {uMax:F3}x{vMax:F3}  " +
-                $"Screen: {Screen.width}x{Screen.height}  Scale: {backingScale:F2}  ppp: {ppp:F2}  " +
-                $"Draw: {drawRect.width:F0}x{drawRect.height:F0} ({physDrawW}x{physDrawH})  " +
-                $"Mode: {modeName}  Cam: {camName}";
-            GUI.Label(new Rect(drawRect.x + 4, drawRect.y + 4, drawRect.width - 8, 20),
-                modeLine, GUI.skin.label);
-        }
-
-        // ================================================================
-        // Camera suppression (prevent scene rendering while preview runs)
-        // ================================================================
-
-        private void SuppressSceneRendering()
-        {
-            m_SuppressedCameras.Clear();
-            var registered = DisplayXRRigManager.RegisteredCameras;
-            for (int i = 0; i < registered.Count; i++)
-            {
-                var cam = registered[i];
-                if (cam == null) continue;
-                m_SuppressedCameras.Add(new SuppressedCamera
+                if (m_GameViewMode == 0)
                 {
-                    camera = cam,
-                    originalCullingMask = cam.cullingMask,
-                    originalClearFlags = cam.clearFlags,
-                    originalBackgroundColor = cam.backgroundColor,
-                });
-                cam.cullingMask = 0;
-                cam.clearFlags = CameraClearFlags.SolidColor;
-                cam.backgroundColor = Color.black;
-            }
-        }
+                    // L+R: ScaleToFit letterboxes and centers using the atlas aspect ratio.
+                    GUI.DrawTexture(new Rect(0, 0, sw, sh), atlas, ScaleMode.ScaleToFit);
+                }
+                else
+                {
+                    // Single eye: half the atlas width gives the single-eye aspect ratio.
+                    float aspect = (atlas.width * 0.5f) / atlas.height;
+                    float rw, rh, rx, ry;
+                    if (sw / sh > aspect) { rh = sh; rw = rh * aspect; rx = (sw - rw) * 0.5f; ry = 0; }
+                    else                  { rw = sw; rh = rw / aspect; rx = 0;                ry = (sh - rh) * 0.5f; }
 
-        private void RestoreAllCameras()
-        {
-            for (int i = 0; i < m_SuppressedCameras.Count; i++)
-            {
-                var mc = m_SuppressedCameras[i];
-                if (mc.camera == null) continue;
-                mc.camera.cullingMask = mc.originalCullingMask;
-                mc.camera.clearFlags = mc.originalClearFlags;
-                mc.camera.backgroundColor = mc.originalBackgroundColor;
+                    // UV: left half (L) or right half (R) of atlas.
+                    Rect uv = m_GameViewMode == 1 ? new Rect(0, 0, 0.5f, 1)
+                                                  : new Rect(0.5f, 0, 0.5f, 1);
+                    GUI.DrawTextureWithTexCoords(new Rect(rx, ry, rw, rh), atlas, uv);
+                }
             }
-            m_SuppressedCameras.Clear();
+
+            // HUD: colored mode buttons + render mode + camera name
+            string camName  = DisplayXRRigManager.ActiveCameraName ?? "—";
+            string modeName = GetCurrentModeName();
+            float lx = 8f, ly = 8f;
+            string[] viewLabels = { "1:L+R", "2:L", "3:R" };
+            for (int i = 0; i < viewLabels.Length; i++)
+            {
+                GUI.color = (i == m_GameViewMode) ? Color.yellow : new Color(1, 1, 1, 0.6f);
+                GUI.Label(new Rect(lx, ly, 52, 20), viewLabels[i], GUI.skin.label);
+                lx += 54;
+            }
+            GUI.color = Color.white;
+            GUI.Label(new Rect(lx + 4, ly, Screen.width - lx - 12, 20),
+                $"•  Mode: {modeName}  •  Cam: {camName}  •  Esc to stop",
+                GUI.skin.label);
         }
 
         // ================================================================
@@ -218,13 +189,18 @@ namespace DisplayXR
         }
 
         // ================================================================
-        // Rendering mode hotkeys (V / 0-8)
+        // Hotkeys: 1/2/3 = Game View mode; V/0/4-8 = rendering mode
         // ================================================================
 
         private void HandleModeKeys()
         {
-            int modeIdx = -1;
+            // Game View eye selection (no rendering mode change)
+            if (GetKeyDown(KeyCode.Alpha1)) { m_GameViewMode = 0; return; }
+            if (GetKeyDown(KeyCode.Alpha2)) { m_GameViewMode = 1; return; }
+            if (GetKeyDown(KeyCode.Alpha3)) { m_GameViewMode = 2; return; }
 
+            // Rendering mode switching (V cycles, 0 and 4-8 direct)
+            int modeIdx = -1;
             if (GetKeyDown(KeyCode.V))
             {
                 EnumerateRenderingModesIfNeeded();
@@ -233,9 +209,6 @@ namespace DisplayXR
                 modeIdx = (m_CurrentRenderingMode + 1) % count;
             }
             else if (GetKeyDown(KeyCode.Alpha0)) modeIdx = 0;
-            else if (GetKeyDown(KeyCode.Alpha1)) modeIdx = 1;
-            else if (GetKeyDown(KeyCode.Alpha2)) modeIdx = 2;
-            else if (GetKeyDown(KeyCode.Alpha3)) modeIdx = 3;
             else if (GetKeyDown(KeyCode.Alpha4)) modeIdx = 4;
             else if (GetKeyDown(KeyCode.Alpha5)) modeIdx = 5;
             else if (GetKeyDown(KeyCode.Alpha6)) modeIdx = 6;
