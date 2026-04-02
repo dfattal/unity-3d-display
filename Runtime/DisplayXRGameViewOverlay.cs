@@ -119,14 +119,16 @@ namespace DisplayXR
                 Vector2Int hwndSize = Vector2Int.zero;
 #endif
 
-                // Tile info is valid when the tile layout matches either:
-                //   (a) atlas.width — fullscreen, content fills the full atlas width
-                //   (b) hwndSize.x  — windowed, atlas is always full display size but
-                //       Unity cameras only render into the HWND-sized region
-                // The 250×250 startup placeholders never satisfy either condition.
+                // Tile info is valid when:
+                //   (a) tileCols*viewW == atlas.width — fullscreen, content fills atlas width
+                //   (b) m_FullscreenShown — window is running, so native values are real.
+                //       In windowed mode tileCols*viewW < atlas.width (atlas is always full
+                //       display size) but the values are still correct for UV cropping.
+                //       The 250×250 startup placeholders only appear before the window opens.
+                // Using m_FullscreenShown avoids brittle HWND-size matching that breaks during
+                // window resize (HWND updates immediately but native lags a frame or two).
                 bool tileInfoValid = tileRows > 0 && tileCols > 0 && viewW > 0 && viewH > 0
-                    && (tileCols * viewW == (uint)atlas.width
-                        || (hwndSize.x > 0 && (int)(tileCols * viewW) == hwndSize.x));
+                    && (tileCols * viewW == (uint)atlas.width || m_FullscreenShown);
                 if (tileInfoValid)
                 {
                     m_CachedTileCols = tileCols;
@@ -134,9 +136,7 @@ namespace DisplayXR
                     m_CachedViewW    = viewW;
                     m_CachedViewH    = viewH;
                 }
-                else if (m_CachedTileCols > 0 && m_CachedTileRows > 0
-                         && (m_CachedTileCols * m_CachedViewW == (uint)atlas.width
-                             || (hwndSize.x > 0 && (int)(m_CachedTileCols * m_CachedViewW) == hwndSize.x)))
+                else if (m_CachedTileCols > 0 && m_CachedTileRows > 0)
                 {
                     tileCols = m_CachedTileCols;
                     tileRows = m_CachedTileRows;
