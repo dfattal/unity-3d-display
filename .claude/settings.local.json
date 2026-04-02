@@ -7,7 +7,11 @@
       "Bash(cmake --build build --config Release)",
       "Bash(Get-Content \"C:\\\\Users\\\\SukiSamra\\\\AppData\\\\Local\\\\Unity\\\\Editor\\\\Editor.log\")",
       "Bash(Select-String \"\\\\[GV\\\\]\")",
-      "Bash(Select-Object -Last 30)"
+      "Bash(Select-Object -Last 30)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(powershell -Command \"& 'cmd' '/c' 'build-win.bat'\")",
+      "Bash(powershell -Command \"cmd /c build-win.bat 2>&1\")",
+      "Bash(powershell:*)"
     ]
   }
 }

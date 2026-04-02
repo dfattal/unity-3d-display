@@ -258,6 +258,7 @@ namespace DisplayXR.Editor
                 var tempRT = new RenderTexture(4, 4, 0, RenderTextureFormat.ARGB32);
                 tempRT.Create(); // Force native resource allocation
                 var texPtr = tempRT.GetNativeTexturePtr();
+                Debug.Log($"[DisplayXR-SA] set_unity_device ptr=0x{texPtr.ToInt64():X} api={UnityEngine.SystemInfo.graphicsDeviceType}");
                 DisplayXRNative.displayxr_standalone_set_unity_device(texPtr);
                 tempRT.Release();
                 UnityEngine.Object.DestroyImmediate(tempRT);
@@ -269,7 +270,7 @@ namespace DisplayXR.Editor
             if (result != 0)
             {
                 s_IsRunning = true;
-                Debug.Log("[DisplayXR-SA] Standalone session started");
+                Debug.Log($"[DisplayXR-SA] Standalone session started (graphics: {UnityEngine.SystemInfo.graphicsDeviceType})");
                 StartPolling();
                 RefreshDisplayInfo();
                 CreateRenderRig();
@@ -432,6 +433,10 @@ namespace DisplayXR.Editor
                 DisplayXRGameViewOverlay.AtlasPreviewTexture = s_AtlasRT;
 
                 IntPtr atlasNative = s_AtlasRT.GetNativeTexturePtr();
+                if (s_FrameCount == 1)
+                    Debug.Log($"[DisplayXR-SA] Frame 1: atlasNative=0x{atlasNative.ToInt64():X} " +
+                              $"bridgeTex={(s_AtlasBridgeTex != null ? "yes" : "null")} " +
+                              $"atlas={s_AtlasRT.width}x{s_AtlasRT.height}");
                 DisplayXRNative.displayxr_standalone_submit_frame_atlas(atlasNative);
             }
             else
@@ -504,7 +509,11 @@ namespace DisplayXR.Editor
                 s_AtlasBridgeTex = Texture2D.CreateExternalTexture(
                     (int)bw, (int)bh, TextureFormat.RGBA32, false, true, bridgePtr);
                 s_AtlasBridgeTex.name = "DisplayXR_AtlasBridge";
-                Debug.Log($"[DisplayXR-SA] Atlas bridge texture: {bw}x{bh}");
+                Debug.Log($"[DisplayXR-SA] Atlas bridge texture: {bw}x{bh} ptr=0x{bridgePtr.ToInt64():X}");
+            }
+            else
+            {
+                Debug.LogWarning($"[DisplayXR-SA] Atlas bridge texture NOT created: ptr=0x{bridgePtr.ToInt64():X} size={bw}x{bh}");
             }
 #endif
         }

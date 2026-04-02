@@ -20,6 +20,7 @@
 #elif defined(_WIN32)
 #include <windows.h>
 #include <d3d12.h>
+#include <d3d11.h>
 #include <dxgi1_4.h>
 
 // D3D12 OpenXR structs (inlined to avoid requiring XR_USE_GRAPHICS_API_D3D12).
@@ -46,6 +47,30 @@ typedef struct XrGraphicsRequirementsD3D12KHR {
 	LUID adapterLuid;
 	D3D_FEATURE_LEVEL minFeatureLevel;
 } XrGraphicsRequirementsD3D12KHR;
+
+// D3D11 OpenXR structs (inlined to avoid requiring XR_USE_GRAPHICS_API_D3D11).
+#define XR_TYPE_GRAPHICS_BINDING_D3D11_KHR      ((XrStructureType)1000027000)
+#define XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR       ((XrStructureType)1000027001)
+#define XR_TYPE_GRAPHICS_REQUIREMENTS_D3D11_KHR ((XrStructureType)1000027002)
+
+typedef struct XrSwapchainImageD3D11KHR {
+	XrStructureType type;
+	void *next;
+	ID3D11Texture2D *texture;
+} XrSwapchainImageD3D11KHR;
+
+typedef struct XrGraphicsBindingD3D11KHR {
+	XrStructureType type;
+	const void *next;
+	ID3D11Device *device;
+} XrGraphicsBindingD3D11KHR;
+
+typedef struct XrGraphicsRequirementsD3D11KHR {
+	XrStructureType type;
+	void *next;
+	LUID adapterLuid;
+	D3D_FEATURE_LEVEL minFeatureLevel;
+} XrGraphicsRequirementsD3D11KHR;
 #endif
 
 #include <math.h>
@@ -137,6 +162,7 @@ typedef struct SASwapchain {
 	XrSwapchainImageMetalKHR images[SA_MAX_SWAPCHAIN_IMAGES];
 #elif defined(_WIN32)
 	XrSwapchainImageD3D12KHR images[SA_MAX_SWAPCHAIN_IMAGES];
+	XrSwapchainImageD3D11KHR images_d3d11[SA_MAX_SWAPCHAIN_IMAGES];
 #endif
 	uint32_t image_count;
 	uint32_t width;
@@ -148,6 +174,7 @@ typedef struct StandaloneState {
 	void *runtime_lib;
 	PFN_xrGetInstanceProcAddr gipa;
 #if defined(_WIN32)
+	// D3D12 path (when Unity uses Direct3D 12)
 	ID3D12Device *d3d12_device;        // Our own device (for runtime session)
 	ID3D12CommandQueue *d3d12_queue;
 	ID3D12CommandAllocator *d3d12_cmd_alloc;
@@ -158,10 +185,20 @@ typedef struct StandaloneState {
 	ID3D12Resource *d3d12_shared_texture;  // On our device
 	HANDLE d3d12_shared_handle;            // DXGI shared handle (cross-device)
 	ID3D12Resource *d3d12_unity_shared;    // Same texture opened on Unity's device
-	// Atlas bridge: shared texture for cross-device atlas blit
+	// D3D12 atlas bridge: shared texture for cross-device atlas blit
 	ID3D12Resource *d3d12_atlas_bridge;       // On our device, SHARED
 	HANDLE d3d12_atlas_bridge_handle;         // DXGI shared handle
 	ID3D12Resource *d3d12_unity_atlas_bridge; // Opened on Unity's device
+	// D3D11 path (when Unity uses Direct3D 11)
+	ID3D11Device *d3d11_device;             // Our own D3D11 device (for runtime session)
+	ID3D11DeviceContext *d3d11_context;     // Immediate context for d3d11_device
+	ID3D11Texture2D *d3d11_shared_texture; // Weaved output on our device, SHARED
+	HANDLE d3d11_shared_handle;             // DXGI shared handle for output texture
+	ID3D11Texture2D *d3d11_unity_shared;    // Output texture opened on Unity's device
+	// D3D11 atlas bridge: shared texture for cross-device atlas blit
+	ID3D11Texture2D *d3d11_atlas_bridge;       // On our device, SHARED
+	HANDLE d3d11_atlas_bridge_handle;          // DXGI shared handle
+	ID3D11Texture2D *d3d11_unity_atlas_bridge; // Opened on Unity's device
 #endif
 
 	XrInstance instance;
@@ -269,6 +306,8 @@ static bool                     s_fw_is_fullscreen;
 static RECT                     s_fw_windowed_rect; // saved windowed pos/size
 static uint32_t                 s_fw_sc_w;          // current swap chain width
 static uint32_t                 s_fw_sc_h;          // current swap chain height
+// D3D11 fullscreen window back buffers (used when s_use_d3d11)
+static ID3D11Texture2D         *s_fw_bb11[2];
 #endif
 
 // (displayxr_standalone_fullscreen_window_hide declared in displayxr_standalone.h)
@@ -531,8 +570,10 @@ get_render_tiling(const XrDisplayRenderingModeInfoEXT *mode,
 
 
 #if defined(_WIN32)
-// Forward declaration — defined in the public API section below.
+// Forward declarations — defined in the public API section below.
 static ID3D12Device *s_unity_d3d12_device;
+static ID3D11Device *s_unity_d3d11_device;
+static int           s_use_d3d11; // 0 = D3D12 (default), 1 = D3D11
 #endif
 
 // ============================================================================
@@ -623,15 +664,29 @@ create_atlas_swapchain(void)
 	for (uint32_t i = 0; i < count; i++) {
 #if defined(__APPLE__)
 		s_sa.atlas.images[i].type = XR_TYPE_SWAPCHAIN_IMAGE_METAL_KHR;
-#elif defined(_WIN32)
-		s_sa.atlas.images[i].type = XR_TYPE_SWAPCHAIN_IMAGE_D3D12_KHR;
-#endif
 		s_sa.atlas.images[i].next = NULL;
+#elif defined(_WIN32)
+		if (s_use_d3d11) {
+			s_sa.atlas.images_d3d11[i].type = XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR;
+			s_sa.atlas.images_d3d11[i].next = NULL;
+		} else {
+			s_sa.atlas.images[i].type = XR_TYPE_SWAPCHAIN_IMAGE_D3D12_KHR;
+			s_sa.atlas.images[i].next = NULL;
+		}
+#endif
 	}
 
+#if defined(_WIN32)
+	result = s_sa.pfn_enumerate_swapchain_images(
+		s_sa.atlas.handle, count, &count,
+		s_use_d3d11
+			? (XrSwapchainImageBaseHeader *)s_sa.atlas.images_d3d11
+			: (XrSwapchainImageBaseHeader *)s_sa.atlas.images);
+#else
 	result = s_sa.pfn_enumerate_swapchain_images(
 		s_sa.atlas.handle, count, &count,
 		(XrSwapchainImageBaseHeader *)s_sa.atlas.images);
+#endif
 	if (XR_FAILED(result)) {
 		fprintf(stderr, "[DisplayXR-SA] xrEnumerateSwapchainImages (atlas) failed: %d\n", result);
 		return 0;
@@ -645,41 +700,85 @@ create_atlas_swapchain(void)
 #if defined(_WIN32)
 	// Create atlas bridge shared texture (same dimensions as swapchain atlas).
 	// This bridges Unity's device and our device for cross-device atlas blit.
-	if (s_unity_d3d12_device && s_sa.d3d12_device) {
-		D3D12_HEAP_PROPERTIES heap = {};
-		heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+	if (s_use_d3d11) {
+		// D3D11 atlas bridge
+		if (s_unity_d3d11_device && s_sa.d3d11_device) {
+			D3D11_TEXTURE2D_DESC bd = {};
+			bd.Width  = atlas_w;
+			bd.Height = atlas_h;
+			bd.MipLevels = 1;
+			bd.ArraySize = 1;
+			bd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			bd.SampleDesc.Count = 1;
+			bd.Usage = D3D11_USAGE_DEFAULT;
+			bd.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+			bd.MiscFlags = D3D11_RESOURCE_MISC_SHARED;
 
-		D3D12_RESOURCE_DESC bd = {};
-		bd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-		bd.Width = atlas_w;
-		bd.Height = atlas_h;
-		bd.DepthOrArraySize = 1;
-		bd.MipLevels = 1;
-		bd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		bd.SampleDesc.Count = 1;
-		bd.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-		bd.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+			HRESULT hr = s_sa.d3d11_device->CreateTexture2D(
+				&bd, NULL, &s_sa.d3d11_atlas_bridge);
+			if (FAILED(hr)) {
+				fprintf(stderr, "[DisplayXR-SA] D3D11 atlas bridge CreateTexture2D failed: 0x%08lx\n", hr);
+			} else {
+				IDXGIResource *dxgi_res = NULL;
+				hr = s_sa.d3d11_atlas_bridge->QueryInterface(
+					__uuidof(IDXGIResource), (void **)&dxgi_res);
+				if (SUCCEEDED(hr) && dxgi_res) {
+					dxgi_res->GetSharedHandle(&s_sa.d3d11_atlas_bridge_handle);
+					dxgi_res->Release();
+				}
+				if (s_sa.d3d11_atlas_bridge_handle) {
+					hr = s_unity_d3d11_device->OpenSharedResource(
+						s_sa.d3d11_atlas_bridge_handle,
+						__uuidof(ID3D11Texture2D),
+						(void **)&s_sa.d3d11_unity_atlas_bridge);
+					if (SUCCEEDED(hr) && s_sa.d3d11_unity_atlas_bridge) {
+						fprintf(stderr, "[DisplayXR-SA] D3D11 atlas bridge: %ux%u, handle=%p, unity_res=%p\n",
+						        atlas_w, atlas_h, s_sa.d3d11_atlas_bridge_handle,
+						        (void *)s_sa.d3d11_unity_atlas_bridge);
+					} else {
+						fprintf(stderr, "[DisplayXR-SA] D3D11 atlas bridge OpenSharedResource failed: 0x%08lx\n", hr);
+					}
+				}
+			}
+		}
+	} else {
+		// D3D12 atlas bridge
+		if (s_unity_d3d12_device && s_sa.d3d12_device) {
+			D3D12_HEAP_PROPERTIES heap = {};
+			heap.Type = D3D12_HEAP_TYPE_DEFAULT;
 
-		HRESULT hr = s_sa.d3d12_device->CreateCommittedResource(
-			&heap, D3D12_HEAP_FLAG_SHARED, &bd,
-			D3D12_RESOURCE_STATE_COMMON, NULL,
-			__uuidof(ID3D12Resource), (void **)&s_sa.d3d12_atlas_bridge);
-		if (FAILED(hr)) {
-			fprintf(stderr, "[DisplayXR-SA] Atlas bridge CreateCommittedResource failed: 0x%08lx\n", hr);
-		} else {
-			hr = s_sa.d3d12_device->CreateSharedHandle(
-				s_sa.d3d12_atlas_bridge, NULL, GENERIC_ALL, NULL,
-				&s_sa.d3d12_atlas_bridge_handle);
-			if (SUCCEEDED(hr) && s_sa.d3d12_atlas_bridge_handle) {
-				hr = s_unity_d3d12_device->OpenSharedHandle(
-					s_sa.d3d12_atlas_bridge_handle,
-					__uuidof(ID3D12Resource), (void **)&s_sa.d3d12_unity_atlas_bridge);
-				if (SUCCEEDED(hr) && s_sa.d3d12_unity_atlas_bridge) {
-					fprintf(stderr, "[DisplayXR-SA] Atlas bridge: %ux%u, handle=%p, unity_res=%p\n",
-					        atlas_w, atlas_h, s_sa.d3d12_atlas_bridge_handle,
-					        (void *)s_sa.d3d12_unity_atlas_bridge);
-				} else {
-					fprintf(stderr, "[DisplayXR-SA] Atlas bridge OpenSharedHandle failed: 0x%08lx\n", hr);
+			D3D12_RESOURCE_DESC bd = {};
+			bd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+			bd.Width = atlas_w;
+			bd.Height = atlas_h;
+			bd.DepthOrArraySize = 1;
+			bd.MipLevels = 1;
+			bd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			bd.SampleDesc.Count = 1;
+			bd.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+			bd.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+			HRESULT hr = s_sa.d3d12_device->CreateCommittedResource(
+				&heap, D3D12_HEAP_FLAG_SHARED, &bd,
+				D3D12_RESOURCE_STATE_COMMON, NULL,
+				__uuidof(ID3D12Resource), (void **)&s_sa.d3d12_atlas_bridge);
+			if (FAILED(hr)) {
+				fprintf(stderr, "[DisplayXR-SA] Atlas bridge CreateCommittedResource failed: 0x%08lx\n", hr);
+			} else {
+				hr = s_sa.d3d12_device->CreateSharedHandle(
+					s_sa.d3d12_atlas_bridge, NULL, GENERIC_ALL, NULL,
+					&s_sa.d3d12_atlas_bridge_handle);
+				if (SUCCEEDED(hr) && s_sa.d3d12_atlas_bridge_handle) {
+					hr = s_unity_d3d12_device->OpenSharedHandle(
+						s_sa.d3d12_atlas_bridge_handle,
+						__uuidof(ID3D12Resource), (void **)&s_sa.d3d12_unity_atlas_bridge);
+					if (SUCCEEDED(hr) && s_sa.d3d12_unity_atlas_bridge) {
+						fprintf(stderr, "[DisplayXR-SA] Atlas bridge: %ux%u, handle=%p, unity_res=%p\n",
+						        atlas_w, atlas_h, s_sa.d3d12_atlas_bridge_handle,
+						        (void *)s_sa.d3d12_unity_atlas_bridge);
+					} else {
+						fprintf(stderr, "[DisplayXR-SA] Atlas bridge OpenSharedHandle failed: 0x%08lx\n", hr);
+					}
 				}
 			}
 		}
@@ -721,26 +820,43 @@ displayxr_standalone_set_unity_device(void *unity_native_tex)
 	}
 	fprintf(stderr, "[DisplayXR-SA] set_unity_device: native tex ptr=%p\n", unity_native_tex);
 
-	// IUnknown::QueryInterface to verify this is actually an ID3D12Resource
-	// before calling GetDevice. This avoids crashing on D3D11 pointers.
 	IUnknown *unk = (IUnknown *)unity_native_tex;
-	ID3D12Resource *res = NULL;
-	HRESULT hr = unk->QueryInterface(__uuidof(ID3D12Resource), (void **)&res);
-	if (FAILED(hr) || !res) {
-		fprintf(stderr, "[DisplayXR-SA] Texture is not an ID3D12Resource (hr=0x%08lx). "
-		        "Unity may be using D3D11 — set Graphics API to Direct3D12.\n", hr);
+
+	// Try D3D12 first
+	ID3D12Resource *res12 = NULL;
+	HRESULT hr = unk->QueryInterface(__uuidof(ID3D12Resource), (void **)&res12);
+	if (SUCCEEDED(hr) && res12) {
+		ID3D12Device *dev = NULL;
+		hr = res12->GetDevice(__uuidof(ID3D12Device), (void **)&dev);
+		res12->Release();
+		if (SUCCEEDED(hr) && dev) {
+			s_unity_d3d12_device = dev;
+			s_use_d3d11 = 0;
+			fprintf(stderr, "[DisplayXR-SA] Using Unity's D3D12 device: %p\n", (void *)dev);
+		} else {
+			fprintf(stderr, "[DisplayXR-SA] GetDevice (D3D12) failed: hr=0x%08lx\n", hr);
+		}
 		return;
 	}
 
-	ID3D12Device *dev = NULL;
-	hr = res->GetDevice(__uuidof(ID3D12Device), (void **)&dev);
-	res->Release(); // Release the QI ref
-	if (SUCCEEDED(hr) && dev) {
-		s_unity_d3d12_device = dev;
-		fprintf(stderr, "[DisplayXR-SA] Using Unity's D3D12 device: %p\n", (void *)dev);
-	} else {
-		fprintf(stderr, "[DisplayXR-SA] GetDevice failed: hr=0x%08lx\n", hr);
+	// Try D3D11
+	ID3D11Resource *res11 = NULL;
+	hr = unk->QueryInterface(__uuidof(ID3D11Resource), (void **)&res11);
+	if (SUCCEEDED(hr) && res11) {
+		ID3D11Device *dev = NULL;
+		res11->GetDevice(&dev);
+		res11->Release();
+		if (dev) {
+			s_unity_d3d11_device = dev;
+			s_use_d3d11 = 1;
+			fprintf(stderr, "[DisplayXR-SA] Using Unity's D3D11 device: %p\n", (void *)dev);
+		} else {
+			fprintf(stderr, "[DisplayXR-SA] GetDevice (D3D11) failed\n");
+		}
+		return;
 	}
+
+	fprintf(stderr, "[DisplayXR-SA] Texture is neither D3D12 nor D3D11 resource (hr=0x%08lx)\n", hr);
 #else
 	(void)unity_native_tex;
 #endif
@@ -870,17 +986,28 @@ displayxr_standalone_start(const char *runtime_json_path)
 #endif
 
 	// --- Step 3: Create OpenXR instance ---
+#if defined(__APPLE__)
 	const char *extensions[] = {
 		XR_EXT_DISPLAY_INFO_EXTENSION_NAME,
-#if defined(__APPLE__)
 		XR_KHR_METAL_ENABLE_EXTENSION_NAME,
 		XR_EXT_COCOA_WINDOW_BINDING_EXTENSION_NAME,
-#elif defined(_WIN32)
-		"XR_KHR_D3D12_enable",
-		XR_EXT_WIN32_WINDOW_BINDING_EXTENSION_NAME,
-#endif
 	};
 	uint32_t ext_count = sizeof(extensions) / sizeof(extensions[0]);
+#elif defined(_WIN32)
+	// Choose D3D extension at runtime based on which Unity graphics API is active.
+	const char *d3d_ext = s_use_d3d11 ? "XR_KHR_D3D11_enable" : "XR_KHR_D3D12_enable";
+	const char *extensions[] = {
+		XR_EXT_DISPLAY_INFO_EXTENSION_NAME,
+		d3d_ext,
+		XR_EXT_WIN32_WINDOW_BINDING_EXTENSION_NAME,
+	};
+	uint32_t ext_count = sizeof(extensions) / sizeof(extensions[0]);
+#else
+	const char *extensions[] = {
+		XR_EXT_DISPLAY_INFO_EXTENSION_NAME,
+	};
+	uint32_t ext_count = sizeof(extensions) / sizeof(extensions[0]);
+#endif
 
 	PFN_xrVoidFunction fn_create = NULL;
 	s_sa.gipa(XR_NULL_HANDLE, "xrCreateInstance", &fn_create);
@@ -946,8 +1073,64 @@ displayxr_standalone_start(const char *runtime_json_path)
 		}
 	}
 #elif defined(_WIN32)
-	// --- Step 5b: Get D3D12 graphics requirements + create device ---
-	{
+	// --- Step 5b: Graphics requirements + create device ---
+	if (s_use_d3d11) {
+		// D3D11 path: query requirements, create our own D3D11 device
+		PFN_xrVoidFunction fn_req = NULL;
+		s_sa.gipa(s_sa.instance, "xrGetD3D11GraphicsRequirementsKHR", &fn_req);
+
+		LUID adapter_luid = {};
+		if (fn_req) {
+			XrGraphicsRequirementsD3D11KHR req = {};
+			req.type = XR_TYPE_GRAPHICS_REQUIREMENTS_D3D11_KHR;
+			result = ((XrResult(XRAPI_CALL *)(XrInstance, XrSystemId, void *))fn_req)(
+				s_sa.instance, s_sa.system_id, &req);
+			if (XR_FAILED(result)) {
+				fprintf(stderr, "[DisplayXR-SA] xrGetD3D11GraphicsRequirementsKHR failed: %d\n", result);
+				displayxr_standalone_stop();
+				return 0;
+			}
+			adapter_luid = req.adapterLuid;
+			fprintf(stderr, "[DisplayXR-SA] D3D11 requirements: adapter LUID=%08lx-%08lx, minFeatureLevel=0x%x\n",
+			        adapter_luid.HighPart, adapter_luid.LowPart, (unsigned)req.minFeatureLevel);
+		}
+
+		// Create our own D3D11 device for the runtime session (same reason as D3D12 —
+		// sharing Unity's device causes conflicts with the compositor).
+		{
+			IDXGIFactory4 *factory = NULL;
+			CreateDXGIFactory2(0, __uuidof(IDXGIFactory4), (void **)&factory);
+			IDXGIAdapter1 *adapter = NULL;
+			if (factory && (adapter_luid.HighPart != 0 || adapter_luid.LowPart != 0)) {
+				HRESULT hr2 = factory->EnumAdapterByLuid(adapter_luid, __uuidof(IDXGIAdapter1), (void **)&adapter);
+				if (SUCCEEDED(hr2)) {
+					DXGI_ADAPTER_DESC1 desc;
+					adapter->GetDesc1(&desc);
+					fprintf(stderr, "[DisplayXR-SA] Found matching adapter: %ls\n", desc.Description);
+				}
+			}
+			if (factory) factory->Release();
+
+			UINT flags = 0;
+			D3D_FEATURE_LEVEL feat_levels[] = { D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0 };
+			D3D_FEATURE_LEVEL chosen_level = D3D_FEATURE_LEVEL_11_0;
+			HRESULT hr = D3D11CreateDevice(
+				adapter, adapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE,
+				NULL, flags,
+				feat_levels, 2,
+				D3D11_SDK_VERSION,
+				&s_sa.d3d11_device, &chosen_level, &s_sa.d3d11_context);
+			if (adapter) adapter->Release();
+			if (FAILED(hr) || !s_sa.d3d11_device) {
+				fprintf(stderr, "[DisplayXR-SA] D3D11CreateDevice failed: 0x%08lx\n", hr);
+				displayxr_standalone_stop();
+				return 0;
+			}
+			fprintf(stderr, "[DisplayXR-SA] Created own D3D11 device for runtime session (featureLevel=0x%x)\n",
+			        (unsigned)chosen_level);
+		}
+	} else {
+		// D3D12 path: query requirements, create our own D3D12 device
 		PFN_xrVoidFunction fn_req = NULL;
 		s_sa.gipa(s_sa.instance, "xrGetD3D12GraphicsRequirementsKHR", &fn_req);
 
@@ -1068,65 +1251,124 @@ displayxr_standalone_start(const char *runtime_json_path)
 		s_sa.tex_ready = 1;
 	}
 #elif defined(_WIN32)
-	// --- Step 7: Create D3D12 shared texture ---
+	// --- Step 7: Create shared output texture ---
 	if (s_sa.display_info.is_valid &&
 	    s_sa.display_info.display_pixel_width > 0 &&
 	    s_sa.display_info.display_pixel_height > 0)
 	{
-		D3D12_HEAP_PROPERTIES heap = {};
-		heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+		uint32_t disp_w = s_sa.display_info.display_pixel_width;
+		uint32_t disp_h = s_sa.display_info.display_pixel_height;
 
-		D3D12_RESOURCE_DESC td = {};
-		td.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-		td.Width = s_sa.display_info.display_pixel_width;
-		td.Height = s_sa.display_info.display_pixel_height;
-		td.DepthOrArraySize = 1;
-		td.MipLevels = 1;
-		td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		td.SampleDesc.Count = 1;
-		td.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-		td.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+		if (s_use_d3d11) {
+			// D3D11 shared texture
+			D3D11_TEXTURE2D_DESC td = {};
+			td.Width  = disp_w;
+			td.Height = disp_h;
+			td.MipLevels = 1;
+			td.ArraySize = 1;
+			td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			td.SampleDesc.Count = 1;
+			td.Usage = D3D11_USAGE_DEFAULT;
+			td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+			td.MiscFlags = D3D11_RESOURCE_MISC_SHARED;
 
-		HRESULT hr = s_sa.d3d12_device->CreateCommittedResource(
-			&heap, D3D12_HEAP_FLAG_SHARED, &td,
-			D3D12_RESOURCE_STATE_COMMON, NULL,
-			__uuidof(ID3D12Resource), (void **)&s_sa.d3d12_shared_texture);
-		if (FAILED(hr)) {
-			fprintf(stderr, "[DisplayXR-SA] CreateCommittedResource (shared) failed: 0x%08lx\n", hr);
-			displayxr_standalone_stop();
-			return 0;
-		}
-
-		hr = s_sa.d3d12_device->CreateSharedHandle(
-			s_sa.d3d12_shared_texture, NULL, GENERIC_ALL, NULL,
-			&s_sa.d3d12_shared_handle);
-		if (FAILED(hr)) {
-			fprintf(stderr, "[DisplayXR-SA] CreateSharedHandle failed: 0x%08lx\n", hr);
-			displayxr_standalone_stop();
-			return 0;
-		}
-
-		s_sa.tex_width = (uint32_t)td.Width;
-		s_sa.tex_height = td.Height;
-		fprintf(stderr, "[DisplayXR-SA] D3D12 shared texture: %ux%u, handle=%p\n",
-		        (unsigned)td.Width, td.Height, s_sa.d3d12_shared_handle);
-
-		// Open the shared texture on Unity's device so C# can wrap it
-		// with CreateExternalTexture (needs an ID3D12Resource* on Unity's device).
-		if (s_unity_d3d12_device && s_sa.d3d12_shared_handle) {
-			hr = s_unity_d3d12_device->OpenSharedHandle(
-				s_sa.d3d12_shared_handle,
-				__uuidof(ID3D12Resource), (void **)&s_sa.d3d12_unity_shared);
-			if (SUCCEEDED(hr) && s_sa.d3d12_unity_shared) {
-				fprintf(stderr, "[DisplayXR-SA] Opened shared texture on Unity device: %p\n",
-				        (void *)s_sa.d3d12_unity_shared);
-				s_sa.tex_ready = 1;
-			} else {
-				fprintf(stderr, "[DisplayXR-SA] OpenSharedHandle on Unity device failed: 0x%08lx\n", hr);
-				s_sa.tex_ready = 1; // Still usable on our device
+			HRESULT hr = s_sa.d3d11_device->CreateTexture2D(
+				&td, NULL, &s_sa.d3d11_shared_texture);
+			if (FAILED(hr)) {
+				fprintf(stderr, "[DisplayXR-SA] D3D11 CreateTexture2D (shared) failed: 0x%08lx\n", hr);
+				displayxr_standalone_stop();
+				return 0;
 			}
-		} else {
+
+			IDXGIResource *dxgi_res = NULL;
+			hr = s_sa.d3d11_shared_texture->QueryInterface(
+				__uuidof(IDXGIResource), (void **)&dxgi_res);
+			if (SUCCEEDED(hr) && dxgi_res) {
+				dxgi_res->GetSharedHandle(&s_sa.d3d11_shared_handle);
+				dxgi_res->Release();
+			}
+			if (!s_sa.d3d11_shared_handle) {
+				fprintf(stderr, "[DisplayXR-SA] D3D11 GetSharedHandle failed\n");
+				displayxr_standalone_stop();
+				return 0;
+			}
+
+			s_sa.tex_width  = disp_w;
+			s_sa.tex_height = disp_h;
+			fprintf(stderr, "[DisplayXR-SA] D3D11 shared texture: %ux%u, handle=%p\n",
+			        disp_w, disp_h, s_sa.d3d11_shared_handle);
+
+			// Open on Unity's device for C# CreateExternalTexture
+			if (s_unity_d3d11_device) {
+				hr = s_unity_d3d11_device->OpenSharedResource(
+					s_sa.d3d11_shared_handle,
+					__uuidof(ID3D11Texture2D),
+					(void **)&s_sa.d3d11_unity_shared);
+				if (SUCCEEDED(hr) && s_sa.d3d11_unity_shared) {
+					fprintf(stderr, "[DisplayXR-SA] D3D11 shared texture opened on Unity device: %p\n",
+					        (void *)s_sa.d3d11_unity_shared);
+				} else {
+					fprintf(stderr, "[DisplayXR-SA] D3D11 OpenSharedResource on Unity device failed: 0x%08lx\n", hr);
+				}
+			}
 			s_sa.tex_ready = 1;
+		} else {
+			// D3D12 shared texture
+			D3D12_HEAP_PROPERTIES heap = {};
+			heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+			D3D12_RESOURCE_DESC td = {};
+			td.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+			td.Width  = disp_w;
+			td.Height = disp_h;
+			td.DepthOrArraySize = 1;
+			td.MipLevels = 1;
+			td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			td.SampleDesc.Count = 1;
+			td.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+			td.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+			HRESULT hr = s_sa.d3d12_device->CreateCommittedResource(
+				&heap, D3D12_HEAP_FLAG_SHARED, &td,
+				D3D12_RESOURCE_STATE_COMMON, NULL,
+				__uuidof(ID3D12Resource), (void **)&s_sa.d3d12_shared_texture);
+			if (FAILED(hr)) {
+				fprintf(stderr, "[DisplayXR-SA] CreateCommittedResource (shared) failed: 0x%08lx\n", hr);
+				displayxr_standalone_stop();
+				return 0;
+			}
+
+			hr = s_sa.d3d12_device->CreateSharedHandle(
+				s_sa.d3d12_shared_texture, NULL, GENERIC_ALL, NULL,
+				&s_sa.d3d12_shared_handle);
+			if (FAILED(hr)) {
+				fprintf(stderr, "[DisplayXR-SA] CreateSharedHandle failed: 0x%08lx\n", hr);
+				displayxr_standalone_stop();
+				return 0;
+			}
+
+			s_sa.tex_width  = (uint32_t)td.Width;
+			s_sa.tex_height = td.Height;
+			fprintf(stderr, "[DisplayXR-SA] D3D12 shared texture: %ux%u, handle=%p\n",
+			        (unsigned)td.Width, td.Height, s_sa.d3d12_shared_handle);
+
+			// Open the shared texture on Unity's device so C# can wrap it
+			// with CreateExternalTexture (needs an ID3D12Resource* on Unity's device).
+			if (s_unity_d3d12_device && s_sa.d3d12_shared_handle) {
+				hr = s_unity_d3d12_device->OpenSharedHandle(
+					s_sa.d3d12_shared_handle,
+					__uuidof(ID3D12Resource), (void **)&s_sa.d3d12_unity_shared);
+				if (SUCCEEDED(hr) && s_sa.d3d12_unity_shared) {
+					fprintf(stderr, "[DisplayXR-SA] Opened shared texture on Unity device: %p\n",
+					        (void *)s_sa.d3d12_unity_shared);
+					s_sa.tex_ready = 1;
+				} else {
+					fprintf(stderr, "[DisplayXR-SA] OpenSharedHandle on Unity device failed: 0x%08lx\n", hr);
+					s_sa.tex_ready = 1; // Still usable on our device
+				}
+			} else {
+				s_sa.tex_ready = 1;
+			}
 		}
 	}
 #endif
@@ -1159,12 +1401,6 @@ displayxr_standalone_start(const char *runtime_json_path)
 	metal_binding.next = &mac_binding;
 	session_ci.next = &metal_binding;
 #elif defined(_WIN32)
-	// D3D12 graphics binding
-	XrGraphicsBindingD3D12KHR d3d12_binding = {};
-	d3d12_binding.type = XR_TYPE_GRAPHICS_BINDING_D3D12_KHR;
-	d3d12_binding.device = s_sa.d3d12_device;
-	d3d12_binding.queue = s_sa.d3d12_queue;
-
 	// Win32 window binding: use the pre-created fullscreen HWND if available
 	// (play mode — created by prepare_fullscreen_window() before session start),
 	// otherwise fall back to auto-detecting Unity's main window (edit mode preview).
@@ -1195,16 +1431,33 @@ displayxr_standalone_start(const char *runtime_json_path)
 	fprintf(stderr, "[DisplayXR-SA] Session HWND: %p (fullscreen=%s)\n",
 	        (void *)bind_hwnd, s_fw_hwnd ? "yes" : "no");
 
+	// Binding structs must stay alive across the pfn_create_session call —
+	// declare them in the outer scope so they outlive the if/else branches.
+	XrGraphicsBindingD3D11KHR d3d11_binding = {};
+	XrGraphicsBindingD3D12KHR d3d12_binding = {};
 	XrWin32WindowBindingCreateInfoEXT win_binding = {};
+
 	win_binding.type = XR_TYPE_WIN32_WINDOW_BINDING_CREATE_INFO_EXT;
 	win_binding.windowHandle = (void *)bind_hwnd;
 	win_binding.readbackCallback = NULL;
 	win_binding.readbackUserdata = NULL;
-	win_binding.sharedTextureHandle = s_sa.d3d12_shared_handle;
 
-	// Chain: session_ci → d3d12_binding → win_binding
-	d3d12_binding.next = &win_binding;
-	session_ci.next = &d3d12_binding;
+	if (s_use_d3d11) {
+		d3d11_binding.type = XR_TYPE_GRAPHICS_BINDING_D3D11_KHR;
+		d3d11_binding.device = s_sa.d3d11_device;
+		win_binding.sharedTextureHandle = s_sa.d3d11_shared_handle;
+		// Chain: session_ci → d3d11_binding → win_binding
+		d3d11_binding.next = &win_binding;
+		session_ci.next = &d3d11_binding;
+	} else {
+		d3d12_binding.type = XR_TYPE_GRAPHICS_BINDING_D3D12_KHR;
+		d3d12_binding.device = s_sa.d3d12_device;
+		d3d12_binding.queue = s_sa.d3d12_queue;
+		win_binding.sharedTextureHandle = s_sa.d3d12_shared_handle;
+		// Chain: session_ci → d3d12_binding → win_binding
+		d3d12_binding.next = &win_binding;
+		session_ci.next = &d3d12_binding;
+	}
 #endif
 
 	result = s_sa.pfn_create_session(s_sa.instance, &session_ci, &s_sa.session);
@@ -1290,6 +1543,16 @@ displayxr_standalone_stop(void)
 #if defined(__APPLE__)
 	displayxr_sa_metal_destroy();
 #elif defined(_WIN32)
+	// D3D11 resources
+	if (s_sa.d3d11_unity_atlas_bridge) { s_sa.d3d11_unity_atlas_bridge->Release(); s_sa.d3d11_unity_atlas_bridge = NULL; }
+	if (s_sa.d3d11_atlas_bridge_handle) { CloseHandle(s_sa.d3d11_atlas_bridge_handle); s_sa.d3d11_atlas_bridge_handle = NULL; }
+	if (s_sa.d3d11_atlas_bridge) { s_sa.d3d11_atlas_bridge->Release(); s_sa.d3d11_atlas_bridge = NULL; }
+	if (s_sa.d3d11_unity_shared) { s_sa.d3d11_unity_shared->Release(); s_sa.d3d11_unity_shared = NULL; }
+	if (s_sa.d3d11_shared_handle) { CloseHandle(s_sa.d3d11_shared_handle); s_sa.d3d11_shared_handle = NULL; }
+	if (s_sa.d3d11_shared_texture) { s_sa.d3d11_shared_texture->Release(); s_sa.d3d11_shared_texture = NULL; }
+	if (s_sa.d3d11_context) { s_sa.d3d11_context->Release(); s_sa.d3d11_context = NULL; }
+	if (s_sa.d3d11_device) { s_sa.d3d11_device->Release(); s_sa.d3d11_device = NULL; }
+	// D3D12 resources
 	if (s_sa.d3d12_unity_atlas_bridge) { s_sa.d3d12_unity_atlas_bridge->Release(); s_sa.d3d12_unity_atlas_bridge = NULL; }
 	if (s_sa.d3d12_atlas_bridge_handle) { CloseHandle(s_sa.d3d12_atlas_bridge_handle); s_sa.d3d12_atlas_bridge_handle = NULL; }
 	if (s_sa.d3d12_atlas_bridge) { s_sa.d3d12_atlas_bridge->Release(); s_sa.d3d12_atlas_bridge = NULL; }
@@ -1482,14 +1745,25 @@ displayxr_standalone_submit_frame_atlas(void *atlas_tex)
 		displayxr_sa_metal_blit(atlas_tex, dst);
 	}
 #elif defined(_WIN32)
-	{
-		// Cross-device atlas blit via shared bridge texture.
+	if (s_use_d3d11) {
+		// D3D11 cross-device atlas blit via shared bridge texture.
+		// C# copies Unity's atlas RT → d3d11_unity_atlas_bridge (Unity device).
+		// We copy d3d11_atlas_bridge → swapchain image (our device, same device).
+		ID3D11Texture2D *bridge = s_sa.d3d11_atlas_bridge;
+		ID3D11Texture2D *dst    = s_sa.atlas.images_d3d11[index].texture;
+		if (bridge && dst && s_sa.d3d11_context) {
+			s_sa.d3d11_context->CopyResource(dst, bridge);
+			s_sa.d3d11_context->Flush();
+		}
+		(void)atlas_tex; // Unused — C# copies to bridge via Graphics.CopyTexture
+	} else {
+		// D3D12 cross-device atlas blit via shared bridge texture.
 		// C# copies Unity's atlas RT → bridge (Unity device, via Graphics.CopyTexture).
 		// We copy bridge → swapchain image (our device, same device).
 		// Note: content is Y-flipped (Unity D3D12 convention) — the C# display
 		// flips the final shared texture output via UV coords.
 		ID3D12Resource *bridge = s_sa.d3d12_atlas_bridge;
-		ID3D12Resource *dst = s_sa.atlas.images[index].texture;
+		ID3D12Resource *dst    = s_sa.atlas.images[index].texture;
 		if (bridge && dst && s_sa.d3d12_cmd_list) {
 			s_sa.d3d12_cmd_alloc->Reset();
 			s_sa.d3d12_cmd_list->Reset(s_sa.d3d12_cmd_alloc, NULL);
@@ -1989,8 +2263,13 @@ displayxr_standalone_get_atlas_bridge_texture(void **native_ptr,
                                                uint32_t *width, uint32_t *height)
 {
 #if defined(_WIN32)
-	*native_ptr = s_sa.d3d12_unity_atlas_bridge
-		? (void *)s_sa.d3d12_unity_atlas_bridge : NULL;
+	if (s_use_d3d11) {
+		*native_ptr = s_sa.d3d11_unity_atlas_bridge
+			? (void *)s_sa.d3d11_unity_atlas_bridge : NULL;
+	} else {
+		*native_ptr = s_sa.d3d12_unity_atlas_bridge
+			? (void *)s_sa.d3d12_unity_atlas_bridge : NULL;
+	}
 	*width = s_sa.atlas.width;
 	*height = s_sa.atlas.height;
 #else
@@ -2010,9 +2289,15 @@ displayxr_standalone_get_shared_texture(void **native_ptr, uint32_t *width,
 #elif defined(_WIN32)
 	// Return the shared texture opened on Unity's device (if available),
 	// otherwise fall back to our device's resource.
-	*native_ptr = s_sa.d3d12_unity_shared
-		? (void *)s_sa.d3d12_unity_shared
-		: (void *)s_sa.d3d12_shared_texture;
+	if (s_use_d3d11) {
+		*native_ptr = s_sa.d3d11_unity_shared
+			? (void *)s_sa.d3d11_unity_shared
+			: (void *)s_sa.d3d11_shared_texture;
+	} else {
+		*native_ptr = s_sa.d3d12_unity_shared
+			? (void *)s_sa.d3d12_unity_shared
+			: (void *)s_sa.d3d12_shared_texture;
+	}
 #else
 	*native_ptr = NULL;
 #endif
@@ -2344,6 +2629,8 @@ fw_create_window(RECT mr)
 static void
 fw_destroy_swapchain(void)
 {
+	if (s_fw_bb11[0])   { s_fw_bb11[0]->Release();   s_fw_bb11[0]   = NULL; }
+	if (s_fw_bb11[1])   { s_fw_bb11[1]->Release();   s_fw_bb11[1]   = NULL; }
 	if (s_fw_cmd_list)  { s_fw_cmd_list->Release();  s_fw_cmd_list  = NULL; }
 	if (s_fw_cmd_alloc) { s_fw_cmd_alloc->Release(); s_fw_cmd_alloc = NULL; }
 	if (s_fw_bb[0])     { s_fw_bb[0]->Release();     s_fw_bb[0]     = NULL; }
@@ -2361,7 +2648,7 @@ fw_destroy_swapchain(void)
 static bool
 fw_create_swapchain(uint32_t w, uint32_t h)
 {
-	if (!s_sa.d3d12_device || !s_sa.d3d12_queue || !s_fw_hwnd) return false;
+	if (!s_fw_hwnd) return false;
 
 	IDXGIFactory4 *factory = NULL;
 	if (FAILED(CreateDXGIFactory2(0, __uuidof(IDXGIFactory4), (void **)&factory))) {
@@ -2379,8 +2666,17 @@ fw_create_swapchain(uint32_t w, uint32_t h)
 	sd.SwapEffect   = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 
 	IDXGISwapChain1 *sc1 = NULL;
-	HRESULT hr = factory->CreateSwapChainForHwnd(
-	    s_sa.d3d12_queue, s_fw_hwnd, &sd, NULL, NULL, &sc1);
+	HRESULT hr;
+
+	if (s_use_d3d11) {
+		if (!s_sa.d3d11_device) { factory->Release(); return false; }
+		hr = factory->CreateSwapChainForHwnd(
+		    s_sa.d3d11_device, s_fw_hwnd, &sd, NULL, NULL, &sc1);
+	} else {
+		if (!s_sa.d3d12_device || !s_sa.d3d12_queue) { factory->Release(); return false; }
+		hr = factory->CreateSwapChainForHwnd(
+		    s_sa.d3d12_queue, s_fw_hwnd, &sd, NULL, NULL, &sc1);
+	}
 	factory->MakeWindowAssociation(s_fw_hwnd, DXGI_MWA_NO_ALT_ENTER);
 	factory->Release();
 	if (FAILED(hr)) {
@@ -2390,25 +2686,34 @@ fw_create_swapchain(uint32_t w, uint32_t h)
 	sc1->QueryInterface(__uuidof(IDXGISwapChain3), (void **)&s_fw_swapchain);
 	sc1->Release();
 
-	for (UINT i = 0; i < 2; i++)
-		s_fw_swapchain->GetBuffer(i, __uuidof(ID3D12Resource), (void **)&s_fw_bb[i]);
+	if (s_use_d3d11) {
+		for (UINT i = 0; i < 2; i++)
+			s_fw_swapchain->GetBuffer(i, __uuidof(ID3D11Texture2D), (void **)&s_fw_bb11[i]);
+		// No command list/fence needed for D3D11 immediate context
+		s_fw_sc_w = w;
+		s_fw_sc_h = h;
+		fprintf(stderr, "[DisplayXR-FW] D3D11 swap chain created: %ux%u\n", w, h);
+	} else {
+		for (UINT i = 0; i < 2; i++)
+			s_fw_swapchain->GetBuffer(i, __uuidof(ID3D12Resource), (void **)&s_fw_bb[i]);
 
-	s_sa.d3d12_device->CreateCommandAllocator(
-	    D3D12_COMMAND_LIST_TYPE_DIRECT, __uuidof(ID3D12CommandAllocator),
-	    (void **)&s_fw_cmd_alloc);
-	s_sa.d3d12_device->CreateCommandList(
-	    0, D3D12_COMMAND_LIST_TYPE_DIRECT, s_fw_cmd_alloc, NULL,
-	    __uuidof(ID3D12GraphicsCommandList), (void **)&s_fw_cmd_list);
-	s_fw_cmd_list->Close();
+		s_sa.d3d12_device->CreateCommandAllocator(
+		    D3D12_COMMAND_LIST_TYPE_DIRECT, __uuidof(ID3D12CommandAllocator),
+		    (void **)&s_fw_cmd_alloc);
+		s_sa.d3d12_device->CreateCommandList(
+		    0, D3D12_COMMAND_LIST_TYPE_DIRECT, s_fw_cmd_alloc, NULL,
+		    __uuidof(ID3D12GraphicsCommandList), (void **)&s_fw_cmd_list);
+		s_fw_cmd_list->Close();
 
-	s_fw_fence_value = 0;
-	s_sa.d3d12_device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
-	    __uuidof(ID3D12Fence), (void **)&s_fw_fence);
-	s_fw_fence_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+		s_fw_fence_value = 0;
+		s_sa.d3d12_device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
+		    __uuidof(ID3D12Fence), (void **)&s_fw_fence);
+		s_fw_fence_event = CreateEventW(NULL, FALSE, FALSE, NULL);
 
-	s_fw_sc_w = w;
-	s_fw_sc_h = h;
-	fprintf(stderr, "[DisplayXR-FW] D3D12 swap chain created: %ux%u\n", w, h);
+		s_fw_sc_w = w;
+		s_fw_sc_h = h;
+		fprintf(stderr, "[DisplayXR-FW] D3D12 swap chain created: %ux%u\n", w, h);
+	}
 	return true;
 }
 
@@ -2421,8 +2726,10 @@ fw_resize_swapchain(uint32_t w, uint32_t h)
 	if (w == s_fw_sc_w && h == s_fw_sc_h) return;
 
 	// Release back buffer references before ResizeBuffers
-	if (s_fw_bb[0]) { s_fw_bb[0]->Release(); s_fw_bb[0] = NULL; }
-	if (s_fw_bb[1]) { s_fw_bb[1]->Release(); s_fw_bb[1] = NULL; }
+	if (s_fw_bb11[0]) { s_fw_bb11[0]->Release(); s_fw_bb11[0] = NULL; }
+	if (s_fw_bb11[1]) { s_fw_bb11[1]->Release(); s_fw_bb11[1] = NULL; }
+	if (s_fw_bb[0])   { s_fw_bb[0]->Release();   s_fw_bb[0]   = NULL; }
+	if (s_fw_bb[1])   { s_fw_bb[1]->Release();   s_fw_bb[1]   = NULL; }
 
 	HRESULT hr = s_fw_swapchain->ResizeBuffers(
 	    2, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, 0);
@@ -2431,8 +2738,13 @@ fw_resize_swapchain(uint32_t w, uint32_t h)
 		return;
 	}
 
-	for (UINT i = 0; i < 2; i++)
-		s_fw_swapchain->GetBuffer(i, __uuidof(ID3D12Resource), (void **)&s_fw_bb[i]);
+	if (s_use_d3d11) {
+		for (UINT i = 0; i < 2; i++)
+			s_fw_swapchain->GetBuffer(i, __uuidof(ID3D11Texture2D), (void **)&s_fw_bb11[i]);
+	} else {
+		for (UINT i = 0; i < 2; i++)
+			s_fw_swapchain->GetBuffer(i, __uuidof(ID3D12Resource), (void **)&s_fw_bb[i]);
+	}
 
 	s_fw_sc_w = w;
 	s_fw_sc_h = h;
@@ -2617,63 +2929,77 @@ displayxr_standalone_fullscreen_window_present(void)
 	}
 
 	// Blit shared texture → swap chain back buffer → Present
-	if (!s_fw_swapchain || !s_sa.d3d12_shared_texture) return;
+	if (!s_fw_swapchain) return;
 
 	UINT bb_idx = s_fw_swapchain->GetCurrentBackBufferIndex();
-	ID3D12Resource *bb = s_fw_bb[bb_idx];
 
-	s_fw_cmd_alloc->Reset();
-	s_fw_cmd_list->Reset(s_fw_cmd_alloc, NULL);
+	if (s_use_d3d11) {
+		// D3D11 blit: CopySubresourceRegion canvas region → back buffer
+		ID3D11Texture2D *src = s_sa.d3d11_shared_texture;
+		ID3D11Texture2D *bb  = s_fw_bb11[bb_idx];
+		if (!src || !bb || !s_sa.d3d11_context) return;
 
-	D3D12_RESOURCE_BARRIER barriers[2] = {};
-	barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-	barriers[0].Transition.pResource  = s_sa.d3d12_shared_texture;
-	barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
-	barriers[0].Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_SOURCE;
-	barriers[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+		D3D11_BOX box = { 0, 0, 0, s_fw_sc_w, s_fw_sc_h, 1 };
+		s_sa.d3d11_context->CopySubresourceRegion(bb, 0, 0, 0, 0, src, 0, &box);
+		s_sa.d3d11_context->Flush();
+	} else {
+		// D3D12 blit via command list
+		if (!s_sa.d3d12_shared_texture) return;
+		ID3D12Resource *bb = s_fw_bb[bb_idx];
 
-	barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-	barriers[1].Transition.pResource  = bb;
-	barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-	barriers[1].Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_DEST;
-	barriers[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+		s_fw_cmd_alloc->Reset();
+		s_fw_cmd_list->Reset(s_fw_cmd_alloc, NULL);
 
-	s_fw_cmd_list->ResourceBarrier(2, barriers);
+		D3D12_RESOURCE_BARRIER barriers[2] = {};
+		barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+		barriers[0].Transition.pResource  = s_sa.d3d12_shared_texture;
+		barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+		barriers[0].Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_SOURCE;
+		barriers[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
 
-	// Copy only the canvas-sized content region from the shared texture.
-	// The shared texture is always disp_w×disp_h but the runtime only writes
-	// in the top-left s_fw_sc_w×s_fw_sc_h area (= current canvas).
-	{
-		D3D12_TEXTURE_COPY_LOCATION src = {};
-		src.pResource        = s_sa.d3d12_shared_texture;
-		src.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-		src.SubresourceIndex = 0;
+		barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+		barriers[1].Transition.pResource  = bb;
+		barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+		barriers[1].Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_DEST;
+		barriers[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
 
-		D3D12_TEXTURE_COPY_LOCATION dst = {};
-		dst.pResource        = bb;
-		dst.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-		dst.SubresourceIndex = 0;
+		s_fw_cmd_list->ResourceBarrier(2, barriers);
 
-		D3D12_BOX box = { 0, 0, 0, s_fw_sc_w, s_fw_sc_h, 1 };
-		s_fw_cmd_list->CopyTextureRegion(&dst, 0, 0, 0, &src, &box);
-	}
+		// Copy only the canvas-sized content region from the shared texture.
+		// The shared texture is always disp_w×disp_h but the runtime only writes
+		// in the top-left s_fw_sc_w×s_fw_sc_h area (= current canvas).
+		{
+			D3D12_TEXTURE_COPY_LOCATION src = {};
+			src.pResource        = s_sa.d3d12_shared_texture;
+			src.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+			src.SubresourceIndex = 0;
 
-	barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
-	barriers[0].Transition.StateAfter  = D3D12_RESOURCE_STATE_COMMON;
-	barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-	barriers[1].Transition.StateAfter  = D3D12_RESOURCE_STATE_PRESENT;
-	s_fw_cmd_list->ResourceBarrier(2, barriers);
+			D3D12_TEXTURE_COPY_LOCATION dst = {};
+			dst.pResource        = bb;
+			dst.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+			dst.SubresourceIndex = 0;
 
-	s_fw_cmd_list->Close();
-	ID3D12CommandList *lists[] = { s_fw_cmd_list };
-	s_sa.d3d12_queue->ExecuteCommandLists(1, lists);
+			D3D12_BOX box = { 0, 0, 0, s_fw_sc_w, s_fw_sc_h, 1 };
+			s_fw_cmd_list->CopyTextureRegion(&dst, 0, 0, 0, &src, &box);
+		}
 
-	// Wait for GPU completion before Present (fence on same queue as runtime)
-	s_fw_fence_value++;
-	s_sa.d3d12_queue->Signal(s_fw_fence, s_fw_fence_value);
-	if (s_fw_fence->GetCompletedValue() < s_fw_fence_value) {
-		s_fw_fence->SetEventOnCompletion(s_fw_fence_value, s_fw_fence_event);
-		WaitForSingleObject(s_fw_fence_event, INFINITE);
+		barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+		barriers[0].Transition.StateAfter  = D3D12_RESOURCE_STATE_COMMON;
+		barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+		barriers[1].Transition.StateAfter  = D3D12_RESOURCE_STATE_PRESENT;
+		s_fw_cmd_list->ResourceBarrier(2, barriers);
+
+		s_fw_cmd_list->Close();
+		ID3D12CommandList *lists[] = { s_fw_cmd_list };
+		s_sa.d3d12_queue->ExecuteCommandLists(1, lists);
+
+		// Wait for GPU completion before Present (fence on same queue as runtime)
+		s_fw_fence_value++;
+		s_sa.d3d12_queue->Signal(s_fw_fence, s_fw_fence_value);
+		if (s_fw_fence->GetCompletedValue() < s_fw_fence_value) {
+			s_fw_fence->SetEventOnCompletion(s_fw_fence_value, s_fw_fence_event);
+			WaitForSingleObject(s_fw_fence_event, INFINITE);
+		}
 	}
 
 	s_fw_swapchain->Present(0, 0);
