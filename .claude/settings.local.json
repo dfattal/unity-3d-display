@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(cmd:*)",
+      "Bash(cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release)",
+      "Bash(cmake --build build --config Release)"
+    ]
+  }
+}

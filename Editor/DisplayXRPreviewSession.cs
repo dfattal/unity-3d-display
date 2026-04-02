@@ -114,6 +114,9 @@ namespace DisplayXR.Editor
                     // (domain reload has wiped static fields, so read from SessionState)
                     if (SessionState.GetBool(kPlayModeStartedKey, false) && !IsRunning)
                     {
+                        // Create the fullscreen HWND before xrCreateSession so the
+                        // runtime can bind it via XrWin32WindowBindingCreateInfoEXT.
+                        DisplayXRNative.displayxr_standalone_prepare_fullscreen_window();
                         Start();
                     }
                     // Don't focus the preview window — let Game View keep focus

@@ -239,8 +239,14 @@ namespace DisplayXR
         // Fullscreen window on 3D display (play mode)
         // ====================================================================
 
-        /// <summary>Opens a borderless fullscreen window on the 3D monitor and sets
-        /// canvas_rect to the full display. Returns 1 on success.</summary>
+        /// <summary>Creates the borderless fullscreen HWND on the 3D monitor BEFORE
+        /// the session starts, so it can be bound at xrCreateSession time.
+        /// Returns 1 on success.</summary>
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int displayxr_standalone_prepare_fullscreen_window();
+
+        /// <summary>Shows the pre-created fullscreen window and sets canvas_rect to
+        /// the full display. Returns 1 on success.</summary>
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int displayxr_standalone_fullscreen_window_show();
 

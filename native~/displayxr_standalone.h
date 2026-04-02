@@ -214,9 +214,15 @@ DISPLAYXR_EXPORT int displayxr_standalone_enumerate_rendering_modes(
     float *view_scale_x, float *view_scale_y,
     int *hardware_display_3d);
 
-/// Open a borderless fullscreen window on the 3D monitor for play mode output.
-/// Sets canvas_rect to the full display so the weaver aligns correctly.
-/// Returns 1 on success, 0 on failure (session not running, display info not ready).
+/// (Windows only) Create the borderless fullscreen HWND on the 3D monitor.
+/// Must be called BEFORE displayxr_standalone_start() so that the HWND is
+/// available at xrCreateSession time (bound via XrWin32WindowBindingCreateInfoEXT).
+/// The runtime then handles all presentation to this window in xrEndFrame.
+/// Returns 1 on success, 0 on failure.
+DISPLAYXR_EXPORT int  displayxr_standalone_prepare_fullscreen_window(void);
+
+/// Show (make visible) the pre-created fullscreen window and assert canvas_rect.
+/// Returns 1 on success, 0 on failure (HWND not created, display info not ready).
 DISPLAYXR_EXPORT int  displayxr_standalone_fullscreen_window_show(void);
 
 /// Close the fullscreen window and release its D3D12 resources.
