@@ -184,7 +184,10 @@ namespace DisplayXR
 
         private void HandleFullscreen()
         {
-            if (GetKeyDown(KeyCode.F11))
+            // F11 is handled by the native window when it is active.
+            // Only fall through to Unity's Game View fullscreen toggle when
+            // the native window is not showing.
+            if (!m_FullscreenShown && GetKeyDown(KeyCode.F11))
                 Screen.fullScreen = !Screen.fullScreen;
         }
 

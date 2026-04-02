@@ -265,6 +265,8 @@ static ID3D12GraphicsCommandList *s_fw_cmd_list;
 static ID3D12Fence             *s_fw_fence;
 static HANDLE                   s_fw_fence_event;
 static uint64_t                 s_fw_fence_value;
+static bool                     s_fw_is_fullscreen;
+static RECT                     s_fw_windowed_rect; // saved windowed pos/size
 #endif
 
 // (displayxr_standalone_fullscreen_window_hide declared in displayxr_standalone.h)
@@ -2178,11 +2180,14 @@ displayxr_standalone_enumerate_rendering_modes(
 
 #if defined(_WIN32)
 
+static void fw_toggle_fullscreen(void); // forward decl
+
 static LRESULT CALLBACK
 fw_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
 	(void)hwnd; (void)lp;
 	if (msg == WM_KEYDOWN && wp == VK_ESCAPE) { s_fw_escape_pressed = 1; return 0; }
+	if (msg == WM_KEYDOWN && wp == VK_F11)    { fw_toggle_fullscreen(); return 0; }
 	if (msg == WM_CLOSE)                       { s_fw_escape_pressed = 1; return 0; }
 	return DefWindowProcW(hwnd, msg, wp, lp);
 }
@@ -2214,6 +2219,70 @@ fw_find_monitor_cb(HMONITOR hm, HDC, LPRECT, LPARAM lp)
 		f->found_rect = mi.rcMonitor;
 	}
 	return TRUE;
+}
+
+static BOOL CALLBACK
+fw_count_monitors_cb(HMONITOR, HDC, LPRECT, LPARAM lp)
+{
+	(*(int *)lp)++;
+	return TRUE;
+}
+
+static int
+fw_count_monitors(void)
+{
+	int n = 0;
+	EnumDisplayMonitors(NULL, NULL, fw_count_monitors_cb, (LPARAM)&n);
+	return n;
+}
+
+// Toggle the window between borderless fullscreen (on the 3D monitor) and
+// a windowed mode. Saves/restores windowed rect so the window returns to its
+// previous position when going back to windowed.
+static void
+fw_toggle_fullscreen(void)
+{
+	if (!s_fw_hwnd) return;
+
+	if (s_fw_is_fullscreen) {
+		// Go windowed: restore title-bar style and saved rect
+		SetWindowLongW(s_fw_hwnd, GWL_STYLE,   WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE);
+		SetWindowLongW(s_fw_hwnd, GWL_EXSTYLE, WS_EX_APPWINDOW);
+		SetWindowPos(s_fw_hwnd, HWND_TOP,
+		             s_fw_windowed_rect.left,
+		             s_fw_windowed_rect.top,
+		             s_fw_windowed_rect.right  - s_fw_windowed_rect.left,
+		             s_fw_windowed_rect.bottom - s_fw_windowed_rect.top,
+		             SWP_FRAMECHANGED | SWP_NOACTIVATE);
+		s_fw_is_fullscreen = false;
+		fprintf(stderr, "[DisplayXR-FW] toggle: windowed\n");
+	} else {
+		// Go fullscreen: save current rect, find 3D monitor, cover it
+		GetWindowRect(s_fw_hwnd, &s_fw_windowed_rect);
+
+		uint32_t disp_w = s_sa.display_info.display_pixel_width;
+		uint32_t disp_h = s_sa.display_info.display_pixel_height;
+		FWMonitorFind finder = { disp_w, disp_h, NULL, {} };
+		if (disp_w > 0 && disp_h > 0)
+			EnumDisplayMonitors(NULL, NULL, fw_find_monitor_cb, (LPARAM)&finder);
+		if (!finder.found) {
+			FWMonitorFind fb = { 0, 0, NULL, {} };
+			EnumDisplayMonitors(NULL, NULL, fw_find_monitor_cb, (LPARAM)&fb);
+			finder = fb;
+		}
+		if (!finder.found) return;
+
+		RECT mr = finder.found_rect;
+		SetWindowLongW(s_fw_hwnd, GWL_STYLE,   WS_POPUP | WS_VISIBLE);
+		SetWindowLongW(s_fw_hwnd, GWL_EXSTYLE, WS_EX_TOPMOST | WS_EX_APPWINDOW);
+		SetWindowPos(s_fw_hwnd, HWND_TOPMOST,
+		             mr.left, mr.top,
+		             mr.right - mr.left, mr.bottom - mr.top,
+		             SWP_FRAMECHANGED | SWP_NOACTIVATE);
+		s_fw_is_fullscreen = true;
+		fprintf(stderr, "[DisplayXR-FW] toggle: fullscreen on (%ld,%ld)\n",
+		        mr.left, mr.top);
+	}
 }
 
 static HWND
@@ -2376,26 +2445,47 @@ displayxr_standalone_fullscreen_window_show(void)
 	uint32_t disp_w = s_sa.display_info.display_pixel_width;
 	uint32_t disp_h = s_sa.display_info.display_pixel_height;
 
-	// Find the monitor whose resolution matches the 3D display pixel dimensions.
-	// This is more reliable than primary/non-primary heuristics: the 3D display
-	// may be the primary monitor in some Windows configurations.
-	FWMonitorFind finder = { disp_w, disp_h, NULL, {} };
-	EnumDisplayMonitors(NULL, NULL, fw_find_monitor_cb, (LPARAM)&finder);
-	if (!finder.found) {
-		// No exact match — fall back to non-primary
-		FWMonitorFind fb = { 0, 0, NULL, {} };
-		EnumDisplayMonitors(NULL, NULL, fw_find_monitor_cb, (LPARAM)&fb);
-		finder = fb;
-	}
-	if (finder.found) {
-		RECT mr = finder.found_rect;
-		SetWindowPos(s_fw_hwnd, HWND_TOPMOST,
-		             mr.left, mr.top,
-		             (int)(mr.right - mr.left), (int)(mr.bottom - mr.top),
+	int monitor_count = fw_count_monitors();
+
+	if (monitor_count > 1) {
+		// Multiple monitors: open fullscreen on the 3D display.
+		// Match by display pixel dimensions; fall back to non-primary.
+		FWMonitorFind finder = { disp_w, disp_h, NULL, {} };
+		EnumDisplayMonitors(NULL, NULL, fw_find_monitor_cb, (LPARAM)&finder);
+		if (!finder.found) {
+			FWMonitorFind fb = { 0, 0, NULL, {} };
+			EnumDisplayMonitors(NULL, NULL, fw_find_monitor_cb, (LPARAM)&fb);
+			finder = fb;
+		}
+		if (finder.found) {
+			RECT mr = finder.found_rect;
+			SetWindowLongW(s_fw_hwnd, GWL_STYLE,   WS_POPUP | WS_VISIBLE);
+			SetWindowLongW(s_fw_hwnd, GWL_EXSTYLE, WS_EX_TOPMOST | WS_EX_APPWINDOW);
+			SetWindowPos(s_fw_hwnd, HWND_TOPMOST,
+			             mr.left, mr.top,
+			             mr.right - mr.left, mr.bottom - mr.top,
+			             SWP_FRAMECHANGED | SWP_NOACTIVATE);
+			fprintf(stderr, "[DisplayXR-FW] show: fullscreen on (%ld,%ld) %ldx%ld\n",
+			        mr.left, mr.top,
+			        mr.right - mr.left, mr.bottom - mr.top);
+		}
+		s_fw_is_fullscreen = true;
+	} else {
+		// Single monitor: open windowed at half display size, centered.
+		uint32_t win_w = disp_w / 2;
+		uint32_t win_h = disp_h / 2;
+		int cx = GetSystemMetrics(SM_CXSCREEN);
+		int cy = GetSystemMetrics(SM_CYSCREEN);
+		int x  = (cx - (int)win_w) / 2;
+		int y  = (cy - (int)win_h) / 2;
+		SetWindowLongW(s_fw_hwnd, GWL_STYLE,   WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE);
+		SetWindowLongW(s_fw_hwnd, GWL_EXSTYLE, WS_EX_APPWINDOW);
+		SetWindowPos(s_fw_hwnd, HWND_TOP, x, y, (int)win_w, (int)win_h,
 		             SWP_FRAMECHANGED | SWP_NOACTIVATE);
-		fprintf(stderr, "[DisplayXR-FW] show: moved window to monitor (%ld,%ld) size %ldx%ld\n",
-		        mr.left, mr.top,
-		        mr.right - mr.left, mr.bottom - mr.top);
+		GetWindowRect(s_fw_hwnd, &s_fw_windowed_rect);
+		s_fw_is_fullscreen = false;
+		fprintf(stderr, "[DisplayXR-FW] show: windowed %ux%u at (%d,%d)\n",
+		        win_w, win_h, x, y);
 	}
 
 	// Create D3D12 swap chain if not already created (idempotent).
@@ -2429,6 +2519,7 @@ displayxr_standalone_fullscreen_window_hide(void)
 		s_fw_hwnd = NULL;
 	}
 	s_fw_escape_pressed = 0;
+	s_fw_is_fullscreen  = false;
 	fprintf(stderr, "[DisplayXR-FW] Fullscreen window destroyed\n");
 #endif
 }
