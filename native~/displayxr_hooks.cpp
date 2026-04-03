@@ -4,32 +4,12 @@
 // OpenXR function interception layer for the DisplayXR Unity plugin.
 // Hooks into Unity's OpenXR loader chain via HookGetInstanceProcAddr.
 
-#include "displayxr_hooks.h"
-#include "displayxr_extensions.h"
-#include "displayxr_kooima.h"
-#include "displayxr_shared_state.h"
-#include "displayxr_readback.h"
-#include "camera3d_view.h"
-#include <math.h>
-
-#if defined(__APPLE__)
-#include "displayxr_metal.h"
-#elif defined(_WIN32)
-#include "displayxr_win32.h"
-#include <d3d11.h>
-#endif
-
-#include <string.h>
-#include <stdio.h>
-#include <stdarg.h>
-#if !defined(_WIN32)
-#include <dlfcn.h>
-#endif
+#include "displayxr_hooks_internal.h"
 
 // --- Logging helper ---
 // On Windows built apps, fprintf(stderr) goes nowhere (no console).
 // Write to a file next to the executable so logs are always accessible.
-static void displayxr_log(const char *fmt, ...)
+void displayxr_log(const char *fmt, ...)
 {
 	va_list args;
 	va_start(args, fmt);
@@ -58,34 +38,24 @@ static void displayxr_log(const char *fmt, ...)
 	va_end(args);
 }
 
-// --- D3D11 swapchain image struct (from openxr_platform.h) ---
-// Defined inline to avoid requiring XR_USE_GRAPHICS_API_D3D11 globally.
-#if defined(_WIN32)
-typedef struct XrSwapchainImageD3D11KHR {
-	XrStructureType type;
-	void *next;
-	ID3D11Texture2D *texture;
-} XrSwapchainImageD3D11KHR;
-#endif
-
 // --- Stored real function pointers ---
-static PFN_xrGetInstanceProcAddr s_next_gipa = nullptr;
-static PFN_xrLocateViews s_real_locate_views = nullptr;
-static PFN_xrGetSystemProperties s_real_get_system_properties = nullptr;
-static PFN_xrCreateSession s_real_create_session = nullptr;
-static PFN_xrDestroySession s_real_destroy_session = nullptr;
-static PFN_xrEndFrame s_real_end_frame = nullptr;
-static PFN_xrCreateReferenceSpace s_real_create_reference_space = nullptr;
-static volatile PFN_xrPollEvent s_real_poll_event = nullptr;
-static PFN_xrDestroyInstance s_real_destroy_instance = nullptr;
+PFN_xrGetInstanceProcAddr s_next_gipa = nullptr;
+PFN_xrLocateViews s_real_locate_views = nullptr;
+PFN_xrGetSystemProperties s_real_get_system_properties = nullptr;
+PFN_xrCreateSession s_real_create_session = nullptr;
+PFN_xrDestroySession s_real_destroy_session = nullptr;
+PFN_xrEndFrame s_real_end_frame = nullptr;
+PFN_xrCreateReferenceSpace s_real_create_reference_space = nullptr;
+volatile PFN_xrPollEvent s_real_poll_event = nullptr;
+PFN_xrDestroyInstance s_real_destroy_instance = nullptr;
 
 // --- Swapchain diagnostic hooks (issue #36: D3D11 black screen) ---
-static PFN_xrEnumerateSwapchainFormats s_real_enumerate_swapchain_formats = nullptr;
-static PFN_xrCreateSwapchain s_real_create_swapchain = nullptr;
-static PFN_xrEnumerateSwapchainImages s_real_enumerate_swapchain_images = nullptr;
-static PFN_xrAcquireSwapchainImage s_real_acquire_swapchain_image = nullptr;
-static PFN_xrWaitSwapchainImage s_real_wait_swapchain_image = nullptr;
-static PFN_xrReleaseSwapchainImage s_real_release_swapchain_image = nullptr;
+PFN_xrEnumerateSwapchainFormats s_real_enumerate_swapchain_formats = nullptr;
+PFN_xrCreateSwapchain s_real_create_swapchain = nullptr;
+PFN_xrEnumerateSwapchainImages s_real_enumerate_swapchain_images = nullptr;
+PFN_xrAcquireSwapchainImage s_real_acquire_swapchain_image = nullptr;
+PFN_xrWaitSwapchainImage s_real_wait_swapchain_image = nullptr;
+PFN_xrReleaseSwapchainImage s_real_release_swapchain_image = nullptr;
 
 // --- D3D11 GPU sync (issue #36: rendering artifacts from async GPU) ---
 #if defined(_WIN32)
@@ -106,22 +76,10 @@ static ID3D11DeviceContext *s_d3d11_context = nullptr;
 
 #define DISPLAYXR_MAX_SC_SUBS 8
 
-struct D3D11ScSub {
-	XrSwapchain unity_sc;  // TYPELESS swapchain created by runtime
-	XrSwapchain typed_sc;  // R8G8B8A8_UNORM_SRGB swapchain we created
-	uint32_t width, height; // swapchain pixel dimensions (from xrCreateSwapchain)
-	bool active;
-	// SBS composite support
-	ID3D11Texture2D *typed_textures[8]; // textures from xrEnumerateSwapchainImages
-	uint32_t typed_img_count;
-	uint32_t current_idx;       // image index acquired this frame
-	bool release_pending;       // deferred: composite runs before actual typed_sc release
-};
-
 static D3D11ScSub s_sc_subs[DISPLAYXR_MAX_SC_SUBS];
 static int s_sc_sub_count = 0;
 
-static PFN_xrDestroySwapchain s_real_destroy_swapchain = nullptr;
+PFN_xrDestroySwapchain s_real_destroy_swapchain = nullptr;
 
 // SBS output swapchain: single 3840×1080 swapchain that we composite both eyes into.
 // Left eye occupies [0, width/2) and right eye occupies [width/2, width).
@@ -177,6 +135,28 @@ static int s_runtime_pinned = 0; // Whether we've pinned the runtime via RTLD_NO
 static volatile int s_stop_polling = 0; // Stop forwarding xrPollEvent after EXITING event
 static PFN_xrSetSharedTextureOutputRectEXT s_pfn_set_output_rect = nullptr;
 
+
+// ============================================================================
+// Win32 window binding helper (shared with D3D11Backend / D3D12Backend)
+// ============================================================================
+
+#if defined(_WIN32)
+void win32_inject_window_binding(XrBaseOutStructure *last, DisplayXRState *state)
+{
+	static XrWin32WindowBindingCreateInfoEXT win_binding = {};
+	win_binding.type = XR_TYPE_WIN32_WINDOW_BINDING_CREATE_INFO_EXT;
+	win_binding.next = nullptr;
+	win_binding.windowHandle = state->window_handle;
+	win_binding.readbackCallback = displayxr_readback_callback;
+	win_binding.readbackUserdata = nullptr;
+	win_binding.sharedTextureHandle = state->shared_d3d_handle;
+
+	displayxr_log("[DisplayXR] Injecting win32 window binding: windowHandle=%p, sharedTextureHandle=%p\n",
+	              win_binding.windowHandle, win_binding.sharedTextureHandle);
+
+	last->next = (XrBaseOutStructure *)&win_binding;
+}
+#endif
 
 // ============================================================================
 // Intercepted OpenXR functions
@@ -794,11 +774,6 @@ hooked_xrEndFrame(XrSession session, const XrFrameEndInfo *frameEndInfo)
 	// eyes into it (left eye in left half, right eye in right half).  Release the
 	// typed_sc swapchains (deferred from xrReleaseSwapchainImage so we can still
 	// read them here), then submit s_sbs_sc with half-width rects for each view.
-	struct EFPatch {
-		XrCompositionLayerProjectionView *view;
-		XrSwapchain orig_sc;
-		XrRect2Di orig_rect;
-	};
 	EFPatch ef_patches[8]; int ef_npatch = 0;
 	if (s_sc_sub_count > 0 && frameEndInfo != nullptr && frameEndInfo->layers != nullptr) {
 		for (uint32_t i = 0; i < frameEndInfo->layerCount && ef_npatch < 8; i++) {
@@ -1713,4 +1688,47 @@ displayxr_set_canvas_rect(int32_t x, int32_t y, uint32_t w, uint32_t h)
 {
 	if (s_pfn_set_output_rect && s_session != XR_NULL_HANDLE)
 		s_pfn_set_output_rect(s_session, x, y, w, h);
+}
+
+
+// ============================================================================
+// Graphics backend factory
+// ============================================================================
+
+static GraphicsBackend *create_graphics_backend(const XrSessionCreateInfo *createInfo)
+{
+#if defined(_WIN32)
+  #if defined(ENABLE_VULKAN)
+	return create_vulkan_backend();
+  #elif defined(ENABLE_OPENGL)
+	return create_opengl_backend();
+  #else
+	// Check for D3D12 binding in the createInfo chain
+	const XrBaseInStructure *next = (const XrBaseInStructure *)createInfo->next;
+	while (next) {
+		if (next->type == XR_TYPE_GRAPHICS_BINDING_D3D12_KHR)
+			return create_d3d12_backend();
+		next = next->next;
+	}
+	return create_d3d11_backend();
+  #endif
+#elif defined(__APPLE__)
+  #if defined(ENABLE_OPENGL)
+	return create_opengl_backend();
+  #else
+	return create_metal_backend();
+  #endif
+#elif defined(__ANDROID__)
+  #if defined(ENABLE_OPENGL)
+	return create_opengles_backend();
+  #else
+	return create_vulkan_backend();
+  #endif
+#else  // Linux and other Unix
+  #if defined(ENABLE_OPENGL)
+	return create_opengl_backend();
+  #else
+	return create_vulkan_backend();
+  #endif
+#endif
 }

@@ -25,7 +25,8 @@
       "Bash(ls /c/Users/SukiSamra/Downloads/CubeUnityD3D12/CubeUnityD3D12/*.log)",
       "Bash(cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release -Wno-dev)",
       "Bash(cmake --build \"C:/unity-3d-display/native~/build\" --config Release)",
-      "Bash(echo \"Exit: $?\")"
+      "Bash(echo \"Exit: $?\")",
+      "Bash(internal\")"
     ]
   }
 }

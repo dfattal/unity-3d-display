@@ -7,80 +7,7 @@
 // the session lifecycle — no deferred destruction, no signal handlers, no
 // teardown races with Unity's Game View repaint cycle.
 
-#include "displayxr_standalone.h"
-#include "displayxr_extensions.h"
-#include "displayxr_shared_state.h"
-#include "display3d_view.h"
-#include "camera3d_view.h"
-
-#include <openxr/openxr.h>
-
-#if defined(__APPLE__)
-#include "displayxr_standalone_metal.h"
-#elif defined(_WIN32)
-#include <windows.h>
-#include <d3d12.h>
-#include <d3d11.h>
-#include <dxgi1_4.h>
-
-// D3D12 OpenXR structs (inlined to avoid requiring XR_USE_GRAPHICS_API_D3D12).
-#define XR_TYPE_GRAPHICS_BINDING_D3D12_KHR      ((XrStructureType)1000028000)
-#define XR_TYPE_SWAPCHAIN_IMAGE_D3D12_KHR       ((XrStructureType)1000028001)
-#define XR_TYPE_GRAPHICS_REQUIREMENTS_D3D12_KHR ((XrStructureType)1000028002)
-
-typedef struct XrSwapchainImageD3D12KHR {
-	XrStructureType type;
-	void *next;
-	ID3D12Resource *texture;
-} XrSwapchainImageD3D12KHR;
-
-typedef struct XrGraphicsBindingD3D12KHR {
-	XrStructureType type;
-	const void *next;
-	ID3D12Device *device;
-	ID3D12CommandQueue *queue;
-} XrGraphicsBindingD3D12KHR;
-
-typedef struct XrGraphicsRequirementsD3D12KHR {
-	XrStructureType type;
-	void *next;
-	LUID adapterLuid;
-	D3D_FEATURE_LEVEL minFeatureLevel;
-} XrGraphicsRequirementsD3D12KHR;
-
-// D3D11 OpenXR structs (inlined to avoid requiring XR_USE_GRAPHICS_API_D3D11).
-#define XR_TYPE_GRAPHICS_BINDING_D3D11_KHR      ((XrStructureType)1000027000)
-#define XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR       ((XrStructureType)1000027001)
-#define XR_TYPE_GRAPHICS_REQUIREMENTS_D3D11_KHR ((XrStructureType)1000027002)
-
-typedef struct XrSwapchainImageD3D11KHR {
-	XrStructureType type;
-	void *next;
-	ID3D11Texture2D *texture;
-} XrSwapchainImageD3D11KHR;
-
-typedef struct XrGraphicsBindingD3D11KHR {
-	XrStructureType type;
-	const void *next;
-	ID3D11Device *device;
-} XrGraphicsBindingD3D11KHR;
-
-typedef struct XrGraphicsRequirementsD3D11KHR {
-	XrStructureType type;
-	void *next;
-	LUID adapterLuid;
-	D3D_FEATURE_LEVEL minFeatureLevel;
-} XrGraphicsRequirementsD3D11KHR;
-#endif
-
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-#if !defined(_WIN32)
-#include <dlfcn.h>
-#endif
+#include "displayxr_standalone_internal.h"
 
 // ============================================================================
 // OpenXR loader negotiation types (from openxr_loader_negotiation.h)
@@ -116,59 +43,8 @@ typedef XrResult (*PFN_xrNegotiateLoaderRuntimeInterface)(
 
 
 // ============================================================================
-// XR_KHR_metal_enable types (from openxr_platform.h, defined inline to avoid
-// platform header dependency on the Khronos-fetched headers).
-// ============================================================================
-
-#define XR_TYPE_GRAPHICS_BINDING_METAL_KHR ((XrStructureType)1000029000)
-#define XR_TYPE_SWAPCHAIN_IMAGE_METAL_KHR  ((XrStructureType)1000029001)
-#define XR_TYPE_GRAPHICS_REQUIREMENTS_METAL_KHR ((XrStructureType)1000029002)
-#define XR_KHR_METAL_ENABLE_EXTENSION_NAME "XR_KHR_metal_enable"
-
-typedef struct XrGraphicsBindingMetalKHR {
-	XrStructureType type;
-	const void *next;
-	void *commandQueue;
-} XrGraphicsBindingMetalKHR;
-
-typedef struct XrGraphicsRequirementsMetalKHR {
-	XrStructureType type;
-	void *next;
-	void *metalDevice;
-} XrGraphicsRequirementsMetalKHR;
-
-typedef struct XrSwapchainImageMetalKHR {
-	XrStructureType type;
-	void *next;
-	void *texture; // id<MTLTexture>
-} XrSwapchainImageMetalKHR;
-
-typedef XrResult (XRAPI_PTR *PFN_xrGetMetalGraphicsRequirementsKHR)(
-    XrInstance instance, XrSystemId systemId,
-    XrGraphicsRequirementsMetalKHR *graphicsRequirements);
-
-
-// ============================================================================
 // Standalone session state
 // ============================================================================
-
-#define SA_MAX_SWAPCHAIN_IMAGES 4
-#define SA_MAX_RENDERING_MODES 16
-#define SA_MAX_VIEWS 32
-
-typedef struct SASwapchain {
-	XrSwapchain handle;
-#if defined(__APPLE__)
-	XrSwapchainImageMetalKHR images[SA_MAX_SWAPCHAIN_IMAGES];
-#elif defined(_WIN32)
-	XrSwapchainImageD3D12KHR images[SA_MAX_SWAPCHAIN_IMAGES];
-	XrSwapchainImageD3D11KHR images_d3d11[SA_MAX_SWAPCHAIN_IMAGES];
-#endif
-	uint32_t image_count;
-	uint32_t width;
-	uint32_t height;
-	int64_t format; // selected swapchain format (for typed RTV creation)
-} SASwapchain;
 
 typedef struct StandaloneState {
 	void *runtime_lib;
@@ -3013,4 +2889,45 @@ displayxr_standalone_fullscreen_window_escape_pressed(void)
 	int v = s_fw_escape_pressed;
 	s_fw_escape_pressed = 0;
 	return v;
+}
+
+
+// ============================================================================
+// Standalone graphics backend factory
+// ============================================================================
+
+static StandaloneGraphicsBackend *create_standalone_backend(void)
+{
+#if defined(_WIN32)
+  #if defined(ENABLE_VULKAN)
+	return create_standalone_vulkan_backend();
+  #elif defined(ENABLE_OPENGL)
+	return create_standalone_opengles_backend();
+  #else
+	// Runtime choice: D3D11 or D3D12 based on Unity's active API.
+	// s_use_d3d11 is set by displayxr_standalone_set_unity_device().
+	if (s_use_d3d11)
+		return create_standalone_d3d11_backend();
+	else
+		return create_standalone_d3d12_backend();
+  #endif
+#elif defined(__APPLE__)
+  #if defined(ENABLE_OPENGL)
+	return create_standalone_opengl_backend();
+  #else
+	return create_standalone_metal_backend();
+  #endif
+#elif defined(__ANDROID__)
+  #if defined(ENABLE_OPENGL)
+	return create_standalone_opengles_backend();
+  #else
+	return create_standalone_vulkan_backend();
+  #endif
+#else  // Linux and other Unix
+  #if defined(ENABLE_OPENGL)
+	return create_standalone_opengl_backend();
+  #else
+	return create_standalone_vulkan_backend();
+  #endif
+#endif
 }

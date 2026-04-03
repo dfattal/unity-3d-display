@@ -11,6 +11,22 @@ if(APPLE)
     enable_language(OBJC)
 endif()
 
+# --- Graphics backend options ---
+# On Android and Linux, Vulkan is the default backend; on Windows/macOS, opt-in via ENABLE_VULKAN.
+if(ANDROID OR (UNIX AND NOT APPLE AND NOT ANDROID))
+    option(ENABLE_VULKAN "Use Vulkan graphics backend (default on Android/Linux)" ON)
+else()
+    option(ENABLE_VULKAN "Use Vulkan graphics backend" OFF)
+endif()
+option(ENABLE_OPENGL "Use OpenGL/OpenGL ES graphics backend" OFF)
+
+if(ENABLE_VULKAN)
+    add_compile_definitions(ENABLE_VULKAN)
+endif()
+if(ENABLE_OPENGL)
+    add_compile_definitions(ENABLE_OPENGL)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 11)
@@ -46,6 +62,20 @@ set(SOURCES
     displayxr_standalone.cpp
     display3d_view.c
     camera3d_view.c
+    # Per-backend hook-chain implementations (guarded internally by #if)
+    displayxr_d3d11_backend.cpp
+    displayxr_d3d12_backend.cpp
+    displayxr_metal_backend.cpp
+    displayxr_vulkan_backend.cpp
+    displayxr_opengl_backend.cpp
+    displayxr_opengles_backend.cpp
+    # Per-backend standalone implementations (guarded internally by #if)
+    displayxr_standalone_d3d11.cpp
+    displayxr_standalone_d3d12.cpp
+    displayxr_standalone_metal_backend.cpp
+    displayxr_standalone_vulkan.cpp
+    displayxr_standalone_opengl.cpp
+    displayxr_standalone_opengles.cpp
 )
 
 set(HEADERS
