@@ -11,7 +11,21 @@
       "Bash(echo \"EXIT: $?\")",
       "Bash(powershell -Command \"& 'cmd' '/c' 'build-win.bat'\")",
       "Bash(powershell -Command \"cmd /c build-win.bat 2>&1\")",
-      "Bash(powershell:*)"
+      "Bash(powershell:*)",
+      "Bash(cmd.exe /c \"build-win.bat\")",
+      "Bash(./build-win.bat)",
+      "Bash(echo \"exit: $?\")",
+      "Read(//c/openxr-3d-display/**)",
+      "Bash(git checkout:*)",
+      "Read(//c/Users/**)",
+      "Read(//c/Users/SukiSamra/**)",
+      "Bash(ls /c/Users/SukiSamra/Desktop/*.log)",
+      "Bash(ls /c/Users/SukiSamra/Desktop/DisplayXR*/)",
+      "Bash(ls /c/Users/SukiSamra/Downloads/CubeUnityD3D11/CubeUnityD3D11/*.log)",
+      "Bash(ls /c/Users/SukiSamra/Downloads/CubeUnityD3D12/CubeUnityD3D12/*.log)",
+      "Bash(cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release -Wno-dev)",
+      "Bash(cmake --build \"C:/unity-3d-display/native~/build\" --config Release)",
+      "Bash(echo \"Exit: $?\")"
     ]
   }
 }
