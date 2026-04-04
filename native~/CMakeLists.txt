@@ -174,6 +174,28 @@ elseif(APPLE)
     )
 endif()
 
+# --- Vulkan ---
+if(ENABLE_VULKAN)
+    find_package(Vulkan)
+    if(Vulkan_FOUND)
+        target_include_directories(displayxr_unity PRIVATE ${Vulkan_INCLUDE_DIRS})
+        target_link_libraries(displayxr_unity PRIVATE ${Vulkan_LIBRARIES})
+        message(STATUS "displayxr_unity: Vulkan SDK found: ${Vulkan_INCLUDE_DIRS}")
+    else()
+        message(WARNING "displayxr_unity: ENABLE_VULKAN=ON but Vulkan SDK not found — Vulkan backends will use runtime linking")
+    endif()
+endif()
+
+# --- OpenGL ---
+if(ENABLE_OPENGL)
+    find_package(OpenGL REQUIRED)
+    target_link_libraries(displayxr_unity PRIVATE OpenGL::GL)
+    if(ANDROID)
+        target_link_libraries(displayxr_unity PRIVATE EGL GLESv3)
+    endif()
+    message(STATUS "displayxr_unity: OpenGL found")
+endif()
+
 # --- Summary ---
 message(STATUS "displayxr_unity: OpenXR headers from ${OPENXR_INCLUDE_DIR}")
 message(STATUS "displayxr_unity: Output to ${PLUGIN_OUTPUT_DIR}")
