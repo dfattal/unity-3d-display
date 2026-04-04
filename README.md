@@ -47,7 +47,7 @@ The plugin works by hooking `xrLocateViews` before Unity sees the results, repla
 | **Unity** | 2022.3 LTS or later (including Unity 6) |
 | **OpenXR Plugin** | `com.unity.xr.openxr` 1.9.1+ (installed via Package Manager) |
 | **XR Plugin Management** | `com.unity.xr.management` 4.4.0+ (auto-installed with OpenXR) |
-| **DisplayXR Runtime** | Pre-built from [openxr-3d-display](https://github.com/dfattal/openxr-3d-display) CI — see [Deploying to End Users](#deploying-to-end-users) |
+| **DisplayXR Runtime** | Pre-built from [displayxr-runtime](https://github.com/DisplayXR/displayxr-runtime) CI — see [Deploying to End Users](#deploying-to-end-users) |
 
 ### Platform Support
 
@@ -328,7 +328,7 @@ Your built app is a standard OpenXR application. It needs an OpenXR runtime on t
 
 ### Windows Deployment
 
-Install the DisplayXR runtime via the `SRDisplayXRInstaller.exe` from the [openxr-3d-display](https://github.com/dfattal/openxr-3d-display) CI build artifact (registers the runtime JSON and copies DLLs system-wide).
+Install the DisplayXR runtime via the `SRDisplayXRInstaller.exe` from the [displayxr-runtime](https://github.com/DisplayXR/displayxr-runtime) CI build artifact (registers the runtime JSON and copies DLLs system-wide).
 
 Or, for development/testing, set the environment variable:
 ```cmd
