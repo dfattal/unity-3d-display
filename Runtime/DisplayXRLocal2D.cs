@@ -259,8 +259,14 @@ namespace DisplayXR
 
             // RT with explicit depth-stencil (URP RenderGraph requirement),
             // BGRA8 to match the overlay swapchain picker default on Windows.
+            // The _SRGB variant shares that bit layout, so the raw copy into the bridge and
+            // the native swapchain stays valid while Unity encodes linear->sRGB on store.
+            // Without it a Linear project's canvas is stored unencoded and reads too dark.
             var rtDesc = new RenderTextureDescriptor(resolution.x, resolution.y,
-                GraphicsFormat.B8G8R8A8_UNorm, GraphicsFormat.D24_UNorm_S8_UInt)
+                QualitySettings.activeColorSpace == ColorSpace.Linear
+                    ? GraphicsFormat.B8G8R8A8_SRGB
+                    : GraphicsFormat.B8G8R8A8_UNorm,
+                GraphicsFormat.D24_UNorm_S8_UInt)
             {
                 msaaSamples = 1,
                 useMipMap = false,
