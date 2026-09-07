@@ -5,7 +5,7 @@ All notable changes to the DisplayXR Unity plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.19.1] - 2026-09-07
 
 ### Fixed
 - **Window-Space UI and Local2D rendered the canvas too dark in Linear projects (#320).** Both components create their offscreen canvas RenderTexture, and both hardcoded it to `B8G8R8A8_UNorm` regardless of color space — so Unity performed no encode on store and a Linear project's linear UI values were presented as if already sRGB. The overlay counterpart of the present-path swapchain fix (#229): the same missing linear→sRGB encode, one path over. The format is now `B8G8R8A8_SRGB` for Linear projects and unchanged (`_UNorm`) for Gamma, so the blast radius is Linear-only. The `_SRGB` variant shares the UNORM bit layout, so the raw `CopyTexture` into the bridge and the native swapchain — the reason BGRA8 was pinned in the first place — stays valid. Scene view was always correct because it does not go through the overlay RT, which is what localised the bug; measured on a Leia SR panel, the UI mid-tones move from luminance bucket 64–127 to 128–191 while white and background stay put. Contributed by Byungju Lee.
