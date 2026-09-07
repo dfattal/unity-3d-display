@@ -250,8 +250,12 @@ fresh shell, and an unset value silently downgrades the release to unsigned — 
 it from the runtime repo's untracked `.env.local` before the check:
 ```bash
 # Do NOT `source` the whole file (it holds other secrets); take only this one var.
-[ -z "$DXR_SIGN_REPO" ] && export DXR_SIGN_REPO=$(
-  grep -m1 '^DXR_SIGN_REPO=' ~/Documents/GitHub/displayxr-runtime/.env.local 2>/dev/null | cut -d= -f2- )
+# The line in .env.local is written `export DXR_SIGN_REPO=...` (it is meant to be
+# sourced), so the grep MUST tolerate the `export ` prefix. A bare '^DXR_SIGN_REPO='
+# matches nothing, the substitution yields "", and the release silently ships
+# UNSIGNED on any box that has not already exported the var (caught on win, v2.19.1).
+[ -z "$DXR_SIGN_REPO" ] && export DXR_SIGN_REPO=$(grep -m1 -E '^(export[[:space:]]+)?DXR_SIGN_REPO=' ~/Documents/GitHub/displayxr-runtime/.env.local 2>/dev/null | cut -d= -f2- | tr -d '"'"'"')
+[ -z "$DXR_SIGN_REPO" ] && echo "WARN: DXR_SIGN_REPO still unset after sourcing .env.local — release will be UNSIGNED"
 ```
 
 ```bash
