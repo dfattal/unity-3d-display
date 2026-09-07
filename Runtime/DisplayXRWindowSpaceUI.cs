@@ -506,10 +506,17 @@ namespace DisplayXR
 
         // Explicit depth-stencil format is a URP RenderGraph requirement; B8G8R8A8 matches
         // the runtime's overlay swapchain format (CopyTextureRegion is invalid across formats).
+        // The _SRGB variant shares that bit layout, so the raw copy into the bridge and the
+        // native swapchain stays valid while Unity encodes linear->sRGB on store. Without it a
+        // Linear project's UI is stored unencoded and the panel reads far too dark — the overlay
+        // counterpart of the present-path sRGB swapchain (#229): same bug, different path.
         private void CreateOverlayTexture(Vector2Int size)
         {
             var rtDesc = new RenderTextureDescriptor(size.x, size.y,
-                GraphicsFormat.B8G8R8A8_UNorm, GraphicsFormat.D24_UNorm_S8_UInt)
+                QualitySettings.activeColorSpace == ColorSpace.Linear
+                    ? GraphicsFormat.B8G8R8A8_SRGB
+                    : GraphicsFormat.B8G8R8A8_UNorm,
+                GraphicsFormat.D24_UNorm_S8_UInt)
             {
                 msaaSamples = 1,
                 useMipMap = false,
